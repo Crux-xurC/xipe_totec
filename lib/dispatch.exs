@@ -149,6 +149,30 @@ defmodule XipeTotec.Dispatch do
       {:error, book,
        invalid_params("graph/export needs address, format (mermaid|dot|json|doctest) under \"address\"/\"format\"")}
 
+  # Reclassified Tier 1 (was mistakenly left in @not_implemented, 2026-09-17
+  # -- see README's Tier table history): spec §6.3 says cell/resolve returns
+  # a reference's current value/repr/state, which is exactly what's already
+  # sitting on the referenced :calls row (Core.add_call/apply_result already
+  # maintain result/repr/state) -- a pure Book lookup, no Evaluator involved.
+  # `ref` must be a full "⟦id⟧" token (Core.refs_in_args/1's own extraction
+  # regex), not a bare id -- consistent with how refs appear everywhere else
+  # (arg strings, doctest export), so a client never needs a second format.
+  def handle(book, "cell/resolve", %{"ref" => ref}, _ctx) when is_binary(ref) do
+    case Core.refs_in_args([ref]) do
+      [id] ->
+        case Book.get(book, :calls, id) do
+          nil -> {:error, book, not_found("call", id)}
+          row -> {:ok, book, %{"value" => row.result, "repr" => row.repr, "state" => row.state}}
+        end
+
+      _ ->
+        {:error, book, invalid_params("cell/resolve needs \"ref\" to be a single \"⟦id⟧\" token")}
+    end
+  end
+
+  def handle(book, "cell/resolve", _params, _ctx),
+    do: {:error, book, invalid_params("cell/resolve needs \"ref\" (string, e.g. \"⟦01ABC...⟧\")")}
+
   def handle(book, method, _params, _ctx) when method in @not_implemented,
     do: {:error, book, %{"code" => "not_implemented", "message" => "#{method}: not implemented yet (prebuild.md §9 tier map)"}}
 

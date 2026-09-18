@@ -143,18 +143,80 @@ defmodule CoreTest do
 
     test "a plan-external exact-repr reference is embedded as literal text", %{book: book} do
       plan = Core.plan_recalc(book, "pass1", call_ids: ["c2"])
-      assert [%{call_id: "c2", args: ["1 + 1"], inputs: []}] = plan.entries
+
+      assert [%{call_id: "c2", module: "M", name: "g", arity: 1, args: ["1 + 1"], inputs: []}] =
+               plan.entries
     end
 
-    test "a plan-internal reference becomes a placeholder with a :plan input, in dependency order", %{book: book} do
+    test "a plan-internal reference becomes a placeholder with an :in_plan input, in dependency order", %{book: book} do
       plan = Core.plan_recalc(book, "pass1", call_ids: ["c1", "c2"])
       assert [e1, e2] = plan.entries
       assert e1.call_id == "c1"
       assert e2.call_id == "c2"
       assert [arg] = e2.args
       assert arg != "⟦c1⟧ + 1"
-      assert [%{ref: "c1", from: :plan, var: var}] = e2.inputs
-      assert arg == "#{var} + 1"
+      assert [{:in_plan, %{ref: "c1", var: var, placeholder: placeholder}}] = e2.inputs
+      assert placeholder == Atom.to_string(var)
+      assert arg == "#{placeholder} + 1"
+    end
+
+    test "a plan-external unsupported+pure reference is re-embedded as an inline_call, recursively resolving its own args",
+         %{book: book} do
+      book =
+        book
+        |> Core.add_call("c3", %{node: "n1", args: ["99"], result: "#PID<0.1.0>", repr: "unsupported"})
+        |> Core.add_call("c4", %{node: "n2", args: ["⟦c3⟧"]})
+
+      plan = Core.plan_recalc(book, "pass1", call_ids: ["c4"])
+      assert [%{call_id: "c4", args: [arg], inputs: inputs}] = plan.entries
+
+      assert [{:inline_call, %{module: "M", name: "f", args: ["99"], placeholder: placeholder}}] = inputs
+      assert arg == placeholder
+    end
+
+    test "a plan-external unsupported+non-pure reference falls back to a session binding", %{book: book} do
+      book =
+        book
+        |> Core.put_node("n3", %{module: "M", name: "h", arity: 0, effect: "writes", effect_source: "user"})
+        |> Core.add_call("c5", %{node: "n3", args: [], result: "#PID<0.2.0>", repr: "unsupported", session: 3})
+        |> Core.add_call("c6", %{node: "n2", args: ["⟦c5⟧"]})
+
+      plan = Core.plan_recalc(book, "pass1", call_ids: ["c6"])
+      assert [%{call_id: "c6", args: [arg], inputs: inputs}] = plan.entries
+
+      assert [{:binding, %{var: var, gen: 3, placeholder: placeholder}}] = inputs
+      assert placeholder == Atom.to_string(var)
+      assert arg == placeholder
+    end
+
+    test "an inline_call cycle (a reaches back into itself through unsupported+pure refs) terminates via an occurs-check, falling back to a binding for the repeat",
+         %{book: book} do
+      book =
+        book
+        |> Core.add_call("c8", %{node: "n1", args: ["⟦c9⟧"], result: "#PID<0.3.0>", repr: "unsupported"})
+        |> Core.add_call("c9", %{node: "n2", args: ["⟦c8⟧"], result: "#PID<0.4.0>", repr: "unsupported"})
+        |> Core.add_call("c10", %{node: "n2", args: ["⟦c8⟧"]})
+
+      # c8 <-> c9 form a static ⟦id⟧ cycle, so they're excluded from
+      # scheduling -- but c10 (not itself cyclic) still reaches into them
+      # via inline_call, which must not loop forever expanding c8 -> c9 -> c8.
+      plan = Core.plan_recalc(book, "pass1", call_ids: ["c10"])
+      assert [%{call_id: "c10", inputs: inputs}] = plan.entries
+
+      assert [{:inline_call, c8_call}, {:inline_call, c9_call}, {:binding, _}] = inputs
+      assert c8_call.module == "M" and c8_call.name == "f"
+      assert c9_call.module == "M" and c9_call.name == "g"
+    end
+
+    test "an unknown/dangling reference falls back to a session binding with no gen", %{book: book} do
+      book = Core.add_call(book, "c7", %{node: "n2", args: ["⟦missing⟧"]})
+
+      plan = Core.plan_recalc(book, "pass1", call_ids: ["c7"])
+      assert [%{call_id: "c7", args: [arg], inputs: inputs}] = plan.entries
+
+      assert [{:binding, %{var: var, gen: nil, placeholder: placeholder}}] = inputs
+      assert placeholder == Atom.to_string(var)
+      assert arg == placeholder
     end
 
     test "a call in a cycle is excluded from the plan and reported separately" do

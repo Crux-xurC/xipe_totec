@@ -328,47 +328,86 @@ defmodule XipeTotec.Core do
     %{
       call_id: id,
       node_id: call.node,
+      module: node.module,
+      name: node.name,
+      arity: node.arity,
       args: args,
       inputs: Enum.uniq(inputs),
       bind_as: if(node.effect != "pure", do: binding_name(id)),
       basis: basis,
-      limits: %{timeout: 5_000, max_heap: 50_000_000}
+      limits: %{timeout: 5_000, max_heap_words: 50_000_000}
     }
   end
 
   defp binding_name(call_id), do: String.to_atom("xt_" <> String.replace(call_id, ~r/[^A-Za-z0-9_]/, "_"))
 
-  # Substitutes every ⟦ref⟧ token in `text` per spec §6.3's table. A
-  # plan-internal ref (evaluated later in this same pass) can only ever be a
-  # placeholder+binding -- its value does not exist yet when the plan is
-  # built (this was the bug fix that motivated the 3-stage split).
-  #
-  # KNOWN SIMPLIFICATION: the "unsupported + pure" plan-external case is
-  # spec'd (§6.3) to re-embed the upstream's own call expression rather
-  # than bind a session variable, for full text reproducibility. Building
-  # that expression needs the target language's call syntax, which is the
-  # REPL adapter's job (§12.2), not Core's -- deferred; for now this case
-  # falls back to the same session-binding treatment as "unsupported +
-  # non-pure" below, which is less reproducible but not incorrect.
-  defp resolve_refs(book, text, in_plan_set) do
+  # Substitutes every ⟦ref⟧ token in `text` per spec §6.3's table, per the
+  # 課題.mkd B answer's division of labor: Core only ever does data-level
+  # substitution (embed a stored canonical value) or leaves a placeholder
+  # token + a typed `inputs` entry describing what belongs there -- it
+  # never builds a call expression itself (that's target-language syntax,
+  # the REPL adapter's job, §12.2).
+  defp resolve_refs(book, text, in_plan_set, visiting \\ MapSet.new()) do
     refs_in_args([text])
     |> Enum.reduce({text, []}, fn ref, {text, inputs} ->
       token = "⟦#{ref}⟧"
-      var = binding_name(ref)
-      ref_call = Book.get(book, :calls, ref)
-
-      cond do
-        MapSet.member?(in_plan_set, ref) ->
-          {String.replace(text, token, Atom.to_string(var)), [%{ref: ref, var: var, from: :plan} | inputs]}
-
-        ref_call && ref_call.repr in ["exact", "binary"] ->
-          {String.replace(text, token, ref_call.result), inputs}
-
-        true ->
-          gen = ref_call && ref_call[:session]
-          {String.replace(text, token, Atom.to_string(var)), [%{ref: ref, var: var, from: {:session, gen}} | inputs]}
-      end
+      {replacement, more_inputs} = resolve_ref(book, ref, in_plan_set, visiting)
+      {String.replace(text, token, replacement), more_inputs ++ inputs}
     end)
+  end
+
+  # A plan-internal ref (evaluated later in this same pass) can only ever be
+  # a placeholder+binding -- its value does not exist yet when the plan is
+  # built (this was the bug fix that motivated the 3-stage split).
+  #
+  # A plan-external ref with a stored exact/binary repr is embedded as its
+  # own literal canonical text -- pure string substitution.
+  #
+  # A plan-external "unsupported + pure" ref can't be embedded as a value
+  # (there isn't one worth reproducing) and doesn't need a live session
+  # binding either, since re-running a pure call is safe -- instead its
+  # own call expression is re-embedded (§6.3), recursively resolving that
+  # call's own args the same way. Core only hands back the pieces
+  # (module/name/args) as an `inline_call` input; building the actual
+  # call-syntax text from them is the REPL adapter's job.
+  #
+  # Everything else (unsupported + non-pure, a dangling/unknown ref, or a
+  # ref already being expanded on this same recursion path -- `visiting`
+  # is an occurs-check: static ⟦id⟧-cycle detection upstream only guards
+  # scheduling, not this Book-driven inline_call walk, so without it a
+  # cyclic pair of unsupported+pure calls would recurse forever here)
+  # falls back to a session-variable binding.
+  defp resolve_ref(book, ref, in_plan_set, visiting) do
+    var = binding_name(ref)
+    placeholder = Atom.to_string(var)
+    ref_call = Book.get(book, :calls, ref)
+    ref_node = ref_call && Book.get(book, :nodes, ref_call.node)
+
+    cond do
+      MapSet.member?(in_plan_set, ref) ->
+        {placeholder, [{:in_plan, %{placeholder: placeholder, ref: ref, var: var}}]}
+
+      ref_call && ref_call.repr in ["exact", "binary"] ->
+        {ref_call.result, []}
+
+      ref_call && ref_call.repr == "unsupported" && ref_node && ref_node.effect == "pure" &&
+          not MapSet.member?(visiting, ref) ->
+        {inline_args, inline_inputs} =
+          Enum.map_reduce(ref_call.args, [], fn arg, acc ->
+            {new_arg, more} = resolve_refs(book, arg, in_plan_set, MapSet.put(visiting, ref))
+            {new_arg, acc ++ more}
+          end)
+
+        entry =
+          {:inline_call,
+           %{placeholder: placeholder, module: ref_node.module, name: ref_node.name, args: inline_args}}
+
+        {placeholder, [entry | inline_inputs]}
+
+      true ->
+        gen = ref_call && ref_call[:session]
+        {placeholder, [{:binding, %{placeholder: placeholder, var: var, gen: gen}}]}
+    end
   end
 
   # ---------------------------------------------------------------------

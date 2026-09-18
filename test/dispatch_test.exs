@@ -185,6 +185,37 @@ defmodule DispatchTest do
     end
   end
 
+  describe "cell/resolve" do
+    setup do
+      book =
+        Book.new()
+        |> Core.put_node("n1", %{module: "M", name: "f", arity: 1})
+        |> Core.add_call("c1", %{node: "n1", args: ["1"]})
+        |> Book.put(:calls, "c1", %{node: "n1", args: ["1"], result: "2", repr: "integer", state: "ok"})
+
+      {:ok, book: book}
+    end
+
+    test "resolves a ⟦id⟧ token to the referenced call's value/repr/state", %{book: book} do
+      assert {:ok, ^book, %{"value" => "2", "repr" => "integer", "state" => "ok"}} =
+               Dispatch.handle(book, "cell/resolve", %{"ref" => "⟦c1⟧"}, %{})
+    end
+
+    test "an unknown id inside an otherwise well-formed token is a clean not_found", %{book: book} do
+      assert {:error, ^book, %{"code" => "not_found"}} =
+               Dispatch.handle(book, "cell/resolve", %{"ref" => "⟦missing⟧"}, %{})
+    end
+
+    test "a bare id (not wrapped in ⟦⟧) is invalid_params, not silently accepted", %{book: book} do
+      assert {:error, ^book, %{"code" => "invalid_params"}} =
+               Dispatch.handle(book, "cell/resolve", %{"ref" => "c1"}, %{})
+    end
+
+    test "a missing ref param is invalid_params", %{book: book} do
+      assert {:error, ^book, %{"code" => "invalid_params"}} = Dispatch.handle(book, "cell/resolve", %{}, %{})
+    end
+  end
+
   describe "not-yet-implemented and unknown methods" do
     test "a Tier 2-5 method is a distinct not_implemented error" do
       book = Book.new()

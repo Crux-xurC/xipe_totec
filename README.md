@@ -119,7 +119,7 @@ Elixir 実装。アプリ名 `:xipe_totec`、モジュール名 `XipeTotec`、CL
 
 | Tier | method | 状態 |
 |---|---|---|
-| 1 | `scan/run`・`row/add`・`row/remove`・`effect/set`・`card/get`・`card/search`・`graph/neighbors`・`graph/export` | 実装済み |
+| 1 | `scan/run`・`row/add`・`row/remove`・`effect/set`・`card/get`・`card/search`・`graph/neighbors`・`graph/export`・`cell/resolve` | 実装済み |
 | 2 | `row/update` | 編集自体（`Core.edit_args`/`set_prev`）は実装済みだが、仕様が約束する再計算結果を返せないため method 全体は未実装 |
 | 3 | `eval/run`・`cell/complete`（値ベース部分） | **Evaluator 待ち** |
 | 4 | `edit/propose`・`edit/apply`・`provider/recheck` | REPL アダプタの書き換え規則・受け入れ検査待ち |
