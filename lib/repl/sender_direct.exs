@@ -1,4 +1,4 @@
-Code.require_file("repl_sender.exs", __DIR__)
+Code.require_file("sender.exs", __DIR__)
 
 defmodule XipeTotec.Repl.Sender.Direct do
   @moduledoc """
@@ -63,7 +63,7 @@ defmodule XipeTotec.Repl.Sender.Direct do
   # ---------------------------------------------------------------------
   # GenServer: privately owns the real Port, translates its two native
   # message shapes into Repl.Sender's single `{handle, {:data, ...}}`
-  # contract (repl_sender.exs has the full rationale).
+  # contract (sender.exs has the full rationale).
   # ---------------------------------------------------------------------
 
   @impl GenServer

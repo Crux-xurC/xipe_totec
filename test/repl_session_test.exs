@@ -1,7 +1,7 @@
 ExUnit.start()
 
-Code.require_file(Path.expand("../lib/repl_sender_direct.exs", __DIR__))
-Code.require_file(Path.expand("../lib/repl_session.exs", __DIR__))
+Code.require_file(Path.expand("../lib/repl/sender_direct.exs", __DIR__))
+Code.require_file(Path.expand("../lib/repl/session.exs", __DIR__))
 
 defmodule ReplSessionTest do
   use ExUnit.Case, async: true

@@ -1,6 +1,6 @@
 ExUnit.start()
 
-Code.require_file(Path.expand("../lib/repl_launch.exs", __DIR__))
+Code.require_file(Path.expand("../lib/repl/launch.exs", __DIR__))
 
 defmodule ReplLaunchTest do
   use ExUnit.Case, async: true
@@ -17,9 +17,12 @@ defmodule ReplLaunchTest do
     assert message["env"] == %{}
     assert message["ready_pattern"] == "Interactive Elixir"
     assert message["exit_input"] == "System.halt()\n"
+    assert message["heartbeat_input"] =~ "Process.sleep(5000)"
+    assert message["heartbeat_input"] =~ "XT_HEARTBEAT"
+    assert {:ok, _quoted} = Code.string_to_quoted(message["heartbeat_input"])
   end
 
-  test "argv, env, files, ready_pattern, and exit_input are all overridable" do
+  test "argv, env, files, ready_pattern, exit_input, and heartbeat_interval_ms are all overridable" do
     message =
       Launch.build(
         cwd: "/tmp/proj",
@@ -27,7 +30,8 @@ defmodule ReplLaunchTest do
         env: %{"FOO" => "bar"},
         files: ["a.exs"],
         ready_pattern: "ready>",
-        exit_input: ":quit\n"
+        exit_input: ":quit\n",
+        heartbeat_interval_ms: 1_000
       )
 
     assert message["argv"] == ["iex"]
@@ -35,6 +39,7 @@ defmodule ReplLaunchTest do
     assert message["files"] == ["a.exs"]
     assert message["ready_pattern"] == "ready>"
     assert message["exit_input"] == ":quit\n"
+    assert message["heartbeat_input"] =~ "Process.sleep(1000)"
   end
 
   test "the message is JSON round-trippable" do

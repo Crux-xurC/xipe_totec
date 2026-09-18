@@ -3,7 +3,7 @@ ExUnit.start()
 Code.require_file(Path.expand("../lib/id.exs", __DIR__))
 Code.require_file(Path.expand("../lib/book.exs", __DIR__))
 Code.require_file(Path.expand("../lib/core.exs", __DIR__))
-Code.require_file(Path.expand("../lib/repl_eval_template.exs", __DIR__))
+Code.require_file(Path.expand("../lib/repl/eval_template.exs", __DIR__))
 
 defmodule ReplEvalTemplateTest do
   use ExUnit.Case, async: true
@@ -88,5 +88,36 @@ defmodule ReplEvalTemplateTest do
     [{:binding, %{var: var}}] = for {:binding, _} = i <- entry.inputs, do: i
 
     assert EvalTemplate.call_expression(entry) == "M.g(M.f(M.g(#{var})))"
+  end
+
+  describe "build/1" do
+    test "produces syntactically valid Elixir for a plain call, and binds xt_<call_id> at the top level" do
+      book = Book.new() |> Core.put_node("n1", pure_node("f")) |> Core.add_call("c1", %{node: "n1", args: ["1", "2"]})
+      entry = entry_for(book, "c1", ["c1"])
+
+      code = EvalTemplate.build(entry)
+      assert {:ok, _quoted} = Code.string_to_quoted(code)
+      assert code =~ "M.f(1, 2)"
+      assert code =~ "xt_c1 ="
+      assert code =~ "XT_BEGIN_c1"
+      assert code =~ "XT_END_c1"
+      assert code =~ "XT_ERROR_c1"
+      assert code =~ "max_heap_size, 50000000"
+      assert code =~ "type="
+      # width: :infinity on every inspect/2+ call that produces display= --
+      # otherwise Elixir's default 80-col pretty-printing can wrap a large
+      # value across multiple lines and break the line-based marker parser
+      assert Regex.scan(~r/inspect\([^)]*width: :infinity/, code) |> length() == 3
+    end
+
+    test "a call_id with characters unsafe in a bare variable name is sanitized for the internal helper names" do
+      book = Book.new() |> Core.put_node("n1", pure_node("f")) |> Core.add_call("c-1.x", %{node: "n1", args: ["1"]})
+      entry = entry_for(book, "c-1.x", ["c-1.x"])
+
+      code = EvalTemplate.build(entry)
+      assert {:ok, _quoted} = Code.string_to_quoted(code)
+      # the marker text itself keeps the raw call_id (just a string, no identifier constraint)
+      assert code =~ "XT_BEGIN_c-1.x"
+    end
   end
 end

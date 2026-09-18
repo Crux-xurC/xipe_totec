@@ -1,6 +1,6 @@
 ExUnit.start()
 
-Code.require_file(Path.expand("../lib/repl_sender_direct.exs", __DIR__))
+Code.require_file(Path.expand("../lib/repl/sender_direct.exs", __DIR__))
 
 defmodule ReplSenderDirectTest do
   use ExUnit.Case, async: true

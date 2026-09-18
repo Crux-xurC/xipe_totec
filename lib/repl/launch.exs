@@ -17,10 +17,12 @@ defmodule XipeTotec.Repl.Launch do
 
   All language-specific knowledge lives *here* (prebuild.md §10.2) --
   `argv`/`env`/`cwd`/`files` plus, since 2026-09-18, `ready_pattern`
-  (how to recognize the REPL finished booting) and `exit_input` (what to
-  type in for a graceful shutdown). Everything downstream of this module
-  (`Repl.Sender`, `Repl.Session`) is generic: it reads these values out of
-  the message and never branches on language or project_kind itself.
+  (how to recognize the REPL finished booting), `exit_input` (what to
+  type in for a graceful shutdown), and `heartbeat_input` (a self-
+  contained snippet that starts a background liveness ticker). Everything
+  downstream of this module (`Repl.Sender`, `Repl.Session`) is generic: it
+  reads these values out of the message and never branches on language or
+  project_kind itself.
 
   Distributed-Erlang connection (node names/cookie/loopback restriction)
   was dropped here 2026-09-18 -- see prebuild.md §10's pivot note.
@@ -32,6 +34,7 @@ defmodule XipeTotec.Repl.Launch do
   @default_argv ["iex", "-S", "mix"]
   @default_ready_pattern "Interactive Elixir"
   @default_exit_input "System.halt()\n"
+  @default_heartbeat_interval_ms 5_000
 
   @doc """
   `opts`:
@@ -58,6 +61,16 @@ defmodule XipeTotec.Repl.Launch do
       shutdown (default: `#{inspect(@default_exit_input)}`). Only works
       while the session is actually reading stdin -- a hung session needs
       `Sender.kill/1` instead, not this (prebuild.md §10.2's caveat).
+    * `:heartbeat_interval_ms` -- how often the background ticker prints
+      `"XT_HEARTBEAT"` (default: `#{@default_heartbeat_interval_ms}`).
+      `message["heartbeat_input"]` is meant to be written to the session
+      *once*, right after boot (before any eval request) -- it spawns its
+      own long-lived loop, it isn't itself a per-eval snippet. Confirmed
+      locally that a tight synchronous busy-loop in one process doesn't
+      starve a `spawn`ed heartbeat loop in another, thanks to BEAM's
+      preemptive scheduling -- this is the whole reason a heartbeat can
+      tell "still alive, just slow" apart from "actually hung"
+      (prebuild.md §10's liveness design).
   """
   @spec build(keyword()) :: %{String.t() => term()}
   def build(opts) do
@@ -67,6 +80,7 @@ defmodule XipeTotec.Repl.Launch do
     files = Keyword.get(opts, :files, [])
     ready_pattern = Keyword.get(opts, :ready_pattern, @default_ready_pattern)
     exit_input = Keyword.get(opts, :exit_input, @default_exit_input)
+    heartbeat_interval_ms = Keyword.get(opts, :heartbeat_interval_ms, @default_heartbeat_interval_ms)
 
     %{
       "kind" => "repl/launch",
@@ -75,7 +89,23 @@ defmodule XipeTotec.Repl.Launch do
       "cwd" => cwd,
       "files" => files,
       "ready_pattern" => ready_pattern,
-      "exit_input" => exit_input
+      "exit_input" => exit_input,
+      "heartbeat_input" => heartbeat_input(heartbeat_interval_ms)
     }
+  end
+
+  defp heartbeat_input(interval_ms) do
+    """
+    xt_heartbeat_pid =
+      spawn(fn ->
+        xt_beat = fn xt_beat ->
+          Process.sleep(#{interval_ms})
+          IO.puts("XT_HEARTBEAT")
+          xt_beat.(xt_beat)
+        end
+
+        xt_beat.(xt_beat)
+      end)
+    """
   end
 end
