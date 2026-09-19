@@ -123,6 +123,31 @@ defmodule ReplSenderDirectTest do
     assert String.trim(status) in ["137", "9"]
   end
 
+  test "write/2 and kill/1 against an already-dead handle report cleanly instead of crashing with :noproc" do
+    {:ok, handle} =
+      Direct.send(%{
+        "kind" => "repl/launch",
+        "argv" => ["sh", "-c", "exit 0"],
+        "env" => %{},
+        "cwd" => System.tmp_dir!()
+      })
+
+    # let the GenServer actually run its course (forward XT_EXIT, then
+    # {:stop, :normal, state}) rather than racing it -- this reproduces the
+    # real-world timing (a boot failure, or the tail end of a graceful
+    # close) that originally crashed a caller with a raw GenServer.call
+    # {:noproc} exit, not a deliberately-still-racing handle. Monitor +
+    # assert_receive :DOWN (not just the XT_EXIT data message, which is
+    # sent slightly before the GenServer's own {:stop,...}) for a
+    # deterministic "now it's actually gone".
+    ref = Process.monitor(handle)
+    assert_receive {^handle, {:data, "XT_EXIT 0\n"}}, 2_000
+    assert_receive {:DOWN, ^ref, :process, ^handle, :normal}, 2_000
+
+    assert {:error, :noproc} = Direct.write(handle, "too late\n")
+    assert :ok = Direct.kill(handle)
+  end
+
   test "a message of an unrecognized shape is a clean error" do
     assert {:error, {:unsupported_message, %{"kind" => "repl/eval"}}} =
              Direct.send(%{"kind" => "repl/eval"})

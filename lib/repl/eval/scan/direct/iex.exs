@@ -35,16 +35,21 @@ defmodule XipeTotec.Repl.Eval.Scan.Direct.Iex do
   """
   @spec clean(String.t()) :: t()
   def clean(buffer) do
-    {buffer, heartbeats} = strip_all(buffer, "XT_HEARTBEAT\n", 0)
+    {buffer, heartbeats} = strip_all(buffer, "XT_HEARTBEAT\n")
     {buffer, exit_status} = strip_exit(buffer)
     %{buffer: buffer, heartbeats: heartbeats, exit_status: exit_status}
   end
 
-  defp strip_all(buffer, marker, count) do
-    if String.contains?(buffer, marker) do
-      strip_all(String.replace(buffer, marker, "", global: false), marker, count + 1)
-    else
-      {buffer, count}
+  # One `String.split/2` pass over the whole buffer, not one
+  # `String.replace/3` pass *per occurrence* -- with the default 5s
+  # heartbeat interval this ran O(occurrences * buffer size) before (fixed
+  # 2026-09-18, wiring review): a long-running session's buffer could
+  # accumulate many heartbeats between scans, and every single one used to
+  # re-scan the entire buffer from scratch.
+  defp strip_all(buffer, marker) do
+    case String.split(buffer, marker) do
+      [only] -> {only, 0}
+      parts -> {Enum.join(parts, ""), length(parts) - 1}
     end
   end
 

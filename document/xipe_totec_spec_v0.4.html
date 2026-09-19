@@ -1,0 +1,2241 @@
+<!doctype html><html><head><title>Xipe Totec 仕様書 v0.4（たたき台）</title><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}</style><style>:root{color-scheme:light dark;--md-bg:#fff;--md-text:rgba(0,0,0,.8);--md-muted:rgba(0,0,0,.6);--md-fill:rgba(0,0,0,.04);--md-fill-strong:rgba(0,0,0,.06);--md-rule:rgba(0,0,0,.1);--md-rule-strong:rgba(0,0,0,.16);--md-link:hsl(210 100% 45%)}@media (prefers-color-scheme:dark){:root:where(:not([data-theme="light"])){--md-bg:#0d0d0d;--md-text:rgba(255,255,255,.85);--md-muted:rgba(255,255,255,.6);--md-fill:rgba(255,255,255,.06);--md-fill-strong:rgba(255,255,255,.09);--md-rule:rgba(255,255,255,.14);--md-rule-strong:rgba(255,255,255,.22);--md-link:hsl(210 100% 72%)}}:root[data-theme="dark"]{color-scheme:dark;--md-bg:#0d0d0d;--md-text:rgba(255,255,255,.85);--md-muted:rgba(255,255,255,.6);--md-fill:rgba(255,255,255,.06);--md-fill-strong:rgba(255,255,255,.09);--md-rule:rgba(255,255,255,.14);--md-rule-strong:rgba(255,255,255,.22);--md-link:hsl(210 100% 72%)}:root[data-theme="light"]{color-scheme:light}@media print{:root,:root[data-theme="dark"]{color-scheme:light;--md-bg:#fff;--md-text:rgba(0,0,0,.8);--md-muted:rgba(0,0,0,.6);--md-fill:rgba(0,0,0,.04);--md-fill-strong:rgba(0,0,0,.06);--md-rule:rgba(0,0,0,.1);--md-rule-strong:rgba(0,0,0,.16);--md-link:hsl(210 100% 45%)}}body{background:var(--md-bg);color:var(--md-text);max-width:720px;margin:0 auto;padding:32px;display:flex;flex-direction:column;gap:10px;font:14px/1.55 -apple-system,BlinkMacSystemFont,'SF Pro','Segoe UI',sans-serif;overflow-wrap:break-word}body>:first-child{margin-top:0}h1,h2,h3,h4,h5,h6{margin:6px 0 0;line-height:1.25;font-weight:600;text-wrap:balance}h1{font-size:1.35em}h2{font-size:1.15em;color:var(--md-muted)}h3,h4,h5,h6{font-size:1em}p,ul,ol,blockquote,table,pre,hr{margin:0}strong{font-weight:600}a{color:var(--md-link);text-decoration:none}a:hover{text-decoration:underline}ul,ol{display:flex;flex-direction:column;gap:6px;padding-left:22px}ul{list-style:disc}ol{list-style:decimal}:is(li,td,th)>*+:is(p,ul,ol,blockquote){margin-top:6px}blockquote{display:flex;flex-direction:column;gap:10px;border-left:2px solid var(--md-rule);padding-left:10px;color:var(--md-muted)}:not(pre)>code{background:var(--md-fill);padding:1px 3px;border-radius:4px;font:.92em 'SF Mono',ui-monospace,Menlo,Consolas,monospace}a>code{background:none;color:inherit}pre{background:var(--md-fill);padding:10px 12px;border-radius:6px;overflow-x:auto;font:12px/1.5 'SF Mono',ui-monospace,Menlo,Consolas,monospace;margin-block:4px}pre code{background:none;padding:0;font:inherit}table{width:100%;border-collapse:separate;border-spacing:2px;font:inherit}th,td{padding:6px 8px;border-radius:3px;text-align:left;vertical-align:top}th{background:var(--md-fill-strong);font-weight:600}td{background:var(--md-fill)}:is(th,td) :not(pre)>code{background:transparent}hr{border:0;border-top:1px solid var(--md-rule-strong);margin-block:10px}img{max-width:100%;height:auto;border-radius:4px}</style>
+</head><body>
+<h1>Xipe Totec 仕様書（たたき台）</h1>
+<ul>
+<li>版：v0.4-draft</li>
+<li>状態：たたき台（未決事項なし。実装時の確認事項は第21章を参照）</li>
+<li>名称：Xipe Totec（シペ・トテック）。Elixir のアプリ名は <code>:xipe_totec</code>、モジュール名は <code>XipeTotec</code>、CLI コマンドは <code>xipe</code></li>
+<li>実装言語：Elixir</li>
+<li>配布：GitHub で公開し、Nix flake から提供する</li>
+</ul>
+<p>名称は、ソースという本体から関数ごとに皮（カード）を剥いでいく像に由来する。再スキャンのたびに皮は新しくなる。</p>
+<hr />
+<h2>1. 目的と位置づけ</h2>
+<p>表計算ソフトでは、すべての値がセルという住所を持ち、数式は住所への参照で結ばれ、シート名を変えれば参照が追従する。任意の数セルを指定して検算でき、上流の値を変えれば下流が再計算される。その根にあるのは、キーで結ばれたテーブル群というリレーショナルな構造である。Xipe Totec はこの構造を、関数型言語で書かれたプロジェクトに持ち込む。</p>
+<p>出発点は、対話環境（REPL）で関数を試すときの手間である。入力値を毎回手で打つ、ファイルパスを指定する、といった操作を、保存された呼び出しとして再利用できるようにする。これを計算行と呼ぶ（第4章）。計算行の引数には、別の計算行の出力への参照を置ける。</p>
+<p>もう一つの柱は連動修正である。カード上で関数名やファイル名を変更すると、その変更が対象プロジェクトのソース（定義側）に反映され、さらにそれを参照している他のモジュールのソース（参照側）にも反映される。</p>
+<p>加えて、実行中のプログラムの関数呼び出しを動作順に1つの表として記録し、計算行の入力候補として使えるようにする（第5章）。</p>
+<p>Xipe Totec は、言語に依存しない基本構造、言語ごとのREPLアダプタ、言語の境界ごとの境界規則から成る。単独で動くローカルサーバー兼CLIとして提供する。利用者はコマンドでカードの計算行を用意・編集・削除し、評価するとテーブルが更新されていく。表示と入力の操作はクライアントが担い、クライアントは外部プロセスとして接続する。</p>
+<h3>1.1 非目標</h3>
+<ul>
+<li>IDE やエディタの置き換え。表の表示、セルの移動、ハイライト、補完候補の表示などはクライアントの責務とする。</li>
+<li>LLM 向けのコード索引（読み取り専用の文脈供給）。これは既存の tree-sitter 系 MCP サーバー群の領域であり、Xipe Totec は「値」と「書き戻し」を加える点に独自性を置く。</li>
+<li>汎用の実行時ロガーやプロファイラ。実行時の記録は、関数の入出力と呼び出し順に限る。</li>
+<li>判定式など、コードの中身そのものの編集。</li>
+<li>マクロを計算行の評価対象とすること。</li>
+<li>評価のサンドボックス化。副作用の判定を誤れば、書き込みは実際に起こる（第8章）。</li>
+<li>汎用リファクタリングツールとしての網羅性。</li>
+</ul>
+<h2>2. 設計原則</h2>
+<p><strong>P1 参照透明性を前提とする。</strong> 対象関数は原則として参照透明であるとみなす。この前提により、計算行の（引数, 出力）は「いつ見ても変わらない事実」として扱える。副作用を持つ関数やセル式は明示的に区別する（第8章）。</p>
+<p><strong>P2 再現性を最優先する。</strong> 保存物には生成元の内容ハッシュと git のコミットを付与する。修正処理は「ブック＋編集イベント → 修正リスト」という純粋関数として定義する。解析結果には、それを得た提供元を記録する。</p>
+<p><strong>P3 IDと名前を分離する。</strong> シート（ファイル）、関数、計算行はすべて名前とは独立した不変IDを持つ。IDは代理キー、名前は自然キーにあたる。セル内の参照もIDで保存する。</p>
+<p><strong>P4 非対称な信頼。</strong> LLM やヒューリスティクス、外部の提供元は「提案」のみを行う。LLM が生成したREPLアダプタや、クライアントが提供する解析結果も、受け入れ検査に合格したものだけを採用する。自動判定の結果は、利用者がテーブル上で確認・更新できる。</p>
+<p><strong>P5 差分は追加部分に閉じ込める。</strong> 基本構造（テーブル、ID、参照解決、再計算順序、修正計算）は言語非依存とする。言語ごとの差はREPLアダプタに、言語の境界をまたぐ対応は境界規則に置く。</p>
+<p><strong>P6 書き込みは必ず diff → apply の二段階。</strong> ソースファイルへの変更は、修正リストのプレビューを経てから適用する。</p>
+<p><strong>P7 入力体験はクライアントの責務。</strong> サーバーは補完候補、参照の解決結果、行単位の変更通知を返す口を提供する。表示や入力の方法はクライアントが定める。</p>
+<p><strong>P8 単体で完結し、外部の提供は上乗せとする。</strong> 名前解決と構文解析は、Xipe Totec 単体で動く基本動作を持つ。言語サーバーやクライアントの提供する解析は、機能ごとに対応を確認したうえで優先して使う（第11章）。</p>
+<p><strong>P9 判定しきれないものは表に出す。</strong> 副作用、依存の完全性、値の忠実度など、自動では確定できないものは、推定値と状態をテーブルの列として示し、利用者の確認に委ねる。</p>
+<p><strong>P10 対象プロジェクトの環境で動かす。</strong> 評価、トレース、判定式とセルの式の構文解析は、対象プロジェクトの環境にある REPL の中で行う。Xipe Totec 自身の実行環境は、対象言語のバージョンと無関係に保つ。</p>
+<h2>3. 用語</h2>
+<table>
+<thead>
+<tr>
+<th>用語</th>
+<th>定義</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>ブック</td>
+<td>対象プロジェクト全体。テーブル群の集合</td>
+</tr>
+<tr>
+<td>シート</td>
+<td>対象プロジェクトのファイル1つ</td>
+</tr>
+<tr>
+<td>カード</td>
+<td>1関数分の行のまとまり。スキャンで自動的に作られ、関数がソースにある限り存在する</td>
+</tr>
+<tr>
+<td>行</td>
+<td>カードを構成する単位。計算行とリンク行の2種がある</td>
+</tr>
+<tr>
+<td>計算行</td>
+<td>関数への1回の呼び出し。引数、結果、前回などの列を持つ（第4章）</td>
+</tr>
+<tr>
+<td>リンク行</td>
+<td>関数の接続関係を表す行。受信元、判定式、送信先のセルを持つ</td>
+</tr>
+<tr>
+<td>セル</td>
+<td>行を構成する最小単位。値または式を持つ</td>
+</tr>
+<tr>
+<td>参照</td>
+<td>セル内に <code>⟦ ⟧</code> で書かれる、他の計算行の結果への参照</td>
+</tr>
+<tr>
+<td>住所</td>
+<td>対象を指定する列の組（第6章）</td>
+</tr>
+<tr>
+<td>階層コード</td>
+<td>ディレクトリ・ファイル・モジュール・関数の各階層に振る2桁の番号の列</td>
+</tr>
+<tr>
+<td>trace 表</td>
+<td>実行時の関数呼び出しを動作順に記録した表（第5章）</td>
+</tr>
+<tr>
+<td>run</td>
+<td>trace 表への1回の記録単位</td>
+</tr>
+<tr>
+<td>REPLアダプタ</td>
+<td>対象プロジェクトの環境にある REPL を、Xipe Totec の共通の操作に合わせる言語ごとの部品</td>
+</tr>
+<tr>
+<td>境界規則</td>
+<td>言語の境界をまたぐ関数の対応を扱う部品（例：Elixir と Rust をつなぐ Rustler）</td>
+</tr>
+<tr>
+<td>提供元</td>
+<td>構文解析・名前解決の結果を供給するもの（第11章）</td>
+</tr>
+<tr>
+<td>セッション</td>
+<td>REPLアダプタが起動した REPL の1回の実行。世代番号を持つ</td>
+</tr>
+<tr>
+<td>墓標</td>
+<td>消失した対象を即削除せず保持する状態</td>
+</tr>
+<tr>
+<td>修正リスト</td>
+<td>ソースファイルへのテキスト編集の集合。LSP の WorkspaceEdit に相当</td>
+</tr>
+<tr>
+<td>エラー値</td>
+<td>評価できなかったセルが持つ値。参照を通じて下流に伝わる</td>
+</tr>
+</tbody>
+</table>
+<h2>4. データモデル</h2>
+<h3>4.1 テーブルと見え方</h3>
+<p>保存物はリレーショナルなテーブル群として定義する。カードや表計算風の表示は、これらのテーブルに対する見え方の一つである。</p>
+<table>
+<thead>
+<tr>
+<th>テーブル</th>
+<th>1行が表すもの</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>sheet</td>
+<td>ファイル</td>
+</tr>
+<tr>
+<td>node</td>
+<td>関数</td>
+</tr>
+<tr>
+<td>call</td>
+<td>計算行</td>
+</tr>
+<tr>
+<td>link</td>
+<td>リンク行（受信元、または判定式と送信先の組）</td>
+</tr>
+<tr>
+<td>run</td>
+<td>trace の記録単位</td>
+</tr>
+<tr>
+<td>trace</td>
+<td>実行時に観測された関数呼び出し</td>
+</tr>
+<tr>
+<td>provider</td>
+<td>提供元の受け入れ検査の記録</td>
+</tr>
+</tbody>
+</table>
+<table>
+<thead>
+<tr>
+<th>リレーショナルな概念</th>
+<th>Xipe Totec</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>代理キー</td>
+<td>ID</td>
+</tr>
+<tr>
+<td>自然キー</td>
+<td>ファイルパス、モジュール名、関数名</td>
+</tr>
+<tr>
+<td>外部キー</td>
+<td>参照、リンク行の受信元・送信先</td>
+</tr>
+<tr>
+<td>外部キー違反</td>
+<td>ぶら下がり参照、ref_error</td>
+</tr>
+<tr>
+<td>ビュー</td>
+<td>カード、ファイル間の依存関係、未実行関数の一覧</td>
+</tr>
+<tr>
+<td>非正規化されたコピー</td>
+<td>ソースファイル（名前は自然キーで書かれている）</td>
+</tr>
+<tr>
+<td>自然キー変更の伝播</td>
+<td>連動修正</td>
+</tr>
+</tbody>
+</table>
+<h3>4.2 表計算との対応</h3>
+<table>
+<thead>
+<tr>
+<th>表計算</th>
+<th>Xipe Totec</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>ブック</td>
+<td>プロジェクト全体</td>
+</tr>
+<tr>
+<td>シート</td>
+<td>ファイル</td>
+</tr>
+<tr>
+<td>行のグループ</td>
+<td>カード（1関数分の行）</td>
+</tr>
+<tr>
+<td>行</td>
+<td>計算行、リンク行</td>
+</tr>
+<tr>
+<td>セル参照（シート間参照を含む）</td>
+<td><code>⟦ ⟧</code> による他の計算行の結果への参照</td>
+</tr>
+<tr>
+<td>数式</td>
+<td>対象言語の式に参照を埋め込んだもの</td>
+</tr>
+<tr>
+<td>シート名・セル値の変更に参照が追従する</td>
+<td>ファイル名・関数名の変更がソースの定義側と参照側に反映される</td>
+</tr>
+<tr>
+<td>参照元・参照先のトレース矢印</td>
+<td>リンク行、ネットワーク図</td>
+</tr>
+<tr>
+<td>再計算（依存順）</td>
+<td>参照の依存順による計算行の再評価</td>
+</tr>
+<tr>
+<td>揮発性関数</td>
+<td>副作用を持つ関数・セル式</td>
+</tr>
+<tr>
+<td>エラー値（<code>#REF!</code> など）</td>
+<td>エラー値（6.5節）</td>
+</tr>
+</tbody>
+</table>
+<h3>4.3 カード</h3>
+<p>以下は <code>lib/shop/price.ex</code> の <code>add_tax/2</code> の例である（表示は一例であり、見せ方はクライアントが定める）。</p>
+<p>計算行（主な列のみ）</p>
+<table>
+<thead>
+<tr>
+<th>行</th>
+<th>arg0</th>
+<th>arg1</th>
+<th>結果</th>
+<th>前回</th>
+<th>比較</th>
+<th>回数</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>c1</td>
+<td><code>100</code></td>
+<td><code>0.1</code></td>
+<td><code>110.0</code></td>
+<td><code>110.0</code></td>
+<td>same</td>
+<td>3</td>
+</tr>
+<tr>
+<td>c2</td>
+<td><code>elem(⟦c_01H9A0…⟧, 1)</code></td>
+<td><code>0.1</code></td>
+<td><code>121.0</code></td>
+<td><code>120.0</code></td>
+<td>changed</td>
+<td>5</td>
+</tr>
+</tbody>
+</table>
+<p>リンク行</p>
+<table>
+<thead>
+<tr>
+<th>受信元</th>
+<th>判定式</th>
+<th>送信先</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>checkout</code></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>preview</code></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td></td>
+<td><code>rate &gt; 0</code></td>
+<td><code>apply_rate</code></td>
+</tr>
+<tr>
+<td></td>
+<td><code>rate == 0</code></td>
+<td>（本体で完結）</td>
+</tr>
+</tbody>
+</table>
+<p>同じ行に並んだセル同士に意味上の結びつきはない。セル間の関係を作るのは参照だけであり、行は配置にすぎない。意味上の対応を持つのは、節ごとの「判定式と送信先」の組だけである。受信元は関数単位の独立した一覧である。</p>
+<p>受信元・送信先のセルは、相手の関数名セルへの参照である。関数名セルが唯一の実体であり、名前を変えると、参照しているセルはすべて追従する。</p>
+<p>カードそのものはスキャンで作られる。利用者が追加・編集・削除するのは計算行である。関数のカードを消すには、ソースから関数を消す（カードは墓標になる）。</p>
+<h3>4.4 セルの種類</h3>
+<table>
+<thead>
+<tr>
+<th>セル</th>
+<th>編集</th>
+<th>中身</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>関数名</td>
+<td>可</td>
+<td>実体。変更は連動修正としてソースに反映される（14.3節）</td>
+</tr>
+<tr>
+<td>引数</td>
+<td>可</td>
+<td>対象言語の式。他の計算行の結果への参照を含められる</td>
+</tr>
+<tr>
+<td>結果</td>
+<td>不可</td>
+<td>REPLアダプタによる計算値、またはエラー値</td>
+</tr>
+<tr>
+<td>前回</td>
+<td>可</td>
+<td>直前の結果。利用者が書き換えて期待値としても使える（6.4節）</td>
+</tr>
+<tr>
+<td>受信元・送信先</td>
+<td>不可</td>
+<td>ソースから導出される参照</td>
+</tr>
+<tr>
+<td>判定式</td>
+<td>不可</td>
+<td>ソースから導出される</td>
+</tr>
+</tbody>
+</table>
+<h3>4.5 軸の分担</h3>
+<table>
+<thead>
+<tr>
+<th>軸</th>
+<th>内容</th>
+<th>担当</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>縦（link）</td>
+<td>関数同士の接続関係</td>
+<td>提供元（第11章）</td>
+</tr>
+<tr>
+<td>横（call）</td>
+<td>引数を関数に通した結果</td>
+<td>REPLアダプタ</td>
+</tr>
+<tr>
+<td>時間（trace）</td>
+<td>実行時の呼び出し順と入出力</td>
+<td>Tracer</td>
+</tr>
+</tbody>
+</table>
+<p>3つの軸は独立に扱える。trace は call に行を供給できる（5.5節）。</p>
+<h3>4.6 テーブル定義</h3>
+<p>保存形式は JSON Lines とし、1行を1テーブルの1行として扱う。<code>type</code> フィールドがテーブル名にあたる。JSON Lines は DuckDB などのツールで直接 SQL により問い合わせられるが、Xipe Totec 自身は SQL エンジンを必須としない。</p>
+<pre><code class="language-json">{&quot;type&quot;:&quot;sheet&quot;,&quot;id&quot;:&quot;f_01H7A1...&quot;,&quot;path&quot;:&quot;lib/shop/price.ex&quot;,&quot;hier&quot;:&quot;03.12&quot;,&quot;source_hash&quot;:&quot;sha256:...&quot;,&quot;status&quot;:&quot;live&quot;}
+{&quot;type&quot;:&quot;node&quot;,&quot;id&quot;:&quot;n_01H8X2...&quot;,&quot;sheet&quot;:&quot;f_01H7A1...&quot;,&quot;hier&quot;:&quot;03.12.01.05&quot;,&quot;module&quot;:&quot;Shop.Price&quot;,&quot;name&quot;:&quot;add_tax&quot;,&quot;arity&quot;:2,&quot;type_sig&quot;:&quot;add_tax(number, float) :: float&quot;,&quot;span&quot;:[12,1,18,4],&quot;body_hash&quot;:&quot;sha256:...&quot;,&quot;dep_hash&quot;:&quot;sha256:...&quot;,&quot;hash_status&quot;:&quot;complete&quot;,&quot;effect&quot;:&quot;pure&quot;,&quot;effect_source&quot;:&quot;inferred&quot;,&quot;trace_coverage&quot;:&quot;full&quot;,&quot;status&quot;:&quot;live&quot;}
+{&quot;type&quot;:&quot;call&quot;,&quot;id&quot;:&quot;c_01H9B3...&quot;,&quot;node&quot;:&quot;n_01H8X2...&quot;,&quot;args&quot;:[&quot;100&quot;,&quot;0.1&quot;],&quot;result&quot;:&quot;110.0&quot;,&quot;result_type&quot;:&quot;float&quot;,&quot;repr&quot;:&quot;exact&quot;,&quot;result_at&quot;:&quot;...&quot;,&quot;commit&quot;:&quot;3f2a...&quot;,&quot;commit_at&quot;:&quot;...&quot;,&quot;dirty&quot;:false,&quot;session&quot;:4,&quot;prev&quot;:&quot;110.0&quot;,&quot;prev_at&quot;:&quot;...&quot;,&quot;prev_source&quot;:&quot;auto&quot;,&quot;compare&quot;:&quot;same&quot;,&quot;eval_count&quot;:3,&quot;state&quot;:&quot;ok&quot;,&quot;origin&quot;:&quot;manual&quot;,&quot;call_hash&quot;:&quot;sha256:...&quot;}
+{&quot;type&quot;:&quot;link&quot;,&quot;node&quot;:&quot;n_01H8X2...&quot;,&quot;role&quot;:&quot;from&quot;,&quot;ref&quot;:&quot;n_01H8W9...&quot;}
+{&quot;type&quot;:&quot;link&quot;,&quot;node&quot;:&quot;n_01H8X2...&quot;,&quot;role&quot;:&quot;to&quot;,&quot;clause&quot;:1,&quot;guard&quot;:&quot;rate &gt; 0&quot;,&quot;ref&quot;:&quot;n_01H8X5...&quot;}
+{&quot;type&quot;:&quot;run&quot;,&quot;id&quot;:&quot;r_01HA00...&quot;,&quot;started_at&quot;:&quot;...&quot;,&quot;commit&quot;:&quot;3f2a...&quot;,&quot;commit_at&quot;:&quot;...&quot;,&quot;dirty&quot;:false,&quot;params&quot;:{&quot;max_rows&quot;:100000}}
+{&quot;type&quot;:&quot;trace&quot;,&quot;run&quot;:&quot;r_01HA00...&quot;,&quot;pid&quot;:&quot;p1&quot;,&quot;seq&quot;:2,&quot;ts&quot;:&quot;...&quot;,&quot;node&quot;:&quot;n_01H8X2...&quot;,&quot;caller&quot;:&quot;n_01H8W1...&quot;,&quot;args&quot;:[&quot;100&quot;,&quot;0.1&quot;],&quot;result&quot;:&quot;110.0&quot;,&quot;status&quot;:&quot;observed&quot;}
+{&quot;type&quot;:&quot;provider&quot;,&quot;feature&quot;:&quot;references&quot;,&quot;source&quot;:&quot;self:expert&quot;,&quot;version&quot;:&quot;0.2.0&quot;,&quot;capabilities_hash&quot;:&quot;sha256:...&quot;,&quot;checked_at&quot;:&quot;...&quot;,&quot;result&quot;:&quot;passed&quot;}
+</code></pre>
+<p><strong>sheet・node</strong></p>
+<table>
+<thead>
+<tr>
+<th>フィールド</th>
+<th>説明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>hier</td>
+<td>階層コード（7.2節）</td>
+</tr>
+<tr>
+<td>source_hash</td>
+<td>ファイル全体の内容ハッシュ</td>
+</tr>
+<tr>
+<td>body_hash</td>
+<td>関数本体の正規化済み構文木のハッシュ（9.2節）</td>
+</tr>
+<tr>
+<td>dep_hash</td>
+<td>依存込みハッシュ（第9章）</td>
+</tr>
+<tr>
+<td>hash_status</td>
+<td>complete / incomplete / cyclic</td>
+</tr>
+<tr>
+<td>type_sig</td>
+<td>型情報。REPLアダプタまたは提供元が取得する</td>
+</tr>
+<tr>
+<td>effect</td>
+<td>pure / reads / writes / unknown（第8章）</td>
+</tr>
+<tr>
+<td>effect_source</td>
+<td>inferred（自動判定）/ user（利用者が更新）</td>
+</tr>
+<tr>
+<td>trace_coverage</td>
+<td>full / partial（境界の先を記録できない関数など）</td>
+</tr>
+<tr>
+<td>status</td>
+<td>live / tombstone / needs_review</td>
+</tr>
+</tbody>
+</table>
+<p><strong>call</strong></p>
+<table>
+<thead>
+<tr>
+<th>フィールド</th>
+<th>説明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>args</td>
+<td>引数セルの式。参照はIDで保存する</td>
+</tr>
+<tr>
+<td>result</td>
+<td>結果の表示用文字列（exact なら正規形そのもの）</td>
+</tr>
+<tr>
+<td>result_type</td>
+<td>結果の型</td>
+</tr>
+<tr>
+<td>repr</td>
+<td>exact / binary / unsupported（6.3節）</td>
+</tr>
+<tr>
+<td>result_bin</td>
+<td>repr が binary のとき、外部項形式を Base64 にしたもの</td>
+</tr>
+<tr>
+<td>result_at、commit、commit_at、dirty</td>
+<td>評価した日時、git のコミット、コミット日時、未コミットの変更の有無</td>
+</tr>
+<tr>
+<td>session</td>
+<td>評価したセッションの世代番号</td>
+</tr>
+<tr>
+<td>prev、prev_at、prev_source</td>
+<td>前回の値、それが入った日時、出どころ（auto / user）</td>
+</tr>
+<tr>
+<td>compare</td>
+<td>none / same / changed / skipped</td>
+</tr>
+<tr>
+<td>eval_count</td>
+<td>評価の累計（エラー・時間切れを含む）</td>
+</tr>
+<tr>
+<td>state</td>
+<td>ok / ref_error / eval_error / cycle / unreproducible / stale / lost</td>
+</tr>
+<tr>
+<td>origin</td>
+<td>manual / trace / llm</td>
+</tr>
+<tr>
+<td>call_hash</td>
+<td>評価時点の計算行のハッシュ（第9章）</td>
+</tr>
+</tbody>
+</table>
+<p>計算行には呼び出し式ではなく引数だけを保存する。評価時に、REPLアダプタがノードIDから現在の名前を引いて呼び出し式を組み立てる。これにより、関数名を変えても計算行は壊れない。</p>
+<p>ファイル間の依存関係は保存せず、link と参照を集計したビューとして導出する。</p>
+<h2>5. 実行時観測（trace 表）</h2>
+<h3>5.1 考え方</h3>
+<p>実行中のプログラムで呼ばれた関数を、シートをまたいで動作順に1つの表へ積む。呼ばれるはずで呼ばれなかったものも <code>no_data</code> として記録し、「何が起きなかったか」も表から読めるようにする。</p>
+<h3>5.2 列</h3>
+<table>
+<thead>
+<tr>
+<th>列</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>run</td>
+<td>記録単位のID（run テーブルにコミットと dirty を持つ）</td>
+</tr>
+<tr>
+<td>pid</td>
+<td>呼び出しが起きたプロセス（言語によってはスレッド等）</td>
+</tr>
+<tr>
+<td>seq</td>
+<td>プロセス内での順序番号</td>
+</tr>
+<tr>
+<td>ts</td>
+<td>タイムスタンプ（プロセスをまたいだ並びの参考）</td>
+</tr>
+<tr>
+<td>node</td>
+<td>呼ばれた（または飛ばされた）関数のID</td>
+</tr>
+<tr>
+<td>caller</td>
+<td>呼び出し元の関数のID</td>
+</tr>
+<tr>
+<td>args</td>
+<td>引数の正規形</td>
+</tr>
+<tr>
+<td>result</td>
+<td>結果の正規形</td>
+</tr>
+<tr>
+<td>status</td>
+<td>observed / raised / no_data</td>
+</tr>
+</tbody>
+</table>
+<table>
+<thead>
+<tr>
+<th>run</th>
+<th>pid</th>
+<th>seq</th>
+<th>node</th>
+<th>args</th>
+<th>result</th>
+<th>caller</th>
+<th>status</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>r1</td>
+<td>p1</td>
+<td>1</td>
+<td>checkout</td>
+<td>…</td>
+<td>…</td>
+<td>–</td>
+<td>observed</td>
+</tr>
+<tr>
+<td>r1</td>
+<td>p1</td>
+<td>2</td>
+<td>add_tax</td>
+<td>[100, 0.1]</td>
+<td>110.0</td>
+<td>checkout</td>
+<td>observed</td>
+</tr>
+<tr>
+<td>r1</td>
+<td>p1</td>
+<td>3</td>
+<td>apply_rate</td>
+<td>–</td>
+<td>–</td>
+<td>add_tax</td>
+<td>no_data</td>
+</tr>
+</tbody>
+</table>
+<h3>5.3 順序と no_data</h3>
+<p><strong>順序</strong>：並行実行する言語（BEAM など）では、全体を一列に並べる順序は定まらない。行のキーは (run, pid, seq) とし、プロセスをまたいだ並びは ts による参考情報とする。</p>
+<p><strong>no_data</strong> は2種類ある。</p>
+<ol>
+<li><strong>飛ばされた送信先</strong>：ある関数の呼び出しから戻りまでの区間に、その関数のリンク行の送信先が現れなかった場合、戻りの時点に送信先ごとの no_data 行を置く。判定は呼び出し・戻りイベントの区間だけで行う。</li>
+<li><strong>一度も呼ばれなかった関数</strong>：node と trace の左外部結合で NULL として現れる。保存せず、ビューとして提供する。</li>
+</ol>
+<h3>5.4 記録の方法</h3>
+<p>Tracer は、対象プロジェクトの REPL セッションに小さな記録用モジュールを読み込ませ、呼び出し・戻りのトレースを設定する（P10）。BEAM では標準のトレース機構を使う。記録開始時に run を発行し、そのときのコミットと dirty を run に記録する。</p>
+<p>境界の先（NIF など）の呼び出しは記録できないことがある。その場合、境界の手前のスタブ関数の呼び出しだけが残り、関数の trace_coverage を partial とする（第13章）。</p>
+<h3>5.5 計算行への取り込み</h3>
+<p>observed の行を選んで call に追加する。</p>
+<pre><code class="language-sql">INSERT INTO call (node, args, origin)
+SELECT DISTINCT node, args, 'trace'
+FROM trace
+WHERE run = :run AND status = 'observed' AND node = :node;
+</code></pre>
+<ul>
+<li>同じ (node, args) の計算行が既にある場合は追加しない。</li>
+<li>取り込んだ行は改めて評価し、結果と state を確定する。trace の結果は参考値とする。</li>
+<li>no_data と raised の行は取り込みの対象外とする。</li>
+</ul>
+<h3>5.6 記録量と保持期間</h3>
+<p>記録量と保持期間は用途によって変わるため、固定値を定めずパラメータとする（第17章）。記録負荷は主に記録対象の範囲（<code>trace.scope</code>）で調整する。<code>trace.max_rows</code> は、記録側が処理しきれずに実行中のシステムが重くなるのを防ぐ安全装置であり、到達した時点で記録を自動停止する。</p>
+<h2>6. 住所、参照、評価</h2>
+<h3>6.1 住所</h3>
+<p>住所は区切り文字でつないだ文字列ではなく、列の組として扱う。すべての列は任意の条件であり、組み合わせて絞り込む。一意に決まればその対象を返し、複数該当すれば候補を返す。</p>
+<table>
+<thead>
+<tr>
+<th>列</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>file</td>
+<td>ファイルパス</td>
+</tr>
+<tr>
+<td>module</td>
+<td>モジュール名</td>
+</tr>
+<tr>
+<td>name</td>
+<td>関数名</td>
+</tr>
+<tr>
+<td>arity</td>
+<td>引数の数（引数の数で関数を区別する言語のみ）</td>
+</tr>
+<tr>
+<td>type</td>
+<td>型による絞り込み。type だけを条件にすると、型に合う関数の逆引きになる</td>
+</tr>
+<tr>
+<td>hier</td>
+<td>階層コード（前方一致）</td>
+</tr>
+<tr>
+<td>row</td>
+<td>計算行のID</td>
+</tr>
+</tbody>
+</table>
+<ul>
+<li>サーバーインターフェースでは、住所をオブジェクトとして送受信する（例：<code>{"file": "lib/shop/price.ex", "name": "add_tax", "arity": 2}</code>）。</li>
+<li>CLI では列ごとのオプションで指定する（第15章）。</li>
+<li>人が読む文字列としての書式は定めない。表示の仕方はクライアントが決める。</li>
+</ul>
+<h3>6.2 参照</h3>
+<p>セル内の参照は <code>⟦計算行のID⟧</code> の形で書き、他の計算行の結果全体を指す。記号は対象言語の構文と衝突しないことを優先して選んだ。人が読む名前は、クライアントが ID から引いて表示する。</p>
+<p>出力の一部を取り出す場合は、対象言語の式で書く。Xipe Totec 独自の取り出し記法は設けない。</p>
+<pre><code class="language-elixir">elem(⟦c_01H9A0…⟧, 1)
+with {:ok, x} &lt;- ⟦c_01H9A0…⟧, do: x
+hd(⟦c_01H9A7…⟧.items)
+</code></pre>
+<p>参照は ID で保存されているため、名前変更の際に書き換える必要はない。セルの式に名前が直接書かれている場合（<code>Shop.Price.add_tax(...)</code>）は、ソースと同じく連動修正の対象になる。</p>
+<h3>6.3 値の受け渡しと忠実度</h3>
+<p>評価は止めずに行い、結果をどこまで忠実に表せたかを repr 列に示す（P9）。</p>
+<table>
+<thead>
+<tr>
+<th>repr</th>
+<th>意味</th>
+<th>例</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>exact</td>
+<td>正規形の文字列で完全に表せた</td>
+<td>数値、文字列、タプル、マップ</td>
+</tr>
+<tr>
+<td>binary</td>
+<td>外部項形式で完全に保存した。表示用の文字列を併記する</td>
+<td>表示が省略形の構造体、大きな値</td>
+</tr>
+<tr>
+<td>unsupported</td>
+<td>保存も再現もできない。表示用の文字列だけ残る</td>
+<td>無名関数、PID、参照、ポート</td>
+</tr>
+</tbody>
+</table>
+<p>参照先の渡し方は次のとおりとする。</p>
+<table>
+<thead>
+<tr>
+<th>参照先の repr</th>
+<th>参照先の関数の effect</th>
+<th>渡し方</th>
+<th>再現性</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>exact</td>
+<td>問わない</td>
+<td>正規形の文字列を式に埋め込む</td>
+<td>あり</td>
+</tr>
+<tr>
+<td>binary</td>
+<td>問わない</td>
+<td>外部項形式から復元して渡す</td>
+<td>あり</td>
+</tr>
+<tr>
+<td>unsupported</td>
+<td>pure</td>
+<td>参照先の呼び出し式をそのまま埋め込む</td>
+<td>あり</td>
+</tr>
+<tr>
+<td>unsupported</td>
+<td>pure 以外</td>
+<td>セッション内の変数に束縛して渡す</td>
+<td>なし（unreproducible）</td>
+</tr>
+</tbody>
+</table>
+<ul>
+<li>unsupported の場合、result_type 列に原因の型を示す。Xipe Totec で確認した結果と実際の値に差異がありうることを、表から読み取れるようにする。</li>
+<li>セッション内の束縛は高速化のためのキャッシュとしても使ってよい。消えていた場合は、式の埋め込みに戻す。</li>
+<li>セッションが再起動して束縛が失われた場合、それに依存する計算行は lost とする。lost の計算行は自動では再評価しない。</li>
+<li>binary の値は、構造体の定義が変われば中身が合わなくなりうる。この変化は dep_hash の変化（第9章）として検出され、計算行は stale になる。</li>
+</ul>
+<h3>6.4 評価の手順と前回列</h3>
+<p>1回の評価は次の手順で行う。評価直前の結果を R_old、前回列を P とする。</p>
+<ol>
+<li>比較の基準 B を決める。P の出どころが user（利用者が書いた期待値）なら B = P、そうでなければ B = R_old。</li>
+<li>参照を解決し、新しい結果 R_new を得る。</li>
+<li>B が空なら compare = none。repr が unsupported、または state がエラー値なら compare = skipped。それ以外は、REPLアダプタの比較機能で R_new と B を比べ、same または changed とする。</li>
+<li>前回列を R_old で上書きする（R_old が空なら B を残す）。prev_source は auto、prev_at は R_old の評価日時とする。</li>
+<li>結果列を R_new とし、result_at、commit、commit_at、dirty、session を更新する。eval_count を1増やす。</li>
+</ol>
+<p>前回列は評価のたびに直前の結果で上書きされる。changed の表示は次の評価で消えるが、前回列と結果列の日時から、いつ変わったかを追える。長く保持したい期待値は、別の計算行に置いて <code>⟦ ⟧</code> で参照する。</p>
+<h3>6.5 エラー値</h3>
+<table>
+<thead>
+<tr>
+<th>state</th>
+<th>表計算の対応</th>
+<th>例</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>ref_error</td>
+<td><code>#REF!</code></td>
+<td>参照先の関数や計算行が消えた</td>
+</tr>
+<tr>
+<td>eval_error</td>
+<td><code>#VALUE!</code> / <code>#N/A</code></td>
+<td>例外、パターン不一致、時間切れ、メモリ上限超過</td>
+</tr>
+<tr>
+<td>cycle</td>
+<td>循環参照の警告</td>
+<td>計算行同士が互いの結果を参照している</td>
+</tr>
+<tr>
+<td>unreproducible</td>
+<td>（なし）</td>
+<td>実行ごとに変わる値、セッション内の束縛で受け取った値を含む</td>
+</tr>
+<tr>
+<td>stale</td>
+<td>（なし）</td>
+<td>評価後に依存先のコードや実行環境が変わった（第9章）</td>
+</tr>
+<tr>
+<td>lost</td>
+<td>（なし）</td>
+<td>セッションの再起動で、依存していた束縛が失われた</td>
+</tr>
+</tbody>
+</table>
+<p>エラー値を参照したセルもエラー値になり、下流に伝わる。最初に壊れた計算行は、伝播の起点をたどって特定できる。</p>
+<h3>6.6 再計算</h3>
+<ul>
+<li>参照の依存順に評価する。循環参照は検出して cycle とする。</li>
+<li>全体の再計算の対象は、effect が pure または reads の関数の計算行とする。reads の結果は unreproducible とする。writes と unknown は、明示的に指定した場合だけ評価する。</li>
+<li>call_hash が保存値と同じ計算行は、評価を省略して保存済みの結果を使える（第9章）。</li>
+</ul>
+<h3>6.7 安全装置</h3>
+<table>
+<thead>
+<tr>
+<th>対象</th>
+<th>方法</th>
+<th>パラメータ</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1回の評価の暴走（無限ループ、巨大な値）</td>
+<td>評価を別プロセスで動かし、時間とメモリに上限を設ける。超えたら eval_error</td>
+<td><code>eval.timeout</code>、<code>eval.max_heap</code></td>
+</tr>
+<tr>
+<td>同じ計算行の繰り返し評価（連動修正と再スキャンの連鎖など）</td>
+<td>再計算の開始時の eval_count を覚え、1回の再計算の中での増分が上限を超えたら、その再計算を止めて該当行をエラーとして示す</td>
+<td><code>eval.max_per_pass</code></td>
+</tr>
+</tbody>
+</table>
+<h3>6.8 補完</h3>
+<p>補完は列ごとに候補の出どころが異なる。列ごとに独立して応答し、遅い列が他を待たせないようにする。</p>
+<table>
+<thead>
+<tr>
+<th>列</th>
+<th>候補の出どころ</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>file</td>
+<td>sheet</td>
+</tr>
+<tr>
+<td>module、name、arity</td>
+<td>node</td>
+</tr>
+<tr>
+<td>type</td>
+<td>REPLアダプタ、または提供元</td>
+</tr>
+<tr>
+<td>row</td>
+<td>call</td>
+</tr>
+</tbody>
+</table>
+<p><code>⟦</code> の入力方法、候補の表示方法はクライアントが定める。CLI では参照を名前付きオプションで渡せる（第15章）。</p>
+<h2>7. ID方針</h2>
+<h3>7.1 付与</h3>
+<p>シート、関数、計算行、run は、初回の登録時にIDを付与される。IDは時刻順にソート可能な一意値（ULID等）とし、名前やパスから導出しない。IDが同一性の本体である。</p>
+<h3>7.2 階層コード</h3>
+<p>ディレクトリ・ファイル・モジュール・関数の各階層に、2桁の番号を振る（例：<code>03.12.01.05</code>）。</p>
+<ul>
+<li>番号は初回の登録時に振り、振り直さない。新しく現れた要素には、その階層の空き番号を与える。</li>
+<li>1つの階層に100を超える要素がある場合は、その階層だけ桁を広げる。</li>
+<li>別の親へ移動した要素は、移動先の階層で番号を振り直す。</li>
+</ul>
+<p>階層コードは、再スキャン時の照合の手がかりと、人が読める短い住所（6.1節の hier 列）を兼ねる。ソース上の行番号がずれても変わらない。</p>
+<h3>7.3 再スキャン時の照合</h3>
+<p>再スキャンでは、既存の関数と新しく解析された関数を照合し、同一とみなせるものには既存IDを引き継ぐ。Xipe Totec の外で名前が変更された場合に「削除＋新規」と誤認しないことが目的である。</p>
+<table>
+<thead>
+<tr>
+<th>変化</th>
+<th>階層コード</th>
+<th>body_hash</th>
+<th>名前</th>
+<th>判定</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>名前だけ変わった</td>
+<td>一致</td>
+<td>一致</td>
+<td>不一致</td>
+<td>同一（名前変更）</td>
+</tr>
+<tr>
+<td>本体だけ変わった</td>
+<td>一致</td>
+<td>不一致</td>
+<td>一致</td>
+<td>同一（編集）</td>
+</tr>
+<tr>
+<td>別ファイルへ移動</td>
+<td>不一致</td>
+<td>一致</td>
+<td>問わない</td>
+<td>同一（移動）</td>
+</tr>
+<tr>
+<td>名前も本体も変わった</td>
+<td>一致</td>
+<td>不一致</td>
+<td>不一致</td>
+<td>needs_review</td>
+</tr>
+<tr>
+<td>どれも一致しない</td>
+<td>–</td>
+<td>–</td>
+<td>–</td>
+<td>削除＋新規</td>
+</tr>
+</tbody>
+</table>
+<p>照合結果が曖昧な場合は自動で決めず、needs_review としてクライアントに提示する。</p>
+<h3>7.4 墓標</h3>
+<p>消失した関数は即削除せず、tombstone として保持する。後の照合で名前変更や移動と判明した場合に、IDと計算行を引き継いでつなぎ直すためである。墓標の完全削除は <code>clean</code> コマンドで明示的に行う。墓標になった関数を参照している計算行は ref_error になる。trace の行は墓標になった関数を指したまま残す。</p>
+<h2>8. 副作用</h2>
+<h3>8.1 区分</h3>
+<table>
+<thead>
+<tr>
+<th>effect</th>
+<th>意味</th>
+<th>例（Elixir）</th>
+<th>何度実行しても安全か</th>
+<th>結果は再現するか</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>pure</td>
+<td>副作用なし</td>
+<td>通常の計算</td>
+<td>安全</td>
+<td>する</td>
+</tr>
+<tr>
+<td>reads</td>
+<td>外界に依存する</td>
+<td>時刻・乱数、<code>Application.get_env</code>、ファイルの読み込み、ETS の参照</td>
+<td>安全</td>
+<td>しない</td>
+</tr>
+<tr>
+<td>writes</td>
+<td>外界を変える</td>
+<td>ファイル書き込み、<code>send</code>・<code>spawn</code>、GenServer 呼び出し、ETS への書き込み、ログ出力</td>
+<td>危険</td>
+<td>–</td>
+</tr>
+<tr>
+<td>unknown</td>
+<td>判定できなかった</td>
+<td>動的呼び出し、変数で渡された関数、NIF</td>
+<td>不明</td>
+<td>不明</td>
+</tr>
+</tbody>
+</table>
+<p>副作用の判定が重要になるのは、主に全体の再計算である。利用者が個別に選んで評価する場合と違い、判定に反映されていない副作用のある関数が巻き込まれうるためである。</p>
+<h3>8.2 自動判定（提案）</h3>
+<ol>
+<li>REPLアダプタが、副作用を持つ基本関数の表を提供する（Elixir なら <code>File</code>、<code>IO</code>、<code>System</code>、<code>:ets</code>、<code>send</code> など）。</li>
+<li>link に沿って伝播させる。呼び出し先に writes があれば writes、reads があれば reads、すべて pure なら pure とする。</li>
+<li>標準の高階関数（<code>Enum.map</code> など）は「引数の関数の副作用を引き継ぐ」と表に定義し、渡される関数が特定できる場合は中身を調べる。特定できない場合は unknown とする。</li>
+<li>依存ライブラリは、ソースがあれば同じ方法で解析し、ロックファイルの版ごとに結果をキャッシュする。</li>
+</ol>
+<h3>8.3 確認と更新</h3>
+<ul>
+<li>自動判定の結果は effect_source = inferred として node に入る。</li>
+<li>利用者はテーブル上で effect を更新できる。更新した値は effect_source = user となり、再スキャンで上書きしない。</li>
+<li>評価中に副作用の基本関数の呼び出しを監視し、判定と実際の動作が食い違った場合は needs_review として知らせる。この監視は実行後に分かる方法なので、事故の防止ではなく判定の検証に用いる。</li>
+<li>判定はソースに書き込まない。</li>
+</ul>
+<h2>9. 依存込みハッシュ</h2>
+<h3>9.1 目的</h3>
+<p>計算行の保存済みの結果がまだ正しいか（stale の判定）と、どの計算行を再計算すればよいかを決める。</p>
+<h3>9.2 ソースの依存</h3>
+<pre><code>dep_hash(f)  = H( body_hash(f), 呼び出し先 g すべての dep_hash(g)（ID順） )
+call_hash(c) = H( dep_hash(c の関数), 引数の式, 参照先の計算行すべての call_hash )
+</code></pre>
+<ul>
+<li><strong>body_hash</strong>：関数本体の構文木から位置情報を除いて正規化したもののハッシュ。空白やコメントの変更では変わらない。構文解析は対象プロジェクトの REPL セッションで行う（P10）。本体が使っているモジュール属性の定義と、モジュール冒頭の <code>use</code>・<code>import</code>・<code>alias</code>・<code>require</code> を含める。</li>
+<li><strong>自己再帰</strong>：自分自身への呼び出しはハッシュの計算から除く（本体は body_hash に含まれている）。</li>
+<li><strong>相互再帰</strong>：呼び出しグラフの強連結成分を1単位とし、成分内の本体ハッシュをまとめてハッシュする。成分内の関数は同じ dep_hash を持ち、hash_status = cyclic とする。</li>
+<li><strong>取りこぼし</strong>：動的呼び出しや変数で渡された関数の呼び出しを含む関数は hash_status = incomplete とする。その関数の計算行は、ハッシュが同じでも stale の可能性があるものとしてテーブルに示す。trace 表で実際の呼び出しを確認できる。</li>
+<li><strong>プロジェクト外の関数</strong>：標準ライブラリや依存ライブラリの中身はハッシュしない。実行環境の側（9.3節）で扱う。</li>
+<li><strong>提供元による差</strong>：提供元によって呼び出し先が食い違う場合は、突き合わせ検査（11.6節）の不一致として needs_review にする。</li>
+</ul>
+<h3>9.3 実行環境</h3>
+<p>実行環境の版は、ハッシュではなく git で扱う。</p>
+<ul>
+<li>評価時に、コミットのハッシュ、コミット日時、dirty（未コミットの変更の有無）を計算行に記録する。同一性の判定にはコミットのハッシュを使い、日時は表示と並べ替えに使う。</li>
+<li>再スキャン時に、記録したコミットと現在のコミットの間でロックファイルが変わったかを調べる（<code>git diff --name-only &lt;記録&gt; HEAD -- &lt;ロックファイル&gt;</code>）。変わっていれば stale とする。</li>
+<li>どのファイルをロックファイルとみなすかは、REPLアダプタと境界規則が宣言する（Elixir なら <code>mix.lock</code>、Rustler なら <code>Cargo.lock</code>、Nix なら <code>flake.lock</code>）。</li>
+<li>dirty で評価した結果は、stale の可能性があるものとしてテーブルに示す。</li>
+<li>対象プロジェクトは git で管理されていることを前提とする。</li>
+</ul>
+<h2>10. アーキテクチャ</h2>
+<pre class="mermaid">graph TD
+  CLI[CLI] --&gt; Core
+  RPC[JSON-RPC stdio] --&gt; Core
+  WS[WebSocket] --&gt; Core
+  LSPI[LSPモード] --&gt; Core
+  MCPI[MCP] --&gt; Core
+  Core[Core: テーブル / ID / 参照解決 / 再計算順序 / 修正計算 / ハッシュ] --&gt; Store[Store]
+  Core --&gt; Scanner[Scanner]
+  Core --&gt; Resolver[Resolver]
+  Core --&gt; Evaluator[Evaluator]
+  Core --&gt; Tracer[Tracer]
+  Core --&gt; Exporter[Exporter]
+  Scanner --&gt; Providers[Provider選択]
+  Resolver --&gt; Providers
+  Providers --&gt; Client[クライアント提供]
+  Providers --&gt; Self[自前起動の言語サーバー]
+  Providers --&gt; Base[基本動作]
+  Base --&gt; Adapter[REPLアダプタ]
+  Evaluator --&gt; Adapter
+  Tracer --&gt; Adapter
+  Boundary[境界規則] --&gt; Adapter
+  Resolver --&gt; Boundary
+  Adapter --&gt; REPL[対象プロジェクトのREPL]
+</pre>
+<table>
+<thead>
+<tr>
+<th>コンポーネント</th>
+<th>責務</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Core</td>
+<td>テーブルの保持、ID照合、参照の解決と差し替え、再計算順序の決定、循環の検出、ハッシュの計算、編集イベントから修正リストへの計算。純粋関数として実装する</td>
+</tr>
+<tr>
+<td>Scanner</td>
+<td>関数・節・ガードの抽出。セルの式も対象とする</td>
+</tr>
+<tr>
+<td>Resolver</td>
+<td>名前解決と参照検索</td>
+</tr>
+<tr>
+<td>Provider選択</td>
+<td>要求を機能ごとに優先順位に従って提供元へ振り分け、結果を検査する（第11章）</td>
+</tr>
+<tr>
+<td>Evaluator</td>
+<td>REPL セッションを管理し、差し替え済みの式を評価させる。時間とメモリの上限を設ける</td>
+</tr>
+<tr>
+<td>Tracer</td>
+<td>実行中のプログラムの関数呼び出しを trace 表に記録する</td>
+</tr>
+<tr>
+<td>REPLアダプタ</td>
+<td>言語ごとの差を担う（第12章）</td>
+</tr>
+<tr>
+<td>境界規則</td>
+<td>言語の境界をまたぐ対応を担う（第13章）</td>
+</tr>
+<tr>
+<td>Store</td>
+<td>テーブルの永続化</td>
+</tr>
+<tr>
+<td>Exporter</td>
+<td>Mermaid、DOT、doctest 形式などへの変換</td>
+</tr>
+<tr>
+<td>各インターフェース</td>
+<td>同一の Core 操作に対する複数の入口</td>
+</tr>
+</tbody>
+</table>
+<p>Elixir の実装では、対象プロジェクトごとに監督ツリーを持ち、ファイル監視・REPLセッション・Tracer・提供元との接続・購読者管理をそれぞれプロセスとして分離する。</p>
+<h2>11. 解析の提供元</h2>
+<h3>11.1 主経路と基本動作</h3>
+<p>関数の一覧、接続関係、名前変更は、言語サーバー（LSP）の標準要求を主経路とする。構文解析は、LSP が返さない判定式と、ディスク上にないセルの式に限る。</p>
+<table>
+<thead>
+<tr>
+<th>用途</th>
+<th>LSP の要求</th>
+<th>基本動作（Elixir）</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>関数の一覧・範囲・入れ子（node、階層コード、body_hash の範囲）</td>
+<td>documentSymbol</td>
+<td>コンパイラトレーサー、構文解析</td>
+</tr>
+<tr>
+<td>受信元</td>
+<td>references、callHierarchy/incomingCalls</td>
+<td>コンパイラトレーサー、<code>mix xref</code></td>
+</tr>
+<tr>
+<td>送信先</td>
+<td>callHierarchy/outgoingCalls</td>
+<td>コンパイラトレーサー</td>
+</tr>
+<tr>
+<td>型</td>
+<td>hover、signatureHelp</td>
+<td><code>@spec</code> の読み取り</td>
+</tr>
+<tr>
+<td>関数名の連動修正</td>
+<td>rename</td>
+<td>REPLアダプタの書き換え規則</td>
+</tr>
+<tr>
+<td>ファイル名の連動修正</td>
+<td>willRenameFiles</td>
+<td>REPLアダプタの書き換え規則</td>
+</tr>
+<tr>
+<td>節ごとのガード</td>
+<td>なし</td>
+<td>対象プロジェクトの REPL での構文解析（<code>Code.string_to_quoted</code> 系）</td>
+</tr>
+<tr>
+<td>セルの式</td>
+<td>なし</td>
+<td>同上</td>
+</tr>
+</tbody>
+</table>
+<p>基本動作は、LSP が使えないときの予備ではなく、実用の経路として実装する。tree-sitter は、言語サーバーを持たない言語向けの任意の共通経路として残す。</p>
+<h3>11.2 機能ごとの判定</h3>
+<p>言語サーバーは接続時に対応機能の一覧（capabilities）を返す。Xipe Totec は、この一覧を見て機能ごとに LSP と基本動作を振り分ける。言語サーバーの機能が増えれば、設定を変えずに LSP 側へ移る。どちらの経路で得た結果かはスキャン記録に残す。</p>
+<p>Elixir の既定の言語サーバーは Expert とする。動作確認済みの版は配布時に添え書きする。</p>
+<h3>11.3 優先順位</h3>
+<p>機能ごとに、次の順で使える提供元を選ぶ。使えない、応答しない、検査に失敗した場合は次に回す。</p>
+<ol>
+<li><strong>クライアント提供</strong>：クライアント側で動いている言語サーバー（ブラウザ側の言語サーバーを含む）や構文解析に、クライアントが問い合わせて中継する。</li>
+<li><strong>利用者が構成した多重化プロキシ</strong>：1つの言語サーバーを複数のクライアントで共有する仕組み（rust-analyzer 向けの lspmux など）。</li>
+<li><strong>自前起動</strong>：Xipe Totec が起動した言語サーバー。</li>
+<li><strong>基本動作</strong>：11.1節の表。</li>
+</ol>
+<h3>11.4 要求の形</h3>
+<ol>
+<li><strong>能力の宣言</strong>：接続時に、クライアントは提供できる機能を宣言する（対応言語、言語サーバーの名前と版、文法の版）。</li>
+<li><strong>要求</strong>：Xipe Totec はクライアントに <code>provider/*</code> を送る。要求には対象ファイルのパスと、ディスク上の内容の content_hash を含める。</li>
+<li><strong>応答</strong>：クライアントは、解析した内容の content_hash を付けて結果を返す。</li>
+<li><strong>照合</strong>：応答の content_hash がディスク上の内容と一致しなければ、結果を破棄して次の提供元に回す。未保存のバッファを解析した結果はこれにより破棄される。編集中の内容は、保存時にカードへ反映される。</li>
+<li><strong>時間切れ</strong>：応答を待つ時間はパラメータとする（第17章）。起動直後の索引作成中は参照検索だけが遅くなりうるため、要求の種類ごとに分ける。</li>
+</ol>
+<h3>11.5 受け入れ検査</h3>
+<ul>
+<li>提供元ごとに、初回はREPLアダプタの検査用ソースで結果を検査し、provider テーブルに記録する。</li>
+<li>検査結果は、提供元の版を表す値の組（言語サーバーの名前と版、capabilities、文法の版、REPLアダプタの版と検査用ソースのハッシュ、ロックファイル）と一緒に記録する。</li>
+<li>接続時や再スキャン時に組が変わっていれば、自動で検査をやり直す。利用者が明示的にやり直すこともできる。</li>
+</ul>
+<h3>11.6 突き合わせ検査</h3>
+<p>LSP の結果と構文解析の結果は別の経路から来るため、突き合わせて整合を確かめる。節ごとの送信先（link.clause）は、LSP が返す呼び出し位置を、構文解析で得た節の本体範囲に当てはめて決める。</p>
+<table>
+<thead>
+<tr>
+<th>検査</th>
+<th>不一致なら分かること</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>ガードの変数が、同じ節の頭で束縛されているか</td>
+<td>ガードの切り出し位置がずれている、または節の境界を取り違えている</td>
+</tr>
+<tr>
+<td>節の頭の引数の数が、node の arity と一致するか</td>
+<td>関数と節の対応がずれている</td>
+</tr>
+<tr>
+<td>LSP の呼び出し位置が、いずれかの節の本体範囲に入るか</td>
+<td>節の範囲が途切れている、または結果が古い</td>
+</tr>
+<tr>
+<td>ガードや節の範囲が、LSP の関数の範囲に収まるか</td>
+<td>両者が別の版のソースを見ている</td>
+</tr>
+<tr>
+<td>構文解析で見つけた呼び出しと、LSP の送信先の数が合うか</td>
+<td>動的呼び出しや、解決できなかった呼び出しがある</td>
+</tr>
+</tbody>
+</table>
+<p>不一致があった関数は needs_review とし、どの検査で外れたかを診断として返す。</p>
+<h3>11.7 1バッファ1サーバーのクライアント</h3>
+<p>名前解決は、クライアント側が既存の言語サーバーに問い合わせて結果を中継する形をとるため、1つのバッファに1つの言語サーバーしか割り当てられないクライアントでも、Xipe Totec を言語サーバーとして並べて登録する必要はない。LSP モード（16.4節）は、中継の仕組みを持たないクライアント向けの任意の入口とする。</p>
+<h3>11.8 ビルドの取り合い</h3>
+<p>言語サーバーと REPL が同じプロジェクトを同時にビルドすると、ビルド成果物を壊すことがある。Expert はビルドを専用の場所で行うため、既定では REPL は通常のビルド先を使う。他の言語サーバーと併用する場合に備え、REPL 側のビルド先を分けるパラメータ（<code>repl.build_root</code>）を用意する。</p>
+<h2>12. REPLアダプタ</h2>
+<h3>12.1 位置づけ</h3>
+<p>REPLアダプタは、対象プロジェクトの環境にある REPL（<code>iex</code>、<code>ghci</code>、<code>utop</code> など）を、Xipe Totec の共通の操作に合わせる薄い部品である。REPL を同梱せず、対象プロジェクトの環境（<code>flake.nix</code> など）で使える状態になっていることを前提とする。LLM による生成を許容する。</p>
+<h3>12.2 必須機能</h3>
+<table>
+<thead>
+<tr>
+<th>機能</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>REPL起動</td>
+<td>既定の起動コマンド（Elixir なら <code>iex -S mix</code>）、プロンプト形式、終了方法。起動コマンドは設定で上書きできる</td>
+</tr>
+<tr>
+<td>呼び出し式の組み立て</td>
+<td>関数IDと引数の式から、その言語の呼び出し式を作る</td>
+</tr>
+<tr>
+<td>評価</td>
+<td>式を評価し、値を返す。時間とメモリの上限に対応する</td>
+</tr>
+<tr>
+<td>正規化</td>
+<td>値を比較可能な正規形の文字列に変換し、repr を判定する</td>
+</tr>
+<tr>
+<td>外部項形式</td>
+<td>binary の値の保存と復元（対応する言語のみ）</td>
+</tr>
+<tr>
+<td>比較</td>
+<td>2つの値が等しいかを判定する（浮動小数点の許容誤差などを含む）</td>
+</tr>
+<tr>
+<td>構文解析</td>
+<td>判定式とセルの式を解析し、正規化した構文木を返す</td>
+</tr>
+<tr>
+<td>基本動作の名前解決</td>
+<td>言語固有の依存情報の取得手段（Elixir ならコンパイラトレーサー、<code>mix xref</code>）</td>
+</tr>
+<tr>
+<td>既定の言語サーバー</td>
+<td>自前起動する言語サーバーの指定</td>
+</tr>
+<tr>
+<td>型の取得</td>
+<td>関数の型情報</td>
+</tr>
+<tr>
+<td>名前空間規則</td>
+<td>ファイルとモジュール名の対応規則（12.5節）</td>
+</tr>
+<tr>
+<td>書き換え規則</td>
+<td>関数名・モジュール名の変更時に書き換える参照の形（14.3節）</td>
+</tr>
+<tr>
+<td>副作用の基本関数表</td>
+<td>8.2節で使う表</td>
+</tr>
+<tr>
+<td>ロックファイルの宣言</td>
+<td>9.3節で使うファイルの一覧</td>
+</tr>
+<tr>
+<td>トレースの手段</td>
+<td>関数の呼び出し・戻りを観測する方法</td>
+</tr>
+<tr>
+<td>出力形式</td>
+<td>計算行を言語標準のテスト形式（doctest 等）に変換する</td>
+</tr>
+<tr>
+<td>検査用ソース</td>
+<td>受け入れ検査に使う小さなソース群と期待結果</td>
+</tr>
+</tbody>
+</table>
+<h3>12.3 受け入れ検査</h3>
+<p>REPLアダプタは、採用前に以下の検査に合格しなければならない（P4）。</p>
+<ol>
+<li>同じ計算行群を2回評価し、正規形が完全に一致すること。</li>
+<li>exact と判定した正規形を REPL に再入力して評価した結果が、元の正規形と一致すること（往復検査）。</li>
+<li>構文解析が、検査用ソースに対して期待どおりの節とガードを返すこと。</li>
+<li>書き換え規則が、検査用ソースに対する名前変更で、期待どおりの修正リストを返すこと。</li>
+</ol>
+<h3>12.4 正規化の注意点</h3>
+<p>REPL の表示文字列は、比較用の正規形とは限らない。REPLアダプタは少なくとも、マップ・集合のキー順序、浮動小数点の桁と表記、表示が省略される値、関数値や参照など表示できない値、プロセスIDなど実行ごとに変化する値を扱い、repr を正しく判定する必要がある。</p>
+<h3>12.5 名前空間規則</h3>
+<table>
+<thead>
+<tr>
+<th>言語</th>
+<th>ファイルとモジュールの関係</th>
+<th>ファイル名変更時の扱い</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Elixir</td>
+<td>対応は慣習のみ。1ファイルに複数モジュールを置ける</td>
+<td>慣習に沿ったモジュール名の変更を diff に含めて提案する</td>
+</tr>
+<tr>
+<td>Haskell</td>
+<td>モジュール名とパスの一致が事実上必須</td>
+<td>モジュール名と連動して変更する</td>
+</tr>
+<tr>
+<td>OCaml</td>
+<td>ファイル名がそのまま最上位のモジュール名</td>
+<td>モジュール名と連動して変更する</td>
+</tr>
+<tr>
+<td>Clojure</td>
+<td>名前空間とパスの一致が読み込みに必要</td>
+<td>名前空間と連動して変更する</td>
+</tr>
+<tr>
+<td>Racket</td>
+<td>ファイルがモジュールであり、参照がパスで書かれる</td>
+<td>パスによる参照を書き換える</td>
+</tr>
+</tbody>
+</table>
+<h3>12.6 初期対象と候補</h3>
+<p>初期対象は Elixir とする。以降の候補として、Haskell（GHCi / doctest）、OCaml（utop / mdx）、Clojure（REPL）、Racket（REPL / rackunit）などを想定する。</p>
+<h2>13. 境界規則</h2>
+<h3>13.1 位置づけ</h3>
+<p>Elixir から Rust などの他言語の関数を呼ぶ構成では、他言語の関数は Elixir 側のスタブ関数として呼べる。このため、計算行の評価は窓口側の言語（Elixir）のREPLアダプタだけで行える。境界規則は、両側の言語のREPLアダプタを前提に、その間の対応だけを担う独立した部品とする。境界の種類ごとに追加・削除でき、既存のREPLアダプタに手を入れる必要はない。</p>
+<h3>13.2 必須機能（Rustler の場合）</h3>
+<table>
+<thead>
+<tr>
+<th>機能</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>境界の検出</td>
+<td>Elixir 側の <code>use Rustler</code> モジュールと、Rust 側の <code>rustler::init!</code> の組を見つける</td>
+</tr>
+<tr>
+<td>名前の対応</td>
+<td>スタブ関数と <code>#[rustler::nif]</code> 関数を結ぶ（<code>name</code> 属性を考慮する）</td>
+</tr>
+<tr>
+<td>リンク行</td>
+<td>境界をまたぐリンクを張る</td>
+</tr>
+<tr>
+<td>型</td>
+<td>両側の型情報（<code>@spec</code> と Rust のシグネチャ）を併記する</td>
+</tr>
+<tr>
+<td>書き換え規則</td>
+<td>名前変更時に、スタブの定義、Rust の関数名または <code>name</code> 属性、Elixir 側の呼び出し元をまとめて書き換える</td>
+</tr>
+<tr>
+<td>依存の伝播</td>
+<td>Rust 側のソースの変更をスタブ関数の dep_hash に反映する</td>
+</tr>
+<tr>
+<td>ロックファイルの宣言</td>
+<td><code>Cargo.lock</code></td>
+</tr>
+<tr>
+<td>評価への影響</td>
+<td>境界の先の依存が変わったら、再評価の前に REPL セッションを再起動するよう Evaluator に伝える</td>
+</tr>
+<tr>
+<td>副作用の既定値</td>
+<td>境界の先の関数は、解析できるまで effect = unknown とする</td>
+</tr>
+<tr>
+<td>トレースの範囲</td>
+<td>境界の先を記録できない場合、スタブ関数の trace_coverage を partial とする</td>
+</tr>
+</tbody>
+</table>
+<h3>13.3 補足</h3>
+<ul>
+<li>Rust 側のファイルもシートとして登録する。NIF として公開されていない Rust 内部の関数は、Elixir から評価できないため、リンク行だけのカードになる。</li>
+<li>環境を Nix で固定している場合、境界の先が変わるのはソースやロックファイルを更新してビルドし直したときに限られる。これは 9.2節と 9.3節の仕組みで検出される。セッションの再起動で失われた束縛は lost として示される。</li>
+<li>同じ枠組みで、Zigler（Zig）、Port による外部プロセス、Erlang モジュールなどの境界を扱える。</li>
+</ul>
+<h2>14. 処理フロー</h2>
+<h3>14.1 スキャン</h3>
+<ol>
+<li>指定ディレクトリ配下のファイルを、パスと内容ハッシュで sheet に登録する（ファイルはコピーしない）。</li>
+<li>提供元（第11章）を通じて、関数の一覧と範囲を得る。階層コードを振る。</li>
+<li>対象プロジェクトの REPL で、節・ガードを構文解析する。</li>
+<li>提供元を通じて参照を解決し、境界規則の対応を加えて link を確定する。</li>
+<li>突き合わせ検査を行う。</li>
+<li>既存の関数とのID照合を行い、墓標・要確認を更新する。</li>
+<li>body_hash、dep_hash、hash_status、effect（inferred のもの）を更新する。ロックファイルの差分を調べ、stale を更新する。</li>
+<li>ぶら下がり参照を検出し、診断として記録する。</li>
+<li>常駐時はファイル監視により、変更のあったファイルのみ差分で再スキャンする。</li>
+</ol>
+<h3>14.2 評価と再計算</h3>
+<ol>
+<li>引数セルの編集、または評価要求を受け取る。</li>
+<li>参照を解決し、依存順を決める。対象を 6.6節の規則で絞る。</li>
+<li>境界規則から再起動の指示があれば、REPL セッションを再起動する。</li>
+<li>各計算行を 6.4節の手順で評価する。安全装置（6.7節）を適用する。</li>
+<li>更新された計算行を参照している下流の計算行を、同じ手順で再計算する。</li>
+<li>変更のあった行ごとに、購読しているクライアントへ通知する。</li>
+</ol>
+<h3>14.3 連動修正</h3>
+<p>関数名セルまたはシート名（ファイル名）を編集したとき、その変更を対象プロジェクトのソースに反映する。</p>
+<ol>
+<li>クライアントからの編集を編集イベントとして受け取る。</li>
+<li>「現在のブック＋編集イベント → 修正リスト」を計算する。LSP の rename・willRenameFiles が使えればその結果を、使えなければREPLアダプタと境界規則の書き換え規則を用いる。修正リストには、定義側と参照側の両方の書き換えを含む。</li>
+<li>修正リストを diff としてクライアントに返す（プレビュー）。</li>
+<li>承認後に適用する。</li>
+<li>再スキャンし、ぶら下がり参照がないことを確認する。</li>
+<li>影響を受けた計算行を再計算する。</li>
+</ol>
+<p>取り消しは、逆の編集イベントの適用として扱う。ディスク上のファイルを書き換えた後、エディタ側のバッファを読み直すのはクライアントの責務とする。</p>
+<p><strong>Elixir で関数名を変更したときの書き換え箇所</strong></p>
+<table>
+<thead>
+<tr>
+<th>箇所</th>
+<th>自動修正</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>定義側：複数節の <code>def</code> すべて、<code>@spec</code>、<code>@doc</code> 内の doctest</td>
+<td>可</td>
+</tr>
+<tr>
+<td>呼び出し：完全修飾、alias 経由、<code>import</code> 後の修飾なし呼び出し</td>
+<td>可</td>
+</tr>
+<tr>
+<td><code>import</code> の <code>only:</code> / <code>except:</code> の中</td>
+<td>可</td>
+</tr>
+<tr>
+<td>関数キャプチャ（<code>&amp;Mod.f/2</code>）、<code>defdelegate</code></td>
+<td>可</td>
+</tr>
+<tr>
+<td>behaviour の <code>@callback</code> と、それを実装する他モジュールの <code>def</code></td>
+<td>可（実装側をすべて同時に変更する）</td>
+</tr>
+<tr>
+<td><code>apply/3</code> のアトム、文字列、設定ファイル</td>
+<td>不可（needs_review）</td>
+</tr>
+</tbody>
+</table>
+<p>同名で引数の数が違う関数は、別の関数として書き換えの対象から外す。引数の数が変わる変更はシグネチャ変更であり、自動修正の対象外とする。</p>
+<p><strong>Elixir でファイル名を変更したとき</strong></p>
+<p>Elixir ではファイル名とモジュール名が言語上連動しないため、慣習に沿ったモジュール名の変更と、それに伴う参照側の書き換えを diff に含めて提案する。</p>
+<table>
+<thead>
+<tr>
+<th>箇所</th>
+<th>自動修正</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>defmodule</code> の名前、入れ子モジュールの接頭辞</td>
+<td>可</td>
+</tr>
+<tr>
+<td>完全修飾の呼び出し、<code>alias</code> / <code>import</code> / <code>require</code> / <code>use</code></td>
+<td>可</td>
+</tr>
+<tr>
+<td>alias 経由の短縮呼び出し</td>
+<td>条件付き（末尾の名前が変わる場合のみ。<code>as:</code> 指定なら不変）</td>
+</tr>
+<tr>
+<td>構造体 <code>%Mod{}</code>、型 <code>Mod.t()</code>、<code>@behaviour</code>、<code>defdelegate ... to:</code></td>
+<td>可</td>
+</tr>
+<tr>
+<td>関数キャプチャ、<code>@doc</code> 内の doctest</td>
+<td>可</td>
+</tr>
+<tr>
+<td>設定ファイル中のアトム、<code>Module.concat</code>、文字列</td>
+<td>不可（needs_review）</td>
+</tr>
+</tbody>
+</table>
+<ul>
+<li>1ファイルに複数モジュールがある場合は、パスの慣習に対応するモジュールだけを改名対象とする。</li>
+<li>対応するテストファイル（<code>test/shop/price_test.exs</code> と <code>Shop.PriceTest</code>）の改名も提案する。</li>
+<li>移動先に同名ファイルがある場合は、自動で決めず衝突として提示する。</li>
+</ul>
+<h3>14.4 自動修正しない対象</h3>
+<p>動的呼び出し、マクロ展開後にのみ現れる参照、文字列や設定ファイルに書かれた名前は、静的に追跡できない。これらは自動修正の対象から外し、needs_review として提示する。LLM による修正候補の提示は許容するが、適用は利用者の承認と 14.3節の確認を経る。</p>
+<h3>14.5 記録と取り込み</h3>
+<ol>
+<li>記録開始の要求を受け、run を発行し、対象プロジェクトの REPL にトレースを設定する。</li>
+<li>呼び出し・戻りのイベントを trace に追記する。戻りの時点で、飛ばされた送信先の no_data 行を追記する（設定で無効にできる）。</li>
+<li>行数の上限に達するか、記録終了の要求を受けたら、トレースを解除する。</li>
+<li>取り込み要求に応じて、選ばれた observed 行を call に追加し、評価する。</li>
+</ol>
+<h2>15. CLI</h2>
+<table>
+<thead>
+<tr>
+<th>コマンド</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>xipe init &lt;dir&gt;</code></td>
+<td>対象プロジェクトを登録し、REPLアダプタと境界規則を決定する</td>
+</tr>
+<tr>
+<td><code>xipe scan [&lt;dir&gt;]</code></td>
+<td>スキャンを実行する</td>
+</tr>
+<tr>
+<td><code>xipe serve</code></td>
+<td>サーバーとして常駐する</td>
+</tr>
+<tr>
+<td><code>xipe show [住所オプション]</code></td>
+<td>カードを表示する。参照は名前に展開する。複数該当する場合は候補を列挙する</td>
+</tr>
+<tr>
+<td><code>xipe find --type &lt;型&gt;</code></td>
+<td>型に合う関数を逆引きする</td>
+</tr>
+<tr>
+<td><code>xipe row add [住所オプション] --arg &lt;式&gt;... [--ref argN=&lt;計算行ID&gt;]</code></td>
+<td>計算行を追加する</td>
+</tr>
+<tr>
+<td><code>xipe row edit &lt;計算行ID&gt; [--arg N=&lt;式&gt;] [--prev &lt;式&gt;]</code></td>
+<td>引数や前回列を編集する</td>
+</tr>
+<tr>
+<td><code>xipe row remove &lt;計算行ID&gt;</code></td>
+<td>計算行を削除する。参照していた下流は ref_error になる</td>
+</tr>
+<tr>
+<td><code>xipe eval [住所オプション] [--all] [--include-writes]</code></td>
+<td>評価と再計算を実行する</td>
+</tr>
+<tr>
+<td><code>xipe effect set [住所オプション] &lt;pure/reads/writes/unknown&gt;</code></td>
+<td>副作用の区分を更新する</td>
+</tr>
+<tr>
+<td><code>xipe diff &lt;edit&gt;</code></td>
+<td>編集イベントに対する修正リストを表示する</td>
+</tr>
+<tr>
+<td><code>xipe apply &lt;edit&gt;</code></td>
+<td>修正リストを適用する</td>
+</tr>
+<tr>
+<td><code>xipe trace start [--scope &lt;住所&gt;...] [--max-rows &lt;n&gt;] [--record-no-data &lt;true/false&gt;]</code></td>
+<td>記録を開始し、run のIDを表示する</td>
+</tr>
+<tr>
+<td><code>xipe trace stop &lt;run&gt;</code></td>
+<td>記録を終了する</td>
+</tr>
+<tr>
+<td><code>xipe trace show &lt;run&gt; [--pid &lt;pid&gt;]</code></td>
+<td>trace 表を表示する</td>
+</tr>
+<tr>
+<td><code>xipe trace import &lt;run&gt; [住所オプション]</code></td>
+<td>observed 行を計算行として取り込む</td>
+</tr>
+<tr>
+<td><code>xipe provider check [--feature &lt;機能&gt;]</code></td>
+<td>提供元の受け入れ検査をやり直す</td>
+</tr>
+<tr>
+<td><code>xipe export --format &lt;mermaid/dot/doctest/json&gt; [住所オプション] [--depth &lt;n&gt;]</code></td>
+<td>指定範囲を出力する</td>
+</tr>
+<tr>
+<td><code>xipe clean [--tombstones] [--cache] [--runs]</code></td>
+<td>墓標、キャッシュ、trace の記録を削除する</td>
+</tr>
+</tbody>
+</table>
+<p>住所オプションは <code>--file</code>、<code>--module</code>、<code>--name</code>、<code>--arity</code>、<code>--type</code>、<code>--hier</code>、<code>--row</code> の組み合わせとする（6.1節）。</p>
+<p>CLI とサーバーは同一の Core 操作を呼ぶ。終了コードは CI での利用を考慮し、エラー値、ぶら下がり参照、changed の行がある場合は非ゼロとする（changed の扱いは設定で変更できる）。</p>
+<h2>16. サーバーインターフェース</h2>
+<h3>16.1 通信方式</h3>
+<table>
+<thead>
+<tr>
+<th>入口</th>
+<th>想定クライアント</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>JSON-RPC over stdio</td>
+<td>エディタ、スクリプト</td>
+</tr>
+<tr>
+<td>WebSocket（localhost）</td>
+<td>ブラウザ系クライアント、中継を介したクライアント</td>
+</tr>
+<tr>
+<td>LSP モード（JSON-RPC over stdio）</td>
+<td>中継の仕組みを持たない LSP クライアント</td>
+</tr>
+<tr>
+<td>MCP</td>
+<td>LLM 系ツール</td>
+</tr>
+</tbody>
+</table>
+<p>いずれもローカルホストのみで待ち受け、認証は設けず、外部ネットワークには接続しない。</p>
+<h3>16.2 中継への適合</h3>
+<p>クライアントとの間に、メッセージの中身を解釈しない中継が入っても動作するよう、次の条件を満たす。</p>
+<ul>
+<li>要求・応答・通知は、それぞれ1件で意味が完結する形にする。</li>
+<li>サーバーからの通知（<code>notify/*</code>）と要求（<code>provider/*</code>）は、応答と同じ出力の経路で送る。応答・通知・要求の区別は受信側が JSON を読んで行う。</li>
+<li>状態を持つのはサーバーとクライアントだけとし、中継は状態を持たない前提とする。1本の接続を複数のクライアントが共有する場合、通知はすべてのクライアントに届き、各クライアントが必要なものを選ぶ。</li>
+</ul>
+<h3>16.3 メソッド</h3>
+<p>クライアント → Xipe Totec</p>
+<table>
+<thead>
+<tr>
+<th>メソッド</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>initialize</code></td>
+<td>接続を開始する。クライアントが提供できる解析機能を宣言する</td>
+</tr>
+<tr>
+<td><code>card/get</code></td>
+<td>住所オブジェクトでカードを取得する。複数該当する場合は候補を返す</td>
+</tr>
+<tr>
+<td><code>card/search</code></td>
+<td>条件でカードを検索する。型による逆引きを含む</td>
+</tr>
+<tr>
+<td><code>graph/neighbors</code></td>
+<td>指定カードの受信元・送信先を指定深さまで返す</td>
+</tr>
+<tr>
+<td><code>graph/export</code></td>
+<td>指定範囲を Mermaid / DOT 等で返す</td>
+</tr>
+<tr>
+<td><code>scan/run</code></td>
+<td>スキャンを実行する</td>
+</tr>
+<tr>
+<td><code>row/add</code></td>
+<td>計算行を追加する</td>
+</tr>
+<tr>
+<td><code>row/update</code></td>
+<td>引数セル・前回セルを編集する。再計算の結果を返す</td>
+</tr>
+<tr>
+<td><code>row/remove</code></td>
+<td>計算行を削除する</td>
+</tr>
+<tr>
+<td><code>eval/run</code></td>
+<td>評価と再計算を実行する</td>
+</tr>
+<tr>
+<td><code>effect/set</code></td>
+<td>副作用の区分を更新する</td>
+</tr>
+<tr>
+<td><code>cell/complete</code></td>
+<td>入力中の列と途中の値を受け取り、候補を返す。列ごとに独立して応答する</td>
+</tr>
+<tr>
+<td><code>cell/resolve</code></td>
+<td>参照を解決し、参照先の現在値、repr、state を返す</td>
+</tr>
+<tr>
+<td><code>edit/propose</code></td>
+<td>編集イベントから修正リストを計算して返す</td>
+</tr>
+<tr>
+<td><code>edit/apply</code></td>
+<td>修正リストを適用する</td>
+</tr>
+<tr>
+<td><code>trace/start</code>、<code>trace/stop</code>、<code>trace/get</code>、<code>trace/import</code></td>
+<td>trace の記録、取得、取り込み</td>
+</tr>
+<tr>
+<td><code>provider/recheck</code></td>
+<td>提供元の受け入れ検査をやり直す</td>
+</tr>
+<tr>
+<td><code>subscribe</code></td>
+<td>行や trace の変更通知を購読する</td>
+</tr>
+</tbody>
+</table>
+<p>Xipe Totec → クライアント</p>
+<table>
+<thead>
+<tr>
+<th>メソッド</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>provider/query</code></td>
+<td>構文クエリの実行を依頼する（path、content_hash、query）</td>
+</tr>
+<tr>
+<td><code>provider/symbols</code></td>
+<td>documentSymbol の中継を依頼する（path、content_hash）</td>
+</tr>
+<tr>
+<td><code>provider/references</code></td>
+<td>参照検索・呼び出し関係の中継を依頼する（path、position、content_hash）</td>
+</tr>
+<tr>
+<td><code>provider/rename</code></td>
+<td>rename・willRenameFiles の中継を依頼する</td>
+</tr>
+<tr>
+<td><code>notify/rowChanged</code></td>
+<td>行の変更通知。行ID、変更された列の一覧、新しい値を含む</td>
+</tr>
+<tr>
+<td><code>notify/nodeChanged</code></td>
+<td>関数の変更通知（effect、hash_status、status など）</td>
+</tr>
+<tr>
+<td><code>notify/traceAppended</code></td>
+<td>記録中の run に行が追加されたことの通知</td>
+</tr>
+</tbody>
+</table>
+<p>すべての応答に、対象ファイルの source_hash を含める。</p>
+<h3>16.4 LSP モードでの対応づけ</h3>
+<table>
+<thead>
+<tr>
+<th>LSP 機能</th>
+<th>Xipe Totec での意味</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>hover</td>
+<td>カーソル位置の関数のカードを表示</td>
+</tr>
+<tr>
+<td>codeLens</td>
+<td>関数定義上に計算行の件数とエラー値・changed の件数を表示</td>
+</tr>
+<tr>
+<td>inlayHint</td>
+<td>呼び出し箇所に計算行の結果を表示</td>
+</tr>
+<tr>
+<td>publishDiagnostics</td>
+<td>ぶら下がり参照、エラー値、要確認を報告</td>
+</tr>
+<tr>
+<td>rename</td>
+<td>連動修正を提供</td>
+</tr>
+</tbody>
+</table>
+<p>言語本来の言語サーバーと同じバッファに併用する場合に備え、担当する機能を設定で選べるようにする。</p>
+<h2>17. 設定</h2>
+<p>設定はプロジェクトごとに持ち、XDG 準拠の設定ディレクトリ（例：<code>~/.config/xipe_totec/projects/&lt;project-id&gt;.toml</code>）に置く。</p>
+<table>
+<thead>
+<tr>
+<th>パラメータ</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>repl.&lt;言語&gt;.command</code></td>
+<td>REPL の起動コマンド（例：<code>nix develop -c iex -S mix</code>）</td>
+</tr>
+<tr>
+<td><code>repl.build_root</code></td>
+<td>REPL 側のビルド先</td>
+</tr>
+<tr>
+<td><code>eval.timeout</code></td>
+<td>1回の評価の時間上限</td>
+</tr>
+<tr>
+<td><code>eval.max_heap</code></td>
+<td>1回の評価のメモリ上限</td>
+</tr>
+<tr>
+<td><code>eval.max_per_pass</code></td>
+<td>1回の再計算の中での、同じ計算行の評価回数の上限</td>
+</tr>
+<tr>
+<td><code>trace.scope</code></td>
+<td>記録対象の関数</td>
+</tr>
+<tr>
+<td><code>trace.max_rows</code></td>
+<td>1 run あたりの行数上限。到達時に記録を自動停止する</td>
+</tr>
+<tr>
+<td><code>trace.record_no_data</code></td>
+<td>no_data 行を記録するか</td>
+</tr>
+<tr>
+<td><code>trace.max_runs</code></td>
+<td>保持する run の数</td>
+</tr>
+<tr>
+<td><code>trace.retention</code></td>
+<td>run の保持期間</td>
+</tr>
+<tr>
+<td><code>provider.timeout.initialize</code></td>
+<td>提供元の起動・接続を待つ時間</td>
+</tr>
+<tr>
+<td><code>provider.timeout.query</code></td>
+<td>構文クエリ・documentSymbol の応答を待つ時間</td>
+</tr>
+<tr>
+<td><code>provider.timeout.references</code></td>
+<td>参照検索・呼び出し関係の応答を待つ時間</td>
+</tr>
+<tr>
+<td><code>provider.&lt;言語&gt;.server</code></td>
+<td>自前起動する言語サーバー（既定値はREPLアダプタが決める）</td>
+</tr>
+<tr>
+<td><code>ci.fail_on_changed</code></td>
+<td>changed の行があるとき終了コードを非ゼロにするか</td>
+</tr>
+</tbody>
+</table>
+<p>保存物はプロジェクトごとの名前空間に分けて、XDG 準拠のデータディレクトリ（例：<code>~/.local/share/xipe_totec/projects/&lt;project-id&gt;/</code>）に保存する。形式はテキスト（JSON Lines）とし、binary の値にも表示用の文字列を併記して、差分を読める状態を保つ。trace は run ごとに別ファイルとする。</p>
+<h2>18. 出力形式</h2>
+<table>
+<thead>
+<tr>
+<th>形式</th>
+<th>用途</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Mermaid</td>
+<td>Markdown 埋め込み、ブラウザでの描画。判定式はエッジのラベルとして出力する</td>
+</tr>
+<tr>
+<td>DOT（Graphviz）</td>
+<td>大きな図の自動レイアウト</td>
+</tr>
+<tr>
+<td>doctest 形式</td>
+<td>言語標準のテスト機構への書き出し。前回列に値があり、repr が exact の行を対象とする。参照を含む行は、参照先の値を展開して書き出す</td>
+</tr>
+<tr>
+<td>JSON / JSON Lines</td>
+<td>他ツールとの連携、内部形式そのもの（参照は名前に展開するか ID のままかを選べる）</td>
+</tr>
+</tbody>
+</table>
+<pre class="mermaid">graph LR
+  checkout --&gt; add_tax
+  preview --&gt; add_tax
+  add_tax --&gt;|rate &gt; 0| apply_rate
+</pre>
+<h2>19. 非機能要件と配布</h2>
+<h3>19.1 非機能要件</h3>
+<ul>
+<li><strong>再現性</strong>：同一のソース、同一のコミット、同一の設定（提供元の構成を含む）から、同一のカードと同一の修正リストが得られること。IDの新規付与と trace の記録内容は例外とする。</li>
+<li><strong>ローカル完結</strong>：既定で外部ネットワークに接続しない。LLM との連携は、外部の LLM 系ツールが MCP 経由で Xipe Totec を呼ぶ形とする。</li>
+<li><strong>単体動作</strong>：クライアントや言語サーバーの提供がなくても、基本動作だけで全機能が動作すること。</li>
+<li><strong>実行環境の分離</strong>：Xipe Totec 自身の実行環境は、対象プロジェクトの言語のバージョンに依存しないこと。</li>
+<li><strong>性能</strong>：常駐時の差分再スキャンと、単一の引数セル編集に伴う再計算が、対話的な応答時間に収まること。</li>
+</ul>
+<h3>19.2 配布</h3>
+<ul>
+<li>GitHub で公開し、Nix flake から提供する。Erlang/Elixir の版と、既定の言語サーバーの版を flake で固定する。開発用の devShell も同じ flake で提供する。</li>
+<li>版が明らかなため、後に mix release、escript（Hex 経由）、Burrito による単体バイナリへ広げる。Hex のパッケージ名は公開時に確認する。</li>
+</ul>
+<h3>19.3 配布時の注釈</h3>
+<ul>
+<li>対象プロジェクトは git で管理されている必要がある。</li>
+<li>使用する言語の REPL が、対象プロジェクトの環境で使える状態になっている必要がある。</li>
+<li>評価はサンドボックス化されない。副作用の判定を誤れば書き込みは実際に起こるため、全体の再計算の前にコミットしておくことを推奨する。</li>
+<li>言語サーバーの対応機能は版によって異なる。動作確認済みの版を記載する。</li>
+</ul>
+<h2>20. 段階計画</h2>
+<table>
+<thead>
+<tr>
+<th>段階</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>v0.1</td>
+<td>Elixir のみ。基本動作によるスキャン（コンパイラトレーサー、REPL での構文解析）、テーブルの保存と取得、階層コード、住所による検索、Mermaid 出力、JSON-RPC stdio、Nix flake</td>
+</tr>
+<tr>
+<td>v0.2</td>
+<td>Elixir 用REPLアダプタ、計算行の追加・編集・削除、参照と再計算、repr、前回列と比較、エラー値、安全装置、<code>cell/complete</code>、WebSocket の入口と購読通知、doctest 形式出力</td>
+</tr>
+<tr>
+<td>v0.3</td>
+<td>ID照合と墓標、依存込みハッシュと stale、副作用の自動判定と更新、連動修正（関数名・ファイル名）、diff / apply</td>
+</tr>
+<tr>
+<td>v0.4</td>
+<td>提供元の機能ごとの判定、クライアント提供と自前起動の言語サーバー、受け入れ検査、突き合わせ検査、ファイル監視による常駐</td>
+</tr>
+<tr>
+<td>v0.5</td>
+<td>Tracer と trace 表、取り込み、境界規則（Rustler）、MCP の入口、LSP モード</td>
+</tr>
+<tr>
+<td>以降</td>
+<td>他言語のREPLアダプタ、他の境界規則、LLM 生成アダプタの受け入れ検査、型による逆引き、mix release 等の配布形態</td>
+</tr>
+</tbody>
+</table>
+<h2>21. 実装時の確認事項</h2>
+<table>
+<thead>
+<tr>
+<th>項目</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>NIF 関数のトレース</td>
+<td>NIF 関数の呼び出しが BEAM のトレースで記録できるか。できなければ trace_coverage = partial で扱う</td>
+</tr>
+<tr>
+<td>Expert の対応機能</td>
+<td>references、callHierarchy、rename、willRenameFiles の対応状況。接続時の capabilities で判定するため、仕様の変更は不要</td>
+</tr>
+<tr>
+<td>Hex のパッケージ名</td>
+<td>公開時に <code>xipe_totec</code> が使えるか確認する</td>
+</tr>
+</tbody>
+</table>
+<h2>22. 先行例と差分</h2>
+<table>
+<thead>
+<tr>
+<th>先行例</th>
+<th>共通点</th>
+<th>Xipe Totec との差</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>表計算ソフト</td>
+<td>住所、参照、再計算、名前変更の追従</td>
+<td>対象はセルではなくソースコードであり、変更をソースに書き戻す</td>
+</tr>
+<tr>
+<td>リレーショナルデータベース</td>
+<td>キーによる結合、外部キー制約、ビュー、実体化ビュー</td>
+<td>非正規化されたコピーであるソースファイルへ、自然キーの変更を伝播させる</td>
+</tr>
+<tr>
+<td>Nix、Bazel</td>
+<td>入力のハッシュによる結果の再利用</td>
+<td>対象は関数の呼び出し結果</td>
+</tr>
+<tr>
+<td>Babylonian-style Programming（HPI）</td>
+<td>関数の具体例をコードの横に置く</td>
+<td>研究用の専用環境向け。具体例同士の参照は弱い</td>
+</tr>
+<tr>
+<td>Glamorous Toolkit（Pharo）</td>
+<td>開発中に対象ごとの見え方を作る</td>
+<td>Smalltalk 環境内で完結</td>
+</tr>
+<tr>
+<td>tree-sitter 系 MCP サーバー群</td>
+<td>構文解析による呼び出しグラフ</td>
+<td>読み取り専用。値の層と書き戻しがない</td>
+</tr>
+<tr>
+<td>LSP の rename</td>
+<td>参照追跡による名前変更</td>
+<td>値の評価とは無関係</td>
+</tr>
+<tr>
+<td>Unison</td>
+<td>実体をハッシュで識別し、名前はラベル</td>
+<td>言語そのものの設計であり、既存言語には適用できない</td>
+</tr>
+<tr>
+<td>Hoogle</td>
+<td>型による関数の逆引き</td>
+<td>Haskell 専用の検索</td>
+</tr>
+<tr>
+<td>doctest / mdx、スナップショットテスト</td>
+<td>対話記録や出力の記録をテストにする</td>
+<td>記録同士の参照やグラフとの連動がない</td>
+</tr>
+<tr>
+<td>BEAM のトレース（dbg、recon_trace 等）</td>
+<td>実行時の関数呼び出しの観測</td>
+<td>観測結果を表として保存し、計算行に取り込む</td>
+</tr>
+</tbody>
+</table>
+<p>Xipe Totec の独自性は、これらを「テーブルを根とし表計算の見え方を持つ構造として、関数型言語向けに、言語非依存のローカルサーバーとして」1つにまとめる点にある。</p>
+<h2>23. 決定の記録</h2>
+<table>
+<thead>
+<tr>
+<th>ID</th>
+<th>決定</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>U1</td>
+<td>名称は Xipe Totec</td>
+</tr>
+<tr>
+<td>U2</td>
+<td>リンク行は静的構造とし、三つ組はセルに分解する。意味上の対応は節ごとの「判定式と送信先」に限る</td>
+</tr>
+<tr>
+<td>U3</td>
+<td>保存形式は JSON Lines とし、各行をテーブルの1行として扱う</td>
+</tr>
+<tr>
+<td>U4</td>
+<td>ID照合は、初回に振って固定する階層ごとの2桁コードと body_hash、名前を手がかりにする。ULID が同一性の本体</td>
+</tr>
+<tr>
+<td>U5</td>
+<td>実行時観測は、動作順の trace 表として記録し、observed 行を計算行に取り込む</td>
+</tr>
+<tr>
+<td>U6</td>
+<td>名前解決は基本動作を持ち、機能ごとにクライアント提供・多重化プロキシ・自前起動・基本動作の順で選ぶ。1バッファ1サーバーのクライアントには中継で対応する</td>
+</tr>
+<tr>
+<td>U7</td>
+<td>配布は GitHub と Nix flake から始める。Xipe Totec と対象プロジェクトの実行環境を分ける</td>
+</tr>
+<tr>
+<td>U8</td>
+<td>構文解析は判定式とセルの式に限り、対象プロジェクトの REPL で行う。tree-sitter は任意の共通経路とする</td>
+</tr>
+<tr>
+<td>U9</td>
+<td>Elixir の既定の言語サーバーは Expert。capabilities で機能ごとに判定し、基本動作を実用の経路として作る</td>
+</tr>
+<tr>
+<td>U10</td>
+<td>副作用は pure / reads / writes / unknown の4区分。自動判定は提案とし、利用者がテーブルで更新する</td>
+</tr>
+<tr>
+<td>U11</td>
+<td>依存込みハッシュはソースのみを対象とし、実行環境は git のコミットとロックファイルの差分で判定する。相互再帰は強連結成分で扱い、hash_status で完全性を示す</td>
+</tr>
+<tr>
+<td>U12</td>
+<td>住所は列の組とし、区切り文字を使わない。セル内の参照は計算行の ID のみ</td>
+</tr>
+<tr>
+<td>U13</td>
+<td>計算行は結果・前回（評価ごとに上書き、期待値としても使える）・比較・評価回数の列を持つ。時間・メモリの上限と、再計算内の評価回数の上限を設ける</td>
+</tr>
+<tr>
+<td>U14</td>
+<td>名前に実害のある衝突なし。Hex は公開時に確認する</td>
+</tr>
+<tr>
+<td>U15</td>
+<td>評価は止めず、repr（exact / binary / unsupported）で忠実度を示す。外部項形式での保存を認める。state に lost を加える</td>
+</tr>
+<tr>
+<td>U16</td>
+<td>trace の記録量と保持期間はパラメータとして利用者に委ねる</td>
+</tr>
+<tr>
+<td>U17</td>
+<td>提供元の時間切れはパラメータとし、受け入れ検査は提供元の版の変化で自動的にやり直す</td>
+</tr>
+<tr>
+<td>–</td>
+<td>クライアント提供の解析結果は、ディスク上の内容と content_hash が一致するものだけを採用する</td>
+</tr>
+<tr>
+<td>–</td>
+<td>言語ごとの部品の名称を REPLアダプタとし、REPL は対象プロジェクトの環境にあるものを使う</td>
+</tr>
+<tr>
+<td>–</td>
+<td>境界規則は独立した部品とする。境界の先の依存が変わったら REPL セッションを再起動する</td>
+</tr>
+<tr>
+<td>–</td>
+<td>表示・入力の操作はクライアントが担い、サーバーは行単位の変更通知と列単位の補完を提供する。中身を解釈しない中継を通しても動作するようにする</td>
+</tr>
+</tbody>
+</table>
+<!--claude-mermaid-runtime-begin:3477-->
+<style>.mermaid-diagram{margin-block:4px}.mermaid-diagram svg{display:block;margin:0 auto;max-width:100%;height:auto}</style>
+<script src="/_runtime/mermaid-11.16.1.min.js"></script>
+<script>(function(){
+var CFG={"palettes":{"light":{"surface":"#f4efe4","text":"#42392e","line":"#8a7f6d","border":"#7a6c52","bg":"#fffdf8"},"dark":{"surface":"#262b34","text":"#f2f3f5","line":"#a8adb8","border":"#9aa4b8","bg":"#1f232b"}}};
+if(typeof mermaid==='undefined')return;
+var pres=Array.prototype.slice.call(document.querySelectorAll('pre.mermaid')).filter(function(p){if(p.hasAttribute('data-claude-mermaid-claimed'))return false;p.setAttribute('data-claude-mermaid-claimed','1');return true;});
+if(!pres.length)return;
+var mq=window.matchMedia?window.matchMedia('(prefers-color-scheme: dark)'):null;
+var root=document.documentElement;
+var items=pres.map(function(pre){
+var mount=document.createElement('div');mount.className='mermaid-diagram';
+return {pre:pre,mount:mount,src:pre.textContent||''};
+});
+var seq=0;
+var renderGen=0;
+var lastKey='';
+function pageBg(fallback){
+var els=[document.body,document.documentElement];
+for(var i=0;i<els.length;i++){
+var c=els[i]&&getComputedStyle(els[i]).backgroundColor;
+if(c&&c!=='transparent'&&c!=='rgba(0, 0, 0, 0)')return c;
+}
+return fallback;
+}
+function render(){
+var theme=root.getAttribute('data-theme');
+var dark=theme==='dark'||(!!(mq&&mq.matches)&&theme!=='light');
+var pal=dark?CFG.palettes.dark:CFG.palettes.light;
+var bg=pageBg(pal.bg);
+var key=(dark?'d':'l')+'|'+bg;
+if(key===lastKey)return;
+lastKey=key;
+var gen=++renderGen;
+var font=getComputedStyle(document.body).fontFamily||'sans-serif';
+var nat={useMaxWidth:false};
+mermaid.initialize({
+startOnLoad:false,securityLevel:'strict',theme:'base',
+flowchart:nat,sequence:nat,er:nat,state:nat,class:nat,pie:nat,
+gantt:nat,journey:nat,timeline:nat,gitGraph:nat,mindmap:nat,xyChart:nat,
+quadrantChart:nat,sankey:nat,c4:nat,requirement:nat,block:nat,
+packet:nat,kanban:nat,architecture:nat,radar:nat,
+themeVariables:{background:bg,mainBkg:pal.surface,primaryColor:pal.surface,
+primaryTextColor:pal.text,lineColor:pal.line,primaryBorderColor:pal.border,
+nodeBorder:pal.border,clusterBorder:pal.border,edgeLabelBackground:bg,
+clusterBkg:'rgba(127,127,127,0.07)',titleColor:pal.text,
+darkMode:dark,rowOdd:bg,rowEven:'rgba(127,127,127,0.07)',
+attributeBackgroundColorOdd:bg,attributeBackgroundColorEven:'rgba(127,127,127,0.07)',
+fontSize:'16px',fontFamily:font},
+themeCSS:'.node rect, .node circle, .node polygon, .node path, .cluster rect { stroke-width: 2px; }'
+});
+items.forEach(function(it){
+var id='claude-mermaid-'+seq++;
+mermaid.render(id,it.src).then(function(r){
+if(gen!==renderGen)return;
+var prev=it.pre.previousElementSibling;
+if(prev&&prev.className==='mermaid-diagram'&&prev!==it.mount)return;
+it.mount.innerHTML=r.svg;
+if(!it.mount.parentNode)it.pre.parentNode.insertBefore(it.mount,it.pre);
+it.pre.style.display='none';
+},function(){
+var scratch=document.getElementById(id);
+if(scratch)scratch.parentNode.removeChild(scratch);
+scratch=document.getElementById('d'+id);
+if(scratch)scratch.parentNode.removeChild(scratch);
+if(gen!==renderGen)return;
+if(it.mount.parentNode)it.mount.parentNode.removeChild(it.mount);
+it.pre.style.display='';
+});
+});
+}
+render();
+if(mq&&mq.addEventListener)mq.addEventListener('change',render);
+if(typeof MutationObserver!=='undefined')new MutationObserver(render).observe(root,{attributes:true,attributeFilter:['data-theme']});
+})();</script>
+<!--claude-mermaid-runtime-end-->
+</body></html>

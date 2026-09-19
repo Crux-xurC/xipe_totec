@@ -58,13 +58,21 @@ defmodule XipeTotec.Protocol do
     end
   end
 
-  @doc "Encode a response to a client (or client-answered-provider) request `id`."
-  @spec encode_response(id, {:ok, map()} | {:error, map()}) :: binary()
-  def encode_response(id, {:ok, result}) when is_map(result),
-    do: JSON.encode!(%{"jsonrpc" => "2.0", "id" => id, "result" => result})
+  @doc """
+  Encode a response to a client (or client-answered-provider) request `id`.
+  `envelope` (prebuild.md §17.2, 2026-09-20) merges extra top-level fields
+  in alongside `id`/`result`/`error` -- today only `Serve.Socket` passes
+  one (`"from"`/`"dialogue"`, the `InOut` adapter-mode tag), so it defaults
+  to `%{}` and every pre-existing 2-arity call site is unchanged.
+  """
+  @spec encode_response(id, {:ok, map()} | {:error, map()}, map()) :: binary()
+  def encode_response(id, outcome, envelope \\ %{})
 
-  def encode_response(id, {:error, error}) when is_map(error),
-    do: JSON.encode!(%{"jsonrpc" => "2.0", "id" => id, "error" => error})
+  def encode_response(id, {:ok, result}, envelope) when is_map(result) and is_map(envelope),
+    do: JSON.encode!(Map.merge(envelope, %{"jsonrpc" => "2.0", "id" => id, "result" => result}))
+
+  def encode_response(id, {:error, error}, envelope) when is_map(error) and is_map(envelope),
+    do: JSON.encode!(Map.merge(envelope, %{"jsonrpc" => "2.0", "id" => id, "error" => error}))
 
   @doc "Encode a server -> client push with no reply expected (`notify/*`)."
   @spec encode_notify(String.t(), map()) :: binary()

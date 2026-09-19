@@ -267,8 +267,18 @@ defmodule XipeTotec.Scanner do
     Tracer.with_capture(fn -> Code.compile_quoted(block, "xipe_totec_scan.ex") end)
   end
 
-  defp only_defmodules({:__block__, _, stmts}), do: Enum.filter(stmts, &defmodule?/1)
-  defp only_defmodules(form), do: if(defmodule?(form), do: [form], else: [])
+  @doc """
+  Every top-level `defmodule` form in `quoted`, everything else dropped --
+  the Fix F filter itself (see moduledoc), exposed so other callers that
+  need the same "load only the module definitions, never execute a
+  script's other top-level statements" guarantee don't reimplement it.
+  `XipeTotec.Repl.SourceSanitize` is the other caller (2026-09-18, review
+  finding: the eval-launch path's `-r <file>` had reopened exactly the
+  hazard this filter exists to close).
+  """
+  @spec only_defmodules(Macro.t()) :: [Macro.t()]
+  def only_defmodules({:__block__, _, stmts}), do: Enum.filter(stmts, &defmodule?/1)
+  def only_defmodules(form), do: if(defmodule?(form), do: [form], else: [])
 
   defp defmodule?({:defmodule, _, _}), do: true
   defp defmodule?(_), do: false

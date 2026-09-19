@@ -31,6 +31,13 @@ defmodule ProjectTest do
     assert Project.find_sheets(dir) == ["lib/a.ex", "lib/b.ex"]
   end
 
+  test "find_sheets/1 also finds .exs files (a scripts-mode project, e.g. crux's own, has nothing under .ex at all)", %{
+    dir: dir
+  } do
+    File.write!(Path.join(dir, "lib/c.exs"), "defmodule ProjC do\n  def h(x), do: x\nend\n")
+    assert Project.find_sheets(dir) == ["lib/a.ex", "lib/b.ex", "lib/c.exs"]
+  end
+
   test "scan_dir/2 resolves a cross-file link via the two-pass sequencing", %{dir: dir} do
     {book, paths} = Project.scan_dir(Book.new(), dir)
     assert paths == ["lib/a.ex", "lib/b.ex"]

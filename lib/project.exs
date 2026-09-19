@@ -19,24 +19,32 @@ defmodule XipeTotec.Project do
 
   alias XipeTotec.{Core, Id, Identity, Scanner, Store}
 
-  @doc "Every .ex file under `dir` (recursively), as paths relative to `dir`, sorted."
+  @doc """
+  Every `.ex`/`.exs` file under `dir` (recursively), as paths relative to
+  `dir`, sorted. Both extensions (revised 2026-09-18, wiring `xipe eval`'s
+  scripts-mode file list -- see `document/repl-adapter-guide.md`'s `files`
+  section): a `.exs`-only project (crux's own real projects, tezcatl
+  included -- no `mix.exs`, so no `-S mix` autoload) has nothing under
+  `.ex` at all, and both `find_sheets/1`'s two callers (`scan_dir/2`'s
+  indexing and, via `main.exs`'s `xipe eval`, the REPL's `-r` file list)
+  need those files to do anything useful for such a project. `scan_dir/2`
+  itself was already safe to point at `.exs` sources even before this --
+  fix F (`Scanner`'s compiler-tracer pass) only ever compiles `defmodule`
+  forms, never a script's other top-level statements -- this was purely an
+  indexing-signal call (entry-point scripts vs. library code), not a
+  safety one, and crux's own project layout is exactly the case the old
+  doc comment flagged as the reason to revisit it.
+  """
   @spec find_sheets(String.t()) :: [String.t()]
   def find_sheets(dir) do
     dir
-    |> Path.join("**/*.ex")
+    |> Path.join("**/*.{ex,exs}")
     |> Path.wildcard()
     |> Enum.map(&Path.relative_to(&1, dir))
     |> Enum.sort()
   end
 
-  @doc """
-  Scan every `.ex` file under `dir` into `book`. Returns `{book, paths}`.
-  Only `.ex` files are scanned (not `.exs`) for this first pass -- a
-  project's build-script-shaped `.exs` files still parse safely (fix F:
-  only their `defmodule` forms are ever compiled) but are more likely to be
-  entry-point scripts than library code worth indexing; revisit once a real
-  project's layout demands it.
-  """
+  @doc "Scan every `.ex`/`.exs` file under `dir` into `book`. Returns `{book, paths}`."
   @spec scan_dir(XipeTotec.Book.t(), String.t()) :: {XipeTotec.Book.t(), [String.t()]}
   def scan_dir(book, dir) do
     paths = find_sheets(dir)

@@ -40,7 +40,7 @@ defmodule ReplEvalParserTest do
     assert {:ok, result, _cleaned} = Parser.step(buffer, "c1", ScanDirectIex, FakeFieldDrip, 7)
 
     assert result.call_id == "c1"
-    assert result.outcome == {:ok, %{repr: :exact, type: "integer", display: "5", bin: nil}}
+    assert result.outcome == {:ok, %{repr: "exact", type: "integer", display: "5", bin: nil}}
     assert result.session_gen == 7
   end
 

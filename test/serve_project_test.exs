@@ -2,6 +2,22 @@ ExUnit.start()
 
 Code.require_file(Path.expand("../lib/serve_project.exs", __DIR__))
 
+defmodule ServeProjectTest.ToyDialogue do
+  # Same minimal fake as test/in_out_test.exs's ToyDialogue -- proves
+  # request_dialogue/5's wiring (InOut -> Store persist -> notify
+  # broadcast, all inside one GenServer.call) without a real dialogue
+  # program existing yet (prebuild.md §16.4 step 4 is still unbuilt).
+  @behaviour XipeTotec.Dialogue
+
+  @impl true
+  def start(_params), do: {:hold, %{}, "continue?"}
+
+  @impl true
+  def answer(%{}, %{"choice" => "yes"}) do
+    {:done, "done", [%{"method" => "row/add", "params" => %{"node" => "n0", "args" => []}}]}
+  end
+end
+
 defmodule ServeProjectTest do
   use ExUnit.Case
 
@@ -11,12 +27,15 @@ defmodule ServeProjectTest do
   # = one project, prebuild.md §9) -- start/stop it around every test rather
   # than `async: true`, since two tests can't hold the same named GenServer
   # at once.
-  setup do
+  setup context do
     dir = Path.join(System.tmp_dir!(), "xipe_totec_serve_test_#{System.unique_integer([:positive])}")
     File.mkdir_p!(Path.join(dir, "lib"))
     store_file = Path.join(dir, "book.jsonl")
 
-    {:ok, pid} = Project.start_link(%{root: dir, store_file: store_file})
+    opts = %{root: dir, store_file: store_file}
+    opts = if programs = context[:programs], do: Map.put(opts, :programs, programs), else: opts
+
+    {:ok, pid} = Project.start_link(opts)
     on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
 
     {:ok, dir: dir, store_file: store_file}
@@ -84,5 +103,50 @@ defmodule ServeProjectTest do
     assert {:ok, {:notify, "notify/nodeChanged", %{"row" => %{"name" => "f"}}}} = XipeTotec.Protocol.decode(text)
     # scan/run never touches :calls, and :sheets/:links have no notify method in §16.3
     refute_receive {:xipe_out, _more}, 50
+  end
+
+  test "eval/run and row/update route through Pipeline, not Dispatch's own @not_implemented" do
+    # same proof as RunnerTest's equivalent case: Dispatch's own
+    # @not_implemented has no concept of "stages", so a message naming a
+    # stage can only have come from Pipeline
+    assert {:error, %{"code" => "not_implemented", "message" => eval_run_message}} = Project.request("eval/run", %{})
+    assert eval_run_message =~ "\"eval\""
+
+    assert {:error, %{"code" => "not_implemented", "message" => row_update_message}} = Project.request("row/update", %{})
+    assert row_update_message =~ "\"edit\""
+  end
+
+  test "request_dialogue/5 with no programs registered still routes an ordinary command straight through, tagged 01",
+       %{store_file: store_file} do
+    {dialogue, outcome} = Project.request_dialogue(nil, "row/add", %{"node" => "n0", "args" => []})
+
+    assert dialogue == nil
+    assert outcome.hold == false
+    assert outcome.via_repl == false
+    assert outcome.ok? == true
+    assert Map.has_key?(XipeTotec.Store.load(store_file).calls, outcome.result["id"])
+  end
+
+  @tag programs: %{"toy/negotiate" => ServeProjectTest.ToyDialogue}
+  test "request_dialogue/5 holds across a GenServer.call boundary and finishes by persisting through Store",
+       %{store_file: store_file} do
+    :ok = Project.attach(self())
+
+    {dialogue, outcome} = Project.request_dialogue(nil, "toy/negotiate", %{})
+    assert {ServeProjectTest.ToyDialogue, %{}} = dialogue
+    assert outcome.hold == true
+    assert outcome.text == "continue?"
+    # holding does not touch Book, so no notify fires yet
+    refute_receive {:xipe_out, _}, 50
+
+    {dialogue, outcome} = Project.request_dialogue(dialogue, "dialogue/answer", %{"choice" => "yes"})
+    assert dialogue == nil
+    assert outcome.hold == false
+    assert outcome.via_repl == true
+    assert [%{ok?: true}] = outcome.result["outcomes"]
+
+    assert_receive {:xipe_out, text}
+    assert {:ok, {:notify, "notify/rowChanged", _}} = XipeTotec.Protocol.decode(text)
+    assert map_size(XipeTotec.Store.load(store_file).calls) == 1
   end
 end

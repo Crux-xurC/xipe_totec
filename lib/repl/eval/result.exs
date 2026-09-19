@@ -8,28 +8,37 @@ defmodule XipeTotec.Repl.Eval.Result do
   crux's call): its own scope has nothing left undecided, so it doesn't
   need to wait for the rest of the parser pipeline to settle -- only the
   already-verified `eval_template` output shape (repr/type/display/
-  bin_base64, prebuild.md §10.5) as its input contract.
+  compare/bin_base64, prebuild.md §10.5/§10.11) as its input contract.
 
-  Scope is deliberately narrow: only the two outcomes `eval_template`
-  actually produces today (a completed evaluation, or `timeout`/`crash`).
-  `Core.apply_result/3` also handles `:max_heap`, `{:skipped, id}`,
-  `{:lost, ref}`, `:aborted` -- none of those are built here.
-  `{:skipped, _}`/`{:lost, _}`/`:aborted` are pass-level orchestration
-  decisions (was an upstream call in this same pass skipped/lost/the
-  session restarted?), not something derivable from a single eval's own
-  marker output -- that's future orchestrator work, not this module's.
-  `:max_heap` is a known gap, not orchestration: `eval_template`'s
-  `spawn_monitor` branch can't currently tell a max_heap-triggered kill
-  apart from any other crash (both surface as a `:killed`-reason `:DOWN`),
-  so every non-timeout failure lands in `error/3`'s "crash" case and maps
-  to the generic `{:error, reason}` outcome instead of `:max_heap`
-  specifically -- fixing that needs a change in `eval_template`, not here.
+  **`repr`/`compare` are passed through as the plain strings
+  `eval_template` already prints, never converted to atoms** (fixed
+  2026-09-18, wiring review): an earlier version of this module converted
+  `repr` to an atom (`:exact`/`:binary`/`:unsupported`) via a private
+  `repr_atom/1`. That was a real, previously-undetected bug on two counts
+  -- `core.exs`'s own `resolve_ref/4` compares `ref_call.repr in ["exact",
+  "binary"]` (string literals), so an atom-valued `repr` stored in the
+  book could never match and the "embed a plan-external exact/binary
+  value as literal text" path would silently never fire once a real
+  Evaluator started feeding it; and 課題.mkd B2's own rule ("Core に入る
+  行の値は JSON にそのまま載る型... に限ります") already rules atoms out
+  at this exact boundary. `Core.apply_result/3` stores whatever `repr`/
+  `compare` it's handed verbatim (`Map.merge`, no conversion), and
+  `core_test.exs`'s own fixtures already use plain strings -- so the fix
+  is here, not there.
   """
 
   @doc """
   `fields` (from field_drip's success parse): a map with string keys
   `"repr"` (`"exact"` | `"binary"` | `"unsupported"`), `"type"`,
-  `"display"`, and optionally `"bin_base64"` (only for `repr: binary`).
+  `"compare"` (`"none"` | `"skipped"` | `"changed"` | `"same"`,
+  prebuild.md §10.11), `"display"`, and optionally `"bin_base64"` (only
+  for `repr: binary`, itself already base64 text -- kept as-is, never
+  decoded to raw bytes here: `Store.persist_diff/4` -> `Store.append/2`
+  JSON-encodes every column, and arbitrary `:erlang.term_to_binary/1`
+  output is not valid JSON text, so the *only* JSON-safe form to carry
+  this column in is the base64 string eval_template already produced --
+  decoding it back to a term is `EvalTemplate`'s own `reconstruct_snippet`
+  job, target-side, not this module's).
   """
   @spec success(String.t(), map(), non_neg_integer()) :: map()
   def success(call_id, fields, session_gen) do
@@ -38,12 +47,12 @@ defmodule XipeTotec.Repl.Eval.Result do
       outcome:
         {:ok,
          %{
-           repr: repr_atom(fields["repr"]),
+           repr: fields["repr"],
            display: fields["display"],
            type: fields["type"],
-           bin: decode_bin(fields["bin_base64"])
+           bin: fields["bin_base64"]
          }},
-      compare: :none,
+      compare: fields["compare"] || "none",
       evaluated_at: now_iso8601(),
       session_gen: session_gen
     }
@@ -51,24 +60,25 @@ defmodule XipeTotec.Repl.Eval.Result do
 
   @doc """
   `detail` is the text after `"XT_ERROR_<id> "` in the marker line, as
-  `eval_template` writes it: either the literal string `"timeout"`, or
-  `"crash <reason>"`.
+  `eval_template` writes it: the literal string `"timeout"`, the literal
+  string `"max_heap"` (eval_template distinguishes this from a generic
+  crash by checking for the `:killed` `:DOWN` reason -- 2026-09-18, the
+  only thing that can send that specific pid that specific reason while
+  it's still running its own spawned body is its own
+  `Process.flag(:max_heap_size, ...)`), or `"crash <reason>"`.
   """
   @spec error(String.t(), String.t(), non_neg_integer()) :: map()
   def error(call_id, "timeout", session_gen) do
-    %{call_id: call_id, outcome: :timeout, compare: :none, evaluated_at: now_iso8601(), session_gen: session_gen}
+    %{call_id: call_id, outcome: :timeout, compare: "skipped", evaluated_at: now_iso8601(), session_gen: session_gen}
+  end
+
+  def error(call_id, "max_heap", session_gen) do
+    %{call_id: call_id, outcome: :max_heap, compare: "skipped", evaluated_at: now_iso8601(), session_gen: session_gen}
   end
 
   def error(call_id, "crash " <> reason, session_gen) do
-    %{call_id: call_id, outcome: {:error, reason}, compare: :none, evaluated_at: now_iso8601(), session_gen: session_gen}
+    %{call_id: call_id, outcome: {:error, reason}, compare: "skipped", evaluated_at: now_iso8601(), session_gen: session_gen}
   end
-
-  defp repr_atom("exact"), do: :exact
-  defp repr_atom("binary"), do: :binary
-  defp repr_atom("unsupported"), do: :unsupported
-
-  defp decode_bin(nil), do: nil
-  defp decode_bin(b64), do: Base.decode64!(b64)
 
   # Local capture at conversion time, not the target node's own clock --
   # keeps this module free of any dependency on the target session.

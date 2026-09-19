@@ -45,11 +45,34 @@ defmodule XipeTotec.Repl.Sender.Direct do
 
   def send(other), do: {:error, {:unsupported_message, other}}
 
+  # A handle can legitimately already be gone by the time write/2 or kill/1
+  # is called (fixed 2026-09-18, found via a real crash): a raw
+  # `GenServer.call/2` to a dead pid `exit`s with `{:noproc, _}` rather than
+  # returning an error value, which neither callback's own `:ok | {:error,
+  # term()}` contract expects a caller to have to guard against everywhere.
+  # Concretely: after `System.halt()` (or a SIGKILL) the OS process dies,
+  # the Port's `{:exit_status,...}` message races the caller's own next
+  # move, and this GenServer stops itself (`{:stop,:normal,...}`, see
+  # handle_info/2 below) as soon as it forwards that as the XT_EXIT marker
+  # -- a `write/2`/`kill/1` issued right around then can land after the
+  # stop. `write/2` on a dead handle reports it as an ordinary
+  # `{:error, :noproc}` (nothing to write to, same shape as any other
+  # failed write); `kill/1` on one instead returns plain `:ok` -- the
+  # thing it was asked to end is already gone, which is the goal `kill/1`
+  # exists for, not a failure of it.
   @impl XipeTotec.Repl.Sender
-  def write(handle, text) when is_binary(text), do: GenServer.call(handle, {:write, text})
+  def write(handle, text) when is_binary(text) do
+    GenServer.call(handle, {:write, text})
+  catch
+    :exit, {:noproc, _} -> {:error, :noproc}
+  end
 
   @impl XipeTotec.Repl.Sender
-  def kill(handle), do: GenServer.call(handle, :kill)
+  def kill(handle) do
+    GenServer.call(handle, :kill)
+  catch
+    :exit, {:noproc, _} -> :ok
+  end
 
   # `message["files"]` is plain data, opaque to `Repl.Launch` -- this
   # sender decides the only thing it means for *this* delivery mechanism:

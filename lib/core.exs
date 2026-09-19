@@ -319,9 +319,45 @@ defmodule XipeTotec.Core do
         {new_arg, inputs_acc ++ more_inputs}
       end)
 
+    # basis (compare's "previous value" input): spec §6.4 names this B --
+    # "比較の基準Bを決める。Pの出どころがuserならB=P、そうでなければB=R_old"
+    # (P = the 前回/prev column, R_old = the result on record right before
+    # this evaluation overwrites it). Two cases:
+    #
+    # 1. `prev_source == "user"` (the user typed an expected value in via
+    #    `set_prev/3` -- not reachable through any Dispatch/CLI method yet,
+    #    only `Core.set_prev/3` directly, so this branch is currently dead
+    #    code in practice, flagged by review 2026-09-18 as a spec gap worth
+    #    closing now while it's cheap): B = P = `call.prev`. A user-typed
+    #    expectation is plain text the user wrote, not a captured runtime
+    #    value with a repr classification of its own -- always reconstructed
+    #    as `:exact` (re-run through `Code.eval_string/1` target-side).
+    # 2. Otherwise (prev_source auto or unset): B = R_old = whatever is
+    #    currently on record (`call.result`/`call.repr`/`call.bin`, about to
+    #    be rolled into `prev`/`prev_at` by apply_result once this pass's
+    #    result comes back) -- NOT the `prev` column itself, which already
+    #    lags one eval further back (apply_result sets `prev: row[:result]`
+    #    using the row as it stood *before* the result it's currently
+    #    applying). Using `prev` here would silently compare against a stale
+    #    value one generation too old (caught live, 2026-09-18: a same-args
+    #    re-eval right after a first eval showed basis == :none instead of
+    #    the just-stored result).
+    #
+    # Reconstructing either on the target node needs to know HOW, not just
+    # display text -- an `exact` value is re-run through
+    # `Code.eval_string/1`, a `binary` one through
+    # `Base.decode64!/1 |> :erlang.binary_to_term/1` (EvalTemplate builds the
+    # actual snippet; Core only picks which shape applies). A prior
+    # `unsupported` value has no reconstructible text at all, so it falls to
+    # `:none` same as "never evaluated" -- compare degrades to "skipped" for
+    # those, matching 課題.mkd C's "片側でも unsupported なら skipped".
+    # This supersedes 課題.mkd B's original `{:text, String.t()} | {:bin,
+    # binary()}` sketch.
     basis =
       cond do
-        call[:prev] not in [nil, ""] -> {:text, call.prev}
+        call[:prev_source] == "user" and call[:prev] not in [nil, ""] -> {:exact, call.prev}
+        call[:repr] == "exact" and call[:result] not in [nil, ""] -> {:exact, call.result}
+        call[:repr] == "binary" and call[:bin] not in [nil, ""] -> {:binary, call.bin}
         true -> :none
       end
 

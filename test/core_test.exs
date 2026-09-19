@@ -232,6 +232,69 @@ defmodule CoreTest do
     end
   end
 
+  describe "plan_recalc/3 -- basis (compare's spec §6.4 B)" do
+    test "no prior result at all -> :none" do
+      book = Book.new() |> Core.put_node("n1", pure_node("f")) |> Core.add_call("c1", %{node: "n1", args: ["1"]})
+      assert [%{basis: :none}] = Core.plan_recalc(book, "pass1", call_ids: ["c1"]).entries
+    end
+
+    test "auto (prev_source unset): basis is the value currently on record (R_old), not the prev column" do
+      book =
+        Book.new()
+        |> Core.put_node("n1", pure_node("f"))
+        |> Core.add_call("c1", %{node: "n1", args: ["1"], result: "5", repr: "exact", prev: "1", prev_source: "auto"})
+
+      # prev ("1") is one generation further back than result ("5") --
+      # basis must be R_old (result), matching spec §6.4's B = R_old rule,
+      # not the stale prev column (a real bug found and fixed 2026-09-18)
+      assert [%{basis: {:exact, "5"}}] = Core.plan_recalc(book, "pass1", call_ids: ["c1"]).entries
+    end
+
+    test "auto, repr binary: basis reconstructs from the bin column" do
+      book =
+        Book.new()
+        |> Core.put_node("n1", pure_node("f"))
+        |> Core.add_call("c1", %{node: "n1", args: ["1"], result: "#PID<0.1.0>", repr: "binary", bin: "g3cFaGVsbG8="})
+
+      assert [%{basis: {:binary, "g3cFaGVsbG8="}}] = Core.plan_recalc(book, "pass1", call_ids: ["c1"]).entries
+    end
+
+    test "auto, repr unsupported: no reconstructible text -> :none (compare degrades to skipped)" do
+      book =
+        Book.new()
+        |> Core.put_node("n1", pure_node("f"))
+        |> Core.add_call("c1", %{node: "n1", args: ["1"], result: "#PID<0.1.0>", repr: "unsupported"})
+
+      assert [%{basis: :none}] = Core.plan_recalc(book, "pass1", call_ids: ["c1"]).entries
+    end
+
+    test "prev_source == \"user\": basis is the user-set prev column (P), overriding R_old (spec §6.4's B = P rule)" do
+      book =
+        Book.new()
+        |> Core.put_node("n1", pure_node("f"))
+        |> Core.add_call("c1", %{
+          node: "n1",
+          args: ["1"],
+          result: "5",
+          repr: "exact",
+          prev: "10",
+          prev_source: "user"
+        })
+
+      assert [%{basis: {:exact, "10"}}] = Core.plan_recalc(book, "pass1", call_ids: ["c1"]).entries
+    end
+
+    test "set_prev/3 sets prev_source to \"user\" and plan_recalc picks it up as basis" do
+      book =
+        Book.new()
+        |> Core.put_node("n1", pure_node("f"))
+        |> Core.add_call("c1", %{node: "n1", args: ["1"], result: "5", repr: "exact"})
+        |> Core.set_prev("c1", "42")
+
+      assert [%{basis: {:exact, "42"}}] = Core.plan_recalc(book, "pass1", call_ids: ["c1"]).entries
+    end
+  end
+
   describe "apply_results/3" do
     setup do
       book = Book.new() |> Core.add_call("c1", %{node: "n1", args: ["1"]})

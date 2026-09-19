@@ -1,0 +1,4 @@
+{
+  "eval/run": ["eval"],
+  "row/update": ["edit", "eval"]
+}

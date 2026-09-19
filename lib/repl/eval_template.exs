@@ -44,13 +44,26 @@ defmodule XipeTotec.Repl.EvalTemplate do
     "#{module}.#{name}(#{Enum.join(resolved, ", ")})"
   end
 
+  # compare's float tolerance (課題.mkd C: "誤差の値は設定パラメータにする").
+  # No config-loading mechanism exists anywhere in this codebase yet (no
+  # config.json, nothing reads one) -- introducing one just for this one
+  # pair of numbers would be scope creep beyond what compare itself needs,
+  # so these stay fixed module attributes until a real config system exists
+  # to hang them off of. Flagged here rather than silently hardcoded inline.
+  @default_float_rel_tol 1.0e-9
+  @default_float_abs_tol 1.0e-9
+
   @doc """
   Builds the full evaluation source text for `entry` (prebuild.md §10.3):
   call-expression assembly + the safety wrapper (spawn_monitor/max_heap/
-  timeout) + repr judgment (prebuild.md §10.3's a -> b -> c) + marker-
-  wrapped printing, all as target-language text to be typed into the
-  running REPL session (never executed locally -- xipe_totec's own BEAM
-  can't necessarily `inspect`/reconstruct the target project's own types).
+  timeout) + repr judgment (prebuild.md §10.3's a -> b -> c) + compare
+  judgment against `entry.basis` (課題.mkd C, 2026-09-18) + marker-wrapped
+  printing, all as target-language text to be typed into the running REPL
+  session (never executed locally -- xipe_totec's own BEAM can't
+  necessarily `inspect`/reconstruct the target project's own types, and
+  compare has the exact same problem one level up: the *previous* value
+  may need reconstructing from text/binary too, so that reconstruction
+  and the comparison itself both have to happen target-side).
 
   Always binds the result to `xt_<call_id>` as a top-level statement,
   regardless of `entry.bind_as` -- decided 2026-09-18: structurally
@@ -61,10 +74,50 @@ defmodule XipeTotec.Repl.EvalTemplate do
 
   `entry.call_id` doubles as the marker/variable-name suffix -- already
   unique (a ULID in production), no separate id generator needed.
+
+  `entry[:basis]` (default `:none`, so hand-built entries without the key
+  -- e.g. in tests -- still work): `{:exact, prev_text} | {:binary,
+  prev_base64} | :none`, per `Core.build_entry/3`'s basis computation.
   """
   @spec build(map()) :: String.t()
   def build(%{call_id: call_id, limits: %{timeout: timeout_ms, max_heap_words: max_heap_words}} = entry) do
     call_expr = call_expression(entry)
+
+    case Code.string_to_quoted(call_expr) do
+      {:ok, _} -> build_eval(entry, call_id, call_expr, timeout_ms, max_heap_words)
+      {:error, reason} -> build_syntax_error(call_id, call_expr, reason)
+    end
+  end
+
+  # Review finding, 2026-09-18: an unclosed arg expression (`args: ["[1, 2"]`,
+  # say -- a plain-string arg column has no syntax check anywhere upstream)
+  # would previously get embedded into `call_expr` and written to the REPL
+  # regardless. A REPL sees an incomplete expression as "more input coming"
+  # (iex's own `...(N)>` continuation prompt) rather than an error -- it
+  # never emits ANY marker for this entry, and everything written
+  # afterward (the rest of a would-be marker-wrapped template, the *next*
+  # entry's whole template) gets silently absorbed into the same still-open
+  # expression instead of being parsed as separate statements. The
+  # heartbeat ticker is a separate process and keeps ticking the whole
+  # time, so this was invisible to hang detection before §5.10's absolute
+  # deadline (`wait_result/6`) -- catching it here, before ever writing
+  # anything to the session, is strictly better than waiting out that
+  # deadline: the entry fails fast with the real reason instead of a
+  # generic "session_hung", and the session is never put in the
+  # continuation state in the first place.
+  #
+  # Deliberately does NOT touch `call_expr` in the emitted text -- a
+  # fragment that doesn't parse standalone can't safely be spliced into
+  # ANY larger template (that would just move the same unparseable-input
+  # hazard one level up) -- this template only ever prints a diagnostic
+  # string built entirely on xipe_totec's own side.
+  defp build_syntax_error(call_id, call_expr, reason) do
+    message = "invalid call expression: #{inspect(reason)} -- #{call_expr}" |> String.replace("\n", "\\n")
+    "IO.puts(\"XT_ERROR_#{call_id} crash \" <> #{inspect(message)})\n"
+  end
+
+  defp build_eval(entry, call_id, call_expr, timeout_ms, max_heap_words) do
+    basis = Map.get(entry, :basis, :none)
     suffix = sanitize(call_id)
     bind_var = "xt_#{suffix}"
 
@@ -81,6 +134,8 @@ defmodule XipeTotec.Repl.EvalTemplate do
       receive do
         {:xt_result, ^xt_pid_#{suffix}, xt_val} ->
           Process.demonitor(xt_ref_#{suffix}, [:flush])
+
+          xt_oneline = fn s -> String.replace(s, "\\n", "\\\\n") end
 
           xt_unsupported? = fn f, v ->
             case v do
@@ -111,43 +166,95 @@ defmodule XipeTotec.Repl.EvalTemplate do
             end
           end
 
+          xt_is_unsupported = xt_unsupported?.(xt_unsupported?, xt_val)
+
+    #{compare_snippet(basis)}
+          # A single IO.puts/1 per branch, not one per field (fixed
+          # 2026-09-18, review finding): several separate IO.puts calls are
+          # each individually atomic at the group-leader level, but nothing
+          # stops a DIFFERENT process's own output (the heartbeat ticker
+          # aside -- Scan.Direct.Iex.clean/1 already strips that wherever it
+          # lands -- but Logger output, or anything the evaluated call
+          # itself spawns and prints from) from being interleaved *between*
+          # our calls, landing inside the XT_BEGIN..XT_END span as a line
+          # that doesn't match the key=value format and breaks
+          # FieldDrip.Elixir.parse/1. One IO.puts of the whole joined block
+          # is one atomic write, so nothing else can land inside it.
           cond do
-            xt_unsupported?.(xt_unsupported?, xt_val) ->
-              IO.puts("XT_BEGIN_#{call_id}")
-              IO.puts("repr=unsupported")
-              IO.puts("type=" <> xt_type_name.(xt_val))
-              IO.puts("display=" <> inspect(xt_val, limit: :infinity, printable_limit: :infinity, width: :infinity))
-              IO.puts("XT_END_#{call_id}")
+            xt_is_unsupported ->
+              IO.puts(
+                Enum.join(
+                  [
+                    "XT_BEGIN_#{call_id}",
+                    "repr=unsupported",
+                    "type=" <> xt_type_name.(xt_val),
+                    "compare=" <> xt_compare,
+                    "display=" <> xt_oneline.(inspect(xt_val, limit: :infinity, printable_limit: :infinity, width: :infinity)),
+                    "XT_END_#{call_id}"
+                  ],
+                  "\\n"
+                )
+              )
 
             (xt_str = inspect(xt_val, limit: :infinity, printable_limit: :infinity, width: :infinity)) &&
+              not String.contains?(xt_str, "\\n") &&
               (try do
                 {xt_ev, _} = Code.eval_string(xt_str)
                 xt_ev == xt_val
               rescue
                 _ -> false
               end) ->
-              IO.puts("XT_BEGIN_#{call_id}")
-              IO.puts("repr=exact")
-              IO.puts("type=" <> xt_type_name.(xt_val))
-              IO.puts("display=" <> xt_str)
-              IO.puts("XT_END_#{call_id}")
+              IO.puts(
+                Enum.join(
+                  [
+                    "XT_BEGIN_#{call_id}",
+                    "repr=exact",
+                    "type=" <> xt_type_name.(xt_val),
+                    "compare=" <> xt_compare,
+                    "display=" <> xt_str,
+                    "XT_END_#{call_id}"
+                  ],
+                  "\\n"
+                )
+              )
 
             true ->
-              IO.puts("XT_BEGIN_#{call_id}")
-              IO.puts("repr=binary")
-              IO.puts("type=" <> xt_type_name.(xt_val))
-              IO.puts("display=" <> inspect(xt_val, limit: :infinity, printable_limit: :infinity, width: :infinity))
-              IO.puts("bin_base64=" <> Base.encode64(:erlang.term_to_binary(xt_val)))
-              IO.puts("XT_END_#{call_id}")
+              IO.puts(
+                Enum.join(
+                  [
+                    "XT_BEGIN_#{call_id}",
+                    "repr=binary",
+                    "type=" <> xt_type_name.(xt_val),
+                    "compare=" <> xt_compare,
+                    "display=" <> xt_oneline.(inspect(xt_val, limit: :infinity, printable_limit: :infinity, width: :infinity)),
+                    "bin_base64=" <> Base.encode64(:erlang.term_to_binary(xt_val)),
+                    "XT_END_#{call_id}"
+                  ],
+                  "\\n"
+                )
+              )
           end
 
           xt_val
 
         {:DOWN, ^xt_ref_#{suffix}, :process, ^xt_pid_#{suffix}, xt_reason} ->
-          IO.puts("XT_ERROR_#{call_id} crash " <> inspect(xt_reason))
+          Process.demonitor(xt_ref_#{suffix}, [:flush])
+
+          if xt_reason == :killed do
+            # the only thing that ever sends this pid a :kill while it's
+            # still running its own body is Process.flag(:max_heap_size,
+            # ...) above -- our own timeout kill (the `after` clause below)
+            # is a separate receive branch that returns before this one
+            # could ever see that DOWN, so :killed here is unambiguous.
+            IO.puts("XT_ERROR_#{call_id} max_heap")
+          else
+            IO.puts("XT_ERROR_#{call_id} crash " <> String.replace(inspect(xt_reason, limit: :infinity, printable_limit: :infinity, width: :infinity), "\\n", "\\\\n"))
+          end
+
           nil
       after
         #{timeout_ms} ->
+          Process.demonitor(xt_ref_#{suffix}, [:flush])
           Process.exit(xt_pid_#{suffix}, :kill)
           IO.puts("XT_ERROR_#{call_id} timeout")
           nil
@@ -159,6 +266,76 @@ defmodule XipeTotec.Repl.EvalTemplate do
   # names derived from this must agree with what Core already embedded
   # into other entries' args as :in_plan/:binding placeholder text.
   defp sanitize(call_id), do: String.replace(call_id, ~r/[^A-Za-z0-9_]/, "_")
+
+  # Emits the statements needed to bind `xt_compare` (a plain string --
+  # "none" | "skipped" | "changed" | "same", the same string-typed
+  # convention `Core`/`core_test.exs` already use for repr/compare, not
+  # atoms -- see 課題.mkd C and the B2 JSON-safety rule this mirrors).
+  # `:none` (never evaluated before) skips reconstruction/comparison
+  # machinery entirely, keeping the common "first eval of this call" case
+  # cheap; `xt_is_unsupported` (computed once above, for the repr cond
+  # too) makes an unsupported *new* value "skipped" regardless of basis,
+  # per 課題.mkd C's "either side unsupported -> skipped".
+  defp compare_snippet(:none), do: ~s(      xt_compare = "none"\n)
+
+  defp compare_snippet({tag, prev_text}) when tag in [:exact, :binary] do
+    """
+          xt_float_close? = fn a, b ->
+            xt_d = abs(a - b)
+            xt_d <= #{inspect(@default_float_abs_tol)} or xt_d <= #{inspect(@default_float_rel_tol)} * max(abs(a), abs(b))
+          end
+
+          xt_eq = fn f, a, b ->
+            cond do
+              is_float(a) and is_float(b) -> xt_float_close?.(a, b)
+              is_list(a) and is_list(b) and length(a) == length(b) ->
+                Enum.zip(a, b) |> Enum.all?(fn {x, y} -> f.(f, x, y) end)
+
+              is_tuple(a) and is_tuple(b) and tuple_size(a) == tuple_size(b) ->
+                Enum.zip(Tuple.to_list(a), Tuple.to_list(b)) |> Enum.all?(fn {x, y} -> f.(f, x, y) end)
+
+              is_map(a) and is_map(b) ->
+                Enum.sort(Map.keys(a)) == Enum.sort(Map.keys(b)) and
+                  Enum.all?(a, fn {k, v} -> f.(f, v, Map.get(b, k, :xt_missing_key)) end)
+
+              true ->
+                a == b
+            end
+          end
+
+          xt_prev_result =
+            try do
+    #{reconstruct_snippet(tag, prev_text)}
+            rescue
+              _ -> :error
+            end
+
+          xt_compare =
+            cond do
+              xt_is_unsupported ->
+                "skipped"
+
+              true ->
+                case xt_prev_result do
+                  {:ok, xt_prev} -> if xt_eq.(xt_eq, xt_val, xt_prev), do: "same", else: "changed"
+                  :error -> "skipped"
+                end
+            end
+    """
+  end
+
+  defp reconstruct_snippet(:exact, prev_text) do
+    """
+              {xt_prev_v, _} = Code.eval_string(#{inspect(prev_text)})
+              {:ok, xt_prev_v}
+    """
+  end
+
+  defp reconstruct_snippet(:binary, prev_base64) do
+    """
+              {:ok, #{inspect(prev_base64)} |> Base.decode64!() |> :erlang.binary_to_term()}
+    """
+  end
 
   @doc "Resolves every arg string's placeholders (see moduledoc). Exposed for direct testing."
   @spec resolve_args([String.t()], list()) :: [String.t()]

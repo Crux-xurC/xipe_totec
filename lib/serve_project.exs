@@ -1,7 +1,9 @@
 Code.require_file("book.exs", __DIR__)
 Code.require_file("store.exs", __DIR__)
 Code.require_file("dispatch.exs", __DIR__)
+Code.require_file("pipeline.exs", __DIR__)
 Code.require_file("protocol.exs", __DIR__)
+Code.require_file("in_out.exs", __DIR__)
 
 defmodule XipeTotec.Serve.Project do
   @moduledoc """
@@ -10,7 +12,10 @@ defmodule XipeTotec.Serve.Project do
   (`Dispatch`, `Address`, `Core`, ...) stays a pure function over a `Book`
   it's handed.
 
-  Runs a `Dispatch.handle/4` call, diffs the `Book` before/after with
+  Runs a `Dispatch.handle/4` call (or, for any method `Pipeline.handles?/1`
+  says yes to -- `eval/run`/`row/update` today, 2026-09-18 -- a
+  `Pipeline.run/4` call instead, checked first: see `Pipeline`'s own
+  moduledoc for why these can't be plain `Dispatch` clauses), diffs the `Book` before/after with
   `Store.persist_diff/4` (generalized from `Project.persist_scan`'s
   sheets/nodes/links-only diff to all six tables -- a scan never touches
   `calls`, but other methods will), and broadcasts `notify/rowChanged` /
@@ -29,9 +34,9 @@ defmodule XipeTotec.Serve.Project do
 
   use GenServer
 
-  alias XipeTotec.{Dispatch, Protocol, Store}
+  alias XipeTotec.{Dispatch, InOut, Pipeline, Protocol, Store}
 
-  @type opts :: %{root: String.t(), store_file: Path.t()}
+  @type opts :: %{optional(:programs) => InOut.programs(), root: String.t(), store_file: Path.t()}
 
   @spec start_link(opts) :: GenServer.on_start()
   def start_link(opts), do: GenServer.start_link(__MODULE__, opts, name: __MODULE__)
@@ -47,11 +52,40 @@ defmodule XipeTotec.Serve.Project do
   @spec request(GenServer.server(), String.t(), map()) :: {:ok, map()} | {:error, map()}
   def request(pid \\ __MODULE__, method, params), do: GenServer.call(pid, {:request, method, params})
 
+  @doc """
+  `InOut`-routed variant of `request/3` (prebuild.md §17, 2026-09-20):
+  threads a per-connection `dialogue` (`InOut.dialogue()`, `nil` if none
+  held) through `InOut.handle/6` instead of calling `Dispatch`/`Pipeline`
+  directly. `Book` mutation still happens exactly once, inside this
+  GenServer's own serialized `handle_call` (same invariant `request/3` has
+  -- `InOut.handle/6` itself is pure, it's only ever called from in here),
+  so persisting the diff and broadcasting `notify/*` afterward works
+  identically to `request/3`'s own branch, just unconditionally (an
+  `InOut` outcome with `ok?: false` still leaves `Book` byte-identical, so
+  diffing/broadcasting against it is a harmless no-op rather than a
+  branch worth special-casing).
+
+  `dialogue` itself is NOT this GenServer's state -- the caller
+  (`Serve.Socket`, one process per connection) holds it and passes the
+  updated value back on its next call, same reasoning prebuild.md §17
+  already gave for keeping dialogue state connection-local rather than
+  project-wide.
+  """
+  @spec request_dialogue(GenServer.server(), InOut.dialogue(), String.t(), map(), keyword()) ::
+          {InOut.dialogue(), InOut.outcome()}
+  def request_dialogue(pid \\ __MODULE__, dialogue, method, params, opts \\ []),
+    do: GenServer.call(pid, {:request_dialogue, dialogue, method, params, opts})
+
   # ---------------------------------------------------------------------
 
   @impl true
-  def init(%{root: root, store_file: store_file}) do
-    {:ok, %{book: Store.load(store_file), root: root, store_file: store_file, sessions: %{}}}
+  def init(%{root: root, store_file: store_file} = opts) do
+    # `:programs` (InOut.programs(), default `%{}` -- no real dialogue
+    # program exists yet, prebuild.md §16.4 step 4) is settable at
+    # start_link/1 only so tests can inject a toy one (test/serve_project_test.exs);
+    # a real deployment never needs to pass it.
+    programs = Map.get(opts, :programs, InOut.programs())
+    {:ok, %{book: Store.load(store_file), root: root, store_file: store_file, sessions: %{}, programs: programs}}
   end
 
   @impl true
@@ -65,7 +99,18 @@ defmodule XipeTotec.Serve.Project do
   end
 
   def handle_call({:request, method, params}, _from, state) do
-    case Dispatch.handle(state.book, method, params, %{root: state.root}) do
+    # Pipeline-routed methods checked first, never falling through to
+    # Dispatch's own @not_implemented for them (2026-09-18) -- same
+    # handles?/1-then-run/4 shape Runner.run_one/4 uses for the CLI side,
+    # both reading the same pipelines.json.
+    result =
+      if Pipeline.handles?(method) do
+        Pipeline.run(method, state.book, params, %{root: state.root})
+      else
+        Dispatch.handle(state.book, method, params, %{root: state.root})
+      end
+
+    case result do
       {:ok, new_book, result} ->
         Store.persist_diff(state.store_file, state.book, new_book, [
           :sheets,
@@ -82,6 +127,23 @@ defmodule XipeTotec.Serve.Project do
       {:error, _book, error} ->
         {:reply, {:error, error}, state}
     end
+  end
+
+  def handle_call({:request_dialogue, dialogue, method, params, opts}, _from, state) do
+    {new_dialogue, new_book, outcome} =
+      InOut.handle(dialogue, state.book, state.root, %{"method" => method, "params" => params}, opts, state.programs)
+
+    Store.persist_diff(state.store_file, state.book, new_book, [
+      :sheets,
+      :nodes,
+      :calls,
+      :links,
+      :runs,
+      :providers
+    ])
+
+    broadcast_changes(state.book, new_book, state.sessions)
+    {:reply, {new_dialogue, outcome}, %{state | book: new_book}}
   end
 
   @impl true

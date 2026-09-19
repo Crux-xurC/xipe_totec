@@ -25,6 +25,17 @@ defmodule XipeTotec.Serve.Socket do
   (`Serve.Project`), so subscribing doesn't change anything yet -- it's
   accepted and acknowledged so a client doesn't have to special-case v0,
   but is a no-op until per-topic filtering exists.
+
+  `state.dialogue` (`InOut.dialogue()`, `nil` if none held) is the other
+  piece of connection-local state living here (prebuild.md §17, §17's "1
+  connection = 1 dialogue" decision, 2026-09-20) -- every ordinary request
+  now goes through `Project.request_dialogue/5` instead of `request/3`, so
+  an unrelated method reaches `Dispatch`/`Pipeline`/`"eval"` exactly as
+  before regardless of whether a dialogue happens to be held at the time
+  (`InOut`'s own pass-through case). The reply envelope's `"from"`/
+  `"dialogue"` fields are prebuild.md §17.2's adapter-mode encoding of
+  `InOut`'s 2-bit tag; `outcome.ok?` decides whether `Protocol.encode_response/3`
+  gets `{:ok, ...}` or `{:error, ...}`.
   """
 
   @behaviour :cowboy_websocket
@@ -33,7 +44,9 @@ defmodule XipeTotec.Serve.Socket do
 
   @impl true
   def init(req, _opts),
-    do: {:cowboy_websocket, req, %{initialized: false, capabilities: nil}, %{idle_timeout: :infinity}}
+    do:
+      {:cowboy_websocket, req, %{initialized: false, capabilities: nil, dialogue: nil},
+       %{idle_timeout: :infinity}}
 
   @impl true
   def websocket_init(state) do
@@ -55,8 +68,21 @@ defmodule XipeTotec.Serve.Socket do
         {:reply, {:text, Protocol.encode_response(id, {:ok, %{}})}, state}
 
       {:ok, {:request, id, method, params}} ->
-        result = Project.request(method, params)
-        {:reply, {:text, Protocol.encode_response(id, result)}, state}
+        {new_dialogue, outcome} = Project.request_dialogue(state.dialogue, method, params)
+
+        envelope = %{
+          "from" => nil,
+          "dialogue" => %{"hold" => outcome.hold, "via_repl" => outcome.via_repl, "text" => outcome.text}
+        }
+
+        body =
+          if outcome.ok? do
+            Protocol.encode_response(id, {:ok, outcome.result || %{}}, envelope)
+          else
+            Protocol.encode_response(id, {:error, outcome.error}, envelope)
+          end
+
+        {:reply, {:text, body}, %{state | dialogue: new_dialogue}}
 
       {:ok, {:notify, _method, _params}} ->
         # §16.3's client -> server list is all requests -- a client sending
