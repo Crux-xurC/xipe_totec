@@ -120,11 +120,12 @@ defmodule DispatchTest do
       assert get_result == search_result
     end
 
-    test "a row address returns the bare row, not a composed card", %{book: book} do
-      assert {:ok, ^book, %{"matches" => [%{"id" => "c1", "row" => row}]}} =
-               Dispatch.handle(book, "card/get", %{"row" => "c1"}, %{})
+    test "a row address composes the owning card too, entering through the call's node", %{book: book} do
+      assert {:ok, ^book, %{"matches" => [card]}} = Dispatch.handle(book, "card/get", %{"row" => "c1"}, %{})
 
-      assert row.args == ["100"]
+      assert card["id"] == "n1"
+      assert card["node"].module == "Shop.Price"
+      assert [%{node: "n1", args: ["100"]}] = card["calls"]
     end
 
     test "an unsupported address column is a clean error", %{book: book} do
@@ -213,6 +214,50 @@ defmodule DispatchTest do
 
     test "a missing ref param is invalid_params", %{book: book} do
       assert {:error, ^book, %{"code" => "invalid_params"}} = Dispatch.handle(book, "cell/resolve", %{}, %{})
+    end
+  end
+
+  describe "row/depends (prebuild.md §16.3/§16.4, not a v0.4 spec method)" do
+    test "returns the upstream ⟦id⟧ chain, deepest-first, self included" do
+      book =
+        Book.new()
+        |> Core.add_call("c1", %{node: "n1", args: ["⟦c2⟧ + 1"]})
+        |> Core.add_call("c2", %{node: "n2", args: ["1"]})
+
+      assert {:ok, ^book, %{"chain" => ["c2", "c1"]}} = Dispatch.handle(book, "row/depends", %{"call_ids" => ["c1"]}, %{})
+    end
+
+    test "call_ids must be a list of strings" do
+      book = Book.new()
+      assert {:error, ^book, %{"code" => "invalid_params"}} = Dispatch.handle(book, "row/depends", %{"call_ids" => "c1"}, %{})
+      assert {:error, ^book, %{"code" => "invalid_params"}} = Dispatch.handle(book, "row/depends", %{}, %{})
+    end
+  end
+
+  describe "row/set-result (prebuild.md §16.4/§19, the dependency-chain negotiation's stub-value step)" do
+    test "writes a literal result with no evaluation, repr always \"exact\"" do
+      book = Book.new() |> Core.add_call("c1", %{node: "n1", args: []})
+
+      assert {:ok, new_book, %{"id" => "c1", "result" => "42"}} =
+               Dispatch.handle(book, "row/set-result", %{"id" => "c1", "result" => "42"}, %{})
+
+      row = Book.get(new_book, :calls, "c1")
+      assert row.result == "42"
+      assert row.repr == "exact"
+      assert row.result_source == "user"
+    end
+
+    test "an unknown call id is a clean not_found, not a crash" do
+      book = Book.new()
+
+      assert {:error, ^book, %{"code" => "not_found"}} =
+               Dispatch.handle(book, "row/set-result", %{"id" => "missing", "result" => "1"}, %{})
+    end
+
+    test "rejects a missing id/result shape" do
+      book = Book.new()
+      assert {:error, ^book, %{"code" => "invalid_params"}} = Dispatch.handle(book, "row/set-result", %{"id" => "c1"}, %{})
+      assert {:error, ^book, %{"code" => "invalid_params"}} = Dispatch.handle(book, "row/set-result", %{}, %{})
     end
   end
 

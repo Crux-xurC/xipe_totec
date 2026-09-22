@@ -98,7 +98,20 @@ Three kinds of command, dispatched by method name:
     call_ids = if given_ids == [], do: Map.keys(book.calls), else: given_ids
     {launch_opts, cleanup} = launch_opts_for(root, opts)
 
-    eval_opts = opts |> Keyword.put(:launch_opts, launch_opts) |> Keyword.merge(cwd: root, call_ids: call_ids)
+    # "include_writes" (prebuild.md §16.2/§16.4, 2026-09-21): Core.plan_recalc/3
+    # (via Repl.Evaluator.run_pass/3, both already wired -- see the moduledoc
+    # note this fixes) has always accepted :include_writes, but nothing on the
+    # CLI side ever read it out of a command's own params, so writes-effect
+    # calc rows could never actually be opted into from here. truthy?/1 tolerates
+    # both a real JSON boolean (a direct Runner.run/4 caller) and the plain
+    # string "true" `xipe do ... include_writes=true` produces (parse_kv/1's
+    # generic key=value parsing never coerces to boolean).
+    include_writes = params |> Map.get("include_writes", false) |> truthy?()
+
+    eval_opts =
+      opts
+      |> Keyword.put(:launch_opts, launch_opts)
+      |> Keyword.merge(cwd: root, call_ids: call_ids, include_writes: include_writes)
 
     result = Evaluator.run_pass(book, XipeTotec.Id.ulid(), eval_opts)
     cleanup.()
@@ -169,6 +182,10 @@ Three kinds of command, dispatched by method name:
       end
     end
   end
+
+  defp truthy?(true), do: true
+  defp truthy?("true"), do: true
+  defp truthy?(_), do: false
 
   # --- $n.path substitution -------------------------------------------
 

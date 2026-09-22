@@ -39,6 +39,7 @@ defmodule XipeTotec.Core do
       prev_source: nil,
       result: nil,
       result_type: nil,
+      result_source: nil,
       repr: nil,
       bin: nil,
       compare: "none",
@@ -67,6 +68,52 @@ defmodule XipeTotec.Core do
   def set_prev(book, id, prev_value) do
     row = fetch!(book, :calls, id)
     Book.put(book, :calls, id, Map.merge(row, %{prev: prev_value, prev_source: "user"}))
+  end
+
+  @doc """
+  Directly write a user-supplied literal as a call's `result`, without any
+  evaluation (prebuild.md §16.4/§19, the dependency-chain negotiation's
+  "insert a value into X" step). `result_value` must already be valid
+  target-language source text for a literal -- `resolve_ref/4`'s own
+  "already exact/binary" branch (below) embeds `result` verbatim into a
+  dependent call's generated expression, exactly the same as a real eval's
+  `display` value would be, so this function needs no new embedding logic
+  and no other part of Core needs to know a value was hand-supplied rather
+  than evaluated. Always classified `repr: "exact"` (never `"binary"` --
+  there's no evaluation step here to produce a `bin_base64`-style binary
+  fallback for an unsupported value; the human is expected to supply
+  something the target language can read back as a literal). Marked
+  `result_source: "user"` (mirrors `set_prev/3`'s `prev_source: "user"`)
+  purely for future display/debugging -- nothing in `Core` reads this
+  column back.
+  """
+  @spec set_result(Book.t(), String.t(), String.t()) :: Book.t()
+  def set_result(book, id, result_value) do
+    row = fetch!(book, :calls, id)
+
+    Book.put(
+      book,
+      :calls,
+      id,
+      Map.merge(row, %{
+        result: result_value,
+        repr: "exact",
+        result_source: "user",
+        state: "ok",
+        error: nil
+      })
+    )
+  end
+
+  @doc "Short display label for a call, \"Module.name/arity\" -- same format `GraphQuery`'s own node-label helper uses, reused here for the dependency-chain negotiation's `;; wN <label>` lines. `nil` if the call or its node no longer exists."
+  @spec call_label(Book.t(), String.t()) :: String.t() | nil
+  def call_label(book, call_id) do
+    with call when not is_nil(call) <- Book.get(book, :calls, call_id),
+         node when not is_nil(node) <- Book.get(book, :nodes, call.node) do
+      "#{node.module}.#{node.name}/#{node.arity}"
+    else
+      nil -> nil
+    end
   end
 
   @spec remove_call(Book.t(), String.t()) :: Book.t()
@@ -209,6 +256,38 @@ defmodule XipeTotec.Core do
     else
       bfs(next, MapSet.union(acc, next), reverse_graph)
     end
+  end
+
+  @doc """
+  The upstream `⟦id⟧` dependency chain of `call_ids` (prebuild.md §16.3/
+  §16.4, 2026-09-19/20-21 co-design): `call_ids` themselves plus every call
+  id (transitively) referenced by their own args, ordered deepest-first via
+  `topo_sort/2` -- the same "leaves before dependents" order `plan_recalc/3`
+  already relies on, and the exact "深い方から浅い方へ" order §16.4's
+  planned dependency-chain negotiation needs.
+
+  Walks `reference_graph/1` *forward* (call -> what it references) --
+  `affected_set/3` reverses that same graph to walk downstream instead;
+  this is its upstream mirror. Distinct from `GraphQuery.graph/neighbors`,
+  which walks the static `:links` call graph (node calls node, from
+  `Scanner`) -- this walks the calc-row dependency graph (call references
+  call via `⟦id⟧` in args), a different edge type entirely.
+
+  An id in `call_ids` that isn't in `book.calls` contributes no
+  dependencies (silently -- `reference_graph/1` simply has no entry for
+  it) rather than erroring; this function is a graph query, not a
+  validator. A reference cycle can't be topologically sorted, but
+  `topo_sort/2`'s own `done`-marking still terminates (see its
+  moduledoc-adjacent comment) rather than looping forever -- the cyclic
+  members just come out in a non-meaningful (but stable) order, same as
+  everywhere else in `Core` that doesn't special-case cycles beyond not
+  hanging.
+  """
+  @spec upstream_chain(Book.t(), [String.t()]) :: [String.t()]
+  def upstream_chain(book, call_ids) do
+    graph = reference_graph(book)
+    full = bfs(MapSet.new(call_ids), MapSet.new(call_ids), graph)
+    topo_sort(MapSet.to_list(full), graph)
   end
 
   @doc """

@@ -611,3 +611,37 @@ cruxの提案:「コマンド入力→参照ファイル→実際の動作」と
 [^flake]: 同じ`book.jsonl`パスを複数プロセスが並行で読み書きする既知のflakeで、今回の変更とは無関係（単独実行では毎回green）。
 
 **まだ無いもの**: `InOut.run_to_completion/7`の`Serve.Socket`側での利用（今回はWSの単発`handle/6`呼び出しのみ配線、複数ターンの駆動ループはCLI側のみ）、実対話プログラム（§16.4の依存チェーン交渉、ステップ4のまま）、`notify/*`への出自付与（§17.1で先送り済み）。
+
+## 18. §16.4ステップ2実装 ── `include_writes`配線 + 上流依存チェーン取得（2026-09-21、未コミット）
+
+§16.4の合意順序のうちステップ2（§16.2で「未修正のまま」としていた分）を実装した。ステップ3（第4層、§17）は既にステップ2より先に完了済みだったため、順序が入れ替わった形。ステップ4（依存チェーン交渉本体）はこの2つの上に乗るので依然未着手。
+
+- **`Core.upstream_chain/2`（新規、`lib/core.exs`）**: `call_ids`自身＋その上流`⟦id⟧`依存を`topo_sort/2`で深い方から浅い方への順に返す。`reference_graph/1`を`affected_set/3`とは逆向き（reverseせず forward）に辿るだけ ── 既存の`bfs/3`をそのまま再利用でき、新しい走査アルゴリズムは書いていない。未知のseed idは黙って何も依存を生まない（エラーにしない）。循環参照は`topo_sort/2`の`done`マーキングにより無限ループにはならない（意味のある順序にはならないが安全に終端する）。`test/core_test.exs`に6件（直線チェーン・葉ノード・下流を含まないことの確認・複数seedのマージ重複排除・未知id・循環）。
+- **`Dispatch`の新規メソッド `row/depends`**: `{"call_ids": [...]}` → `{"chain": [...]}`。v0.4仕様の§16.3メソッド表には無い、今回の設計過程で生まれた新規メソッド（`GraphQuery.graph/neighbors`＝静的`:links`呼び出しグラフとは別物、と明記）。`row/`は`row/add`/`row/remove`と同じ計算行レベルの名前空間に合わせた（`graph/`は静的呼び出しグラフの意味で既に使われているため避けた）。`test/dispatch_test.exs`に2件。
+- **`include_writes`のCLI配線（`Runner`/`main.exs`）**: `Runner.run_one/4`の`"eval"`節が`params["include_writes"]`を読み`Evaluator.run_pass/3`（→`Core.plan_recalc/3`、既に配線済みだった側）へ渡すよう修正。JSON実bool（`true`）と`xipe do`の素朴なkey=valueパーサーが作る文字列`"true"`の両方を許容する`truthy?/1`を追加（`xipe do`は値の型付けをしないため）。専用の`xipe eval`コマンドにも`--include-writes`フラグを追加（`--mix`と同じ形）。`test/runner_test.exs`に3件（既定で除外される・`include_writes: true`で含まれる・文字列`"true"`でも動く）。
+- **実機確認**: `.exs`のみのscripts-modeプロジェクト（`base(x)`→`mid(x)`→`top(x)`の3関数）で、`xipe do row/depends call_ids=...`が実際に`["c_base","c_mid","c_top"]`という深い方から浅い方への順を返すこと、`xipe eval`が`--include-writes`無しではwrites行を1件も評価しない（`results`が空）のに対し`--include-writes`ありだとスケジュールされる（実際にREPLへ投げられる）ことを確認した。**ただし実評価そのものは`session_hung`でクラッシュし、しかも`c_base`/`c_mid`の結果行が出力に一切現れないという未解明の挙動が見つかった** ── `xipe do`のCLIパーサーが単一要素リストを表現できない制約を避けるため`Store`を直接いじって行を仕込んだ手動セットアップだった影響の可能性も含め、原因は今回追跡していない。§16.3が元々指摘していた「入れ子のwritesチェーンは`call_ids`に全部列挙しないと動かない」件とは別に、**新たに見つかった未調査の不具合**として記録しておく。
+
+全体テスト26ファイル(`core_test.exs`+6/`dispatch_test.exs`+2/`runner_test.exs`+3)、`./test/run.sh`緑（既知の`serve_project_test.exs`フレーク除く）。全て未コミット。
+
+## 19. §16.4ステップ4実装 ── 依存チェーン交渉本体（2026-09-22、未コミット）
+
+§16.4の合意順序のステップ4（w1(w2(w3()))の依存チェーン交渉を、既に完成しているステップ2（`include_writes`/`upstream_chain`/`row/depends`、§18）＋ステップ3（第4層`Dialogue`/`InOut`、§17）の上に乗る具体的な1インスタンスとして実装）を実装した。これで§16.4の4ステップ全てが実装済みになる。cruxとの co-design で2点確認: (B) `Dialogue.start/1`の契約（`params`のみ、`book`を渡されない、§17実装済み）はそのまま変更せず、CLI側で`Core.upstream_chain`/`call_label`によりチェーン解決を先に済ませてから交渉を開始する形にする。(C) 対象に上流依存が無い場合は「何もしない」を本線とし、直接評価したいなら既存の`eval`コマンドを別途叩けばよい（crux: 「直接評価であれば専用のコマンドを叩くはず」）。
+
+- **`Core.set_result/3`（新規）**: ユーザー指定のリテラルをREPL評価無しで直接`result`へ書き込む（交渉の「値を入れて評価」ステップの「値を入れる」側）。`resolve_ref/4`の既存の「exact/binaryなら文字列そのまま埋め込む」分岐（`core.exs:426`）が`result`/`repr`列しか見ないことを確認済みなので、新しい埋め込みロジックは不要 ── §16.3で検討して不要と判断した`stub_result`とは異なる用途（あちらはキャッシュ済み値の再利用、こちらは人間による意図的な代入）だが、実装としては同じ2列を書くだけで足りた。`repr`は常に`"exact"`（評価していないので`"binary"`側の材料が無い）。`result_source: "user"`を新設（`prev_source`の`"user"`マーカーと同型、表示・デバッグ用途のみで`Core`内部はどこも読まない）。`add_call/2`のデフォルト列に`result_source: nil`を追加。
+- **`Core.call_label/2`（新規）**: `"Module.name/arity"`形式の短縮ラベル。`GraphQuery`の同形式のprivateな`label/1`（ノード行が引数）とは別に、こちらはcall id起点（call→node解決込み）。§16.4が「カード/テーブル表示側の統一的な短縮表記」として未確定にしていた`;; wN info`のフォーマットを、この形式で確定させた。
+- **`Dispatch`の新規メソッド`row/set-result`**: `{"id","result"}` → `Core.set_result/3`。pure（REPL不要）なので`Dispatch`の同期Book-in-Book-out契約にそのまま収まる（`"eval"`が`Runner`の疑似メソッドにせざるを得ないのとは対照的）。`effect/set`と同じ`RuntimeError`→`not_found`変換パターン。
+- **`XipeTotec.Dialogue.Depends`（新規、`lib/dialogue/depends.exs`）**: 交渉プログラム本体。`start/1`は`params["chain"]`（`Core.upstream_chain/2`の出力に`Core.call_label/2`でラベルを添えた`[%{"id","label"},...]`、対象自身が末尾）を受け取るのみで`book`には一切触れない（B の決定通り）。対象自身（チェーン末尾）は問わず、それより上流の各段だけを深い順に`;; wN <label>`付きで質問する。`"y"`＋`"value"`（対象言語のリテラルテキスト）でその段に`row/set-result`＋その段より浅い側全部（対象含む）を`include_writes: true`で`eval`という2コマンドに確定、交渉終了。`"n"`は1段浅い方へ（宣言した段はそのまま評価もされず捨てられる）。チェーンを使い切った場合（依存が全部`"n"`、または対象に上流依存が元々無い場合の両方）は`:done`・コマンド無しで終了 ── **crux確認: 直接評価にフォールバックしない**（それが欲しければ既存の`"eval"`コマンドを別途使う）。想定外の回答（`"answer"`が無い/不明、または`"y"`で`"value"`が無い）は同じ質問を再度返す。状態は`%{chain, position}`のみ、cruxの元の見立て通り「極めて薄い」実装になった。
+- **CLI配線（`main.exs`）**: `xipe dialogue depends [<dir>] <call_id>`を新設。使い捨ての確認専用`dialogue-wiring-check`（§17.3、`WiringCheckDialogue`）はここで削除 ── 予告通り実対話プログラムに置き換え。`InOut.run_to_completion/7`を実stdin/stdoutで駆動、`"y <literal>"`/`"n"`を`%{"answer"=>,"value"=>}`にパースする一段だけをCLI側が持つ。
+- **実機確認**: `.exs`のみのscripts-modeプロジェクト（`base(x)→mid(x)→top(x)`）で、(1) 深いほう(`c_base`)で`n`・次(`c_mid`)で`y 999`と答えると、`c_base`は未評価のまま、`c_mid`に`result="999" repr="exact" result_source="user"`が直接書き込まれ、`c_top`が実REPL評価で`996`（`999-3`）になることを確認、(2) 全段`n`で「上流依存を使い切りました。何も実行しません。」、(3) 対象に上流依存が無い場合は即座に同じメッセージで終了、(4) 未知のcall idはCLI側で明確なエラーになりクラッシュしないこと、をそれぞれ確認した。§18で見つかった`session_hung`の未解明バグ（未追跡のまま）は今回のパスでは再現しなかった（今回はStore直接いじりではなく`Core.add_call`/`set_effect`経由でフィクスチャを作った差の可能性はあるが、原因追跡はしていない）。
+
+全体テスト27ファイル(`core_test.exs`+16/`dispatch_test.exs`+3/新規`dialogue_depends_test.exs`+8)、`./test/run.sh`緑（既知の`serve_project_test.exs`フレーク除く）。全て未コミット。
+
+## 20. `card/get`の`row=`アドレスをカード合成へ統一（2026-09-22、未コミット）
+
+`~/my_app/tezcatl`セッションでの crux との co-design。「CLIからカード単位での出力を可能にする」POCの足りないものを洗い出す過程で、`card/get`が住所の指定方法によって2つの違うレスポンス形を返すことが判明した ── `file`/`module`/`name`/`arity`（`Address.resolve/2`が`{:nodes, id, row}`を返す経路）なら`compose_card/3`済みの「node+calls+links」形だが、`row=<call_id>`（`{:calls, id, row}`を返す経路）は`render_match/2`が`compose_card`を経由せず単一行`%{"id"=>id, "row"=>row}`をそのまま返していた。§16.3仕様文（`xipe_totec_spec_v0.4.html`）の`card/get`の説明文自体は「住所オブジェクトでカードを取得する」とだけあり、住所の種類によってレスポンス形が変わることは想定していない ── 実装が仕様からずれていた1件として扱い、`row=`もカードとして返すよう修正した。人間向けのCLI出力整形（一度実装したが crux の指示で撤回）は今回のスコープ外のまま(P7: 入力体験はクライアントの責務)。
+
+- **`Dispatch.render_match/2`（`lib/dispatch.exs`）**: `{:calls, _id, row}`節を、`row.node`から親ノード行を`Book.get/3`で引いて`compose_card/3`に渡す形に変更。呼び出し側（`card/get`/`card/search`のハンドラ本体）・`Address`・`Core`には変更無し ── `render_match/2`内で完結する変更で足りた。
+- **`test/dispatch_test.exs`**: 「`row`アドレスは素の行を返す」ことを検証していた既存テスト1件を、「`row`アドレスも所属カードを合成して返す」ことを検証する内容に更新（新規追加はなし、既存の27ファイル構成のまま）。
+- **実機確認**: `test/fixtures/calc_sample/calc.exs`（`Calc.mul/2`等）でスキャン→`row/add`→`effect/set`→`xipe eval`まで実行し、評価済みの計算行に対して`xipe do card/get row=<call_id>`と`xipe do card/get module=Calc name=mul arity=2`を叩き、両者が同一の「node+calls+links」形（`result`/`repr`/`eval_count`等を含む）を返すことを確認した。
+
+`./test/run.sh`全27ファイル・0 failures（`dispatch_test.exs`31件含む）。全て未コミット。

@@ -14,32 +14,12 @@ Code.require_file("lib/repl/evaluator.exs", __DIR__)
 Code.require_file("lib/runner.exs", __DIR__)
 Code.require_file("lib/dialogue.exs", __DIR__)
 Code.require_file("lib/in_out.exs", __DIR__)
-
-defmodule XipeTotec.CLI.WiringCheckDialogue do
-  # NOT a real feature -- exists only to prove main.exs's InOut.run_to_completion/7
-  # wiring (prebuild.md §17, 2026-09-20) actually drives a live terminal
-  # (reads stdin, prints prompts, threads Book/dialogue across turns,
-  # persists on completion) before any real Dialogue program exists.
-  # Delete this module and the "dialogue-wiring-check" subcommand once
-  # prebuild.md §16.4's dependency-chain negotiation (step 4) is built --
-  # that's the real thing this stood in for.
-  @behaviour XipeTotec.Dialogue
-
-  @impl true
-  def start(_params), do: {:hold, %{}, "continue? (yes adds a row, anything else ends here)"}
-
-  @impl true
-  def answer(%{}, %{"choice" => "yes"}) do
-    {:done, "adding a row and stopping", [%{"method" => "row/add", "params" => %{"node" => "wiring-check", "args" => []}}]}
-  end
-
-  def answer(%{}, %{"choice" => _other}), do: {:done, "stopping, nothing added", []}
-end
+Code.require_file("lib/dialogue/depends.exs", __DIR__)
 
 defmodule XipeTotec.CLI do
   @moduledoc false
 
-  alias XipeTotec.{Book, InOut, Runner, Store}
+  alias XipeTotec.{Book, Core, InOut, Runner, Store}
   alias XipeTotec.Serve.Project, as: ServeProject
 
   @store_file "book.jsonl"
@@ -57,7 +37,7 @@ defmodule XipeTotec.CLI do
       ["serve" | rest] -> serve(rest)
       ["eval" | rest] -> eval(rest)
       ["do" | rest] -> do_cmd(rest)
-      ["dialogue-wiring-check" | rest] -> dialogue_wiring_check(rest)
+      ["dialogue", "depends" | rest] -> dialogue_depends(rest)
       [cmd | _] -> unknown(cmd)
     end
   end
@@ -71,16 +51,19 @@ defmodule XipeTotec.CLI do
       xipe serve [<dir>] [--port N]
                                 §16.1 WebSocket (localhost) entry over <dir>'s ./#{@store_file}
                                 (default port #{@default_serve_port}, or $XIPE_TOTEC_PORT)
-      xipe eval [<dir>] [id...] [--mix]
+      xipe eval [<dir>] [id...] [--mix] [--include-writes]
                                 launch <dir>'s REPL and (re)evaluate the given calc-row ids
                                 (default: every call in ./#{@store_file}); persists results back
                                 and prints an outcome line per call. --mix launches via `iex -S
                                 mix` instead of the default scripts-mode (`iex`, loading every
-                                scanned .ex/.exs file under <dir> via -r)
+                                scanned .ex/.exs file under <dir> via -r). --include-writes also
+                                schedules writes/unknown-effect rows (still requires each one's
+                                node to have an explicit `effect/set` first)
       xipe do [--dir <dir>] <method> [key=value...] [-- <method> [key=value...]]...
                                 run one or more §16.3 Dispatch methods (row/add, effect/set,
-                                cell/resolve, graph/neighbors, scan/run, ...) or the "eval"
-                                pseudo-method, chained in one command list -- see
+                                cell/resolve, graph/neighbors, row/depends, scan/run, ...) or the
+                                "eval" pseudo-method (params include_writes=true opts in
+                                writes/unknown-effect rows), chained in one command list -- see
                                 XipeTotec.Runner's moduledoc. A later command can reference an
                                 earlier one's result with "$<index>.<path>", e.g.:
                                   xipe do row/add node=n1 args=1,2 \\
@@ -88,6 +71,13 @@ defmodule XipeTotec.CLI do
                                        -- eval call_ids=$0.id
                                 (values containing a comma become a list; everything else stays
                                 a plain string)
+      xipe dialogue depends [<dir>] <call_id>
+                                §16.4 interactive dependency-chain negotiation: walks <call_id>'s
+                                upstream ⟦id⟧ chain deepest-first, asking at each step whether to
+                                hand-supply that step's value (skipping real evaluation for it and
+                                everything deeper) and run everything from there up through
+                                <call_id> for real. At a prompt, answer "y <literal>" (target-
+                                language source text) or "n"; declining every step does nothing.
       xipe version              show version
       xipe help                 show this message
     """)
@@ -152,7 +142,7 @@ defmodule XipeTotec.CLI do
   # <dir> in -- eval's <dir> is only where the REPL itself launches/scans
   # from, same role as scan's own <dir> argument).
   defp eval(args) do
-    {opts, positional, _invalid} = OptionParser.parse(args, strict: [mix: :boolean])
+    {opts, positional, _invalid} = OptionParser.parse(args, strict: [mix: :boolean, include_writes: :boolean])
     dir = List.first(positional) || "."
     ids = Enum.drop(positional, 1)
 
@@ -167,30 +157,74 @@ defmodule XipeTotec.CLI do
       # otherwise leave :launch_opts unset and let Runner decide from
       # whether <dir>/mix.exs exists.
       evaluator_opts = if opts[:mix], do: [launch_opts: []], else: []
-      command = %{"method" => "eval", "params" => %{"call_ids" => target_ids}}
+      # --include-writes (prebuild.md §16.2/§16.4, 2026-09-21): the dedicated
+      # `xipe eval` command's own equivalent of `xipe do ... eval
+      # include_writes=true` -- Runner.run_one/4's "eval" case is what
+      # actually reads this out of the command's params.
+      params = %{"call_ids" => target_ids, "include_writes" => opts[:include_writes] || false}
+      command = %{"method" => "eval", "params" => params}
       run_commands(dir, [command], Keyword.put(evaluator_opts, :ctx, git_ctx(dir)))
     end
   end
 
-  # NOT a real subcommand (see WiringCheckDialogue's own moduledoc-style
-  # comment above) -- `xipe dialogue-wiring-check [<dir>]` drives
-  # InOut.run_to_completion/7 with real stdin/stdout against a toy
-  # program, to confirm main.exs itself (not just test/in_out_test.exs)
-  # can hold a dialogue across turns and persist the result. Every line
-  # typed becomes `%{"choice" => <trimmed line>}`, same shape
-  # WiringCheckDialogue.answer/2 matches on.
-  defp dialogue_wiring_check(args) do
-    dir = List.first(args) || "."
+  # `xipe dialogue depends [<dir>] <call_id>` -- the real §16.4 dependency-
+  # chain negotiation (prebuild.md §19), the first real `Dialogue` program
+  # to ride on `InOut.run_to_completion/7` (previously only proven by a
+  # throwaway toy program, now removed). Resolves <call_id>'s upstream
+  # chain via `Core.upstream_chain/2` + `Core.call_label/2` *before*
+  # starting the dialogue and hands the fully-resolved chain in as plain
+  # params -- `XipeTotec.Dialogue.Depends` itself never touches `book` (see
+  # its own moduledoc for why).
+  defp dialogue_depends(args) do
+    {dir, call_id} =
+      case args do
+        [d, id] -> {d, id}
+        [id] -> {".", id}
+        _ -> usage_error("xipe dialogue depends: usage: xipe dialogue depends [<dir>] <call_id>")
+      end
+
     old_book = Store.load(@store_file)
-    programs = %{"dialogue-wiring-check" => XipeTotec.CLI.WiringCheckDialogue}
-    first = %{"method" => "dialogue-wiring-check", "params" => %{}}
 
-    next_answer = fn -> %{"choice" => (IO.gets("> ") || "") |> String.trim()} end
+    if Book.get(old_book, :calls, call_id) == nil do
+      IO.puts(:stderr, "xipe dialogue depends: unknown call id #{call_id}")
+      System.halt(1)
+    else
+      chain =
+        old_book
+        |> Core.upstream_chain([call_id])
+        |> Enum.map(fn id -> %{"id" => id, "label" => Core.call_label(old_book, id) || id} end)
 
-    {new_book, outcome} = InOut.run_to_completion(old_book, dir, first, [], programs, next_answer, &IO.puts/1)
+      programs = %{"dialogue/depends" => XipeTotec.Dialogue.Depends}
+      first = %{"method" => "dialogue/depends", "params" => %{"chain" => chain}}
 
-    Store.persist_diff(@store_file, old_book, new_book, @all_tables)
-    IO.puts("xipe dialogue-wiring-check: hold=#{outcome.hold} via_repl=#{outcome.via_repl} ok?=#{outcome.ok?}")
+      # "y <literal>" -> %{"answer"=>"y","value"=>"<literal>"} (value may
+      # itself contain spaces, e.g. "y %{a: 1, b: 2}"); anything else is
+      # passed through verbatim as "answer" and left for
+      # Dialogue.Depends.answer/2's own catch-all (re-asks) to handle.
+      next_answer = fn ->
+        case (IO.gets("> ") || "") |> String.trim() |> String.split(" ", parts: 2) do
+          ["y", value] -> %{"answer" => "y", "value" => value}
+          [other] -> %{"answer" => other}
+        end
+      end
+
+      {new_book, outcome} =
+        InOut.run_to_completion(old_book, dir, first, [ctx: git_ctx(dir)], programs, next_answer, &IO.puts/1)
+
+      Store.persist_diff(@store_file, old_book, new_book, @all_tables)
+
+      case outcome.result do
+        %{"outcomes" => outcomes} -> print_outcomes(outcomes)
+        _ -> :ok
+      end
+
+      unless outcome.ok?, do: System.halt(1)
+    end
+  end
+
+  defp usage_error(message) do
+    IO.puts(:stderr, message)
+    System.halt(1)
   end
 
   # crux's 2026-09-18 co-design call: split the CLI into an "input" half

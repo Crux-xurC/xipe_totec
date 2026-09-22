@@ -90,6 +90,58 @@ defmodule CoreTest do
     end
   end
 
+  describe "upstream_chain/2 (prebuild.md §16.3/§16.4, the mirror of affected_set/3's downstream walk)" do
+    test "a straight chain c1 -> c2 -> c3 comes back deepest-first, self included" do
+      book =
+        Book.new()
+        |> Core.add_call("c1", %{node: "n1", args: ["⟦c2⟧ + 1"]})
+        |> Core.add_call("c2", %{node: "n2", args: ["⟦c3⟧ + 1"]})
+        |> Core.add_call("c3", %{node: "n3", args: ["1"]})
+
+      assert Core.upstream_chain(book, ["c1"]) == ["c3", "c2", "c1"]
+    end
+
+    test "a leaf with no references returns just itself" do
+      book = Book.new() |> Core.add_call("c1", %{node: "n1", args: ["1"]})
+      assert Core.upstream_chain(book, ["c1"]) == ["c1"]
+    end
+
+    test "does not include downstream callers, unlike affected_set/3" do
+      book =
+        Book.new()
+        |> Core.add_call("c1", %{node: "n1", args: ["1"]})
+        |> Core.add_call("c2", %{node: "n2", args: ["⟦c1⟧ + 1"]})
+
+      assert Core.upstream_chain(book, ["c1"]) == ["c1"]
+    end
+
+    test "multiple seeds merge into one ordered chain, shared deps deduplicated" do
+      book =
+        Book.new()
+        |> Core.add_call("c1", %{node: "n1", args: ["⟦shared⟧"]})
+        |> Core.add_call("c2", %{node: "n2", args: ["⟦shared⟧"]})
+        |> Core.add_call("shared", %{node: "n3", args: ["1"]})
+
+      assert Core.upstream_chain(book, ["c1", "c2"]) |> Enum.sort() == ["c1", "c2", "shared"]
+      assert List.last(Core.upstream_chain(book, ["c1", "c2"])) in ["c1", "c2"]
+      assert Enum.count(Core.upstream_chain(book, ["c1", "c2"]), &(&1 == "shared")) == 1
+    end
+
+    test "an unknown seed id contributes nothing and does not raise" do
+      book = Book.new()
+      assert Core.upstream_chain(book, ["nonexistent"]) == ["nonexistent"]
+    end
+
+    test "a reference cycle terminates instead of looping forever" do
+      book =
+        Book.new()
+        |> Core.add_call("c1", %{node: "n1", args: ["⟦c2⟧"]})
+        |> Core.add_call("c2", %{node: "n2", args: ["⟦c1⟧"]})
+
+      assert Core.upstream_chain(book, ["c1"]) |> Enum.sort() == ["c1", "c2"]
+    end
+  end
+
   describe "filter_by_effect/3 (fix D: unknown excluded by default; effect_source must be \"user\")" do
     setup do
       book =
@@ -292,6 +344,59 @@ defmodule CoreTest do
         |> Core.set_prev("c1", "42")
 
       assert [%{basis: {:exact, "42"}}] = Core.plan_recalc(book, "pass1", call_ids: ["c1"]).entries
+    end
+  end
+
+  describe "set_result/3 (prebuild.md §16.4/§19, the dependency-chain negotiation's 'insert a value' step)" do
+    setup do
+      book =
+        Book.new()
+        |> Core.put_node("n1", pure_node("f"))
+        |> Core.add_call("c1", %{node: "n1", args: ["1"], result: "old", repr: "unsupported", state: "eval_error", error: "boom"})
+
+      {:ok, book: book}
+    end
+
+    test "writes result/repr, marks result_source \"user\", clears error", %{book: book} do
+      row = Core.set_result(book, "c1", "42") |> Book.get(:calls, "c1")
+      assert row.result == "42"
+      assert row.repr == "exact"
+      assert row.result_source == "user"
+      assert row.state == "ok"
+      assert row.error == nil
+    end
+
+    test "a downstream reference embeds the stubbed value as a literal, same as a real eval would", %{book: book} do
+      book =
+        book
+        |> Core.set_result("c1", "42")
+        |> Core.add_call("c2", %{node: "n1", args: ["⟦c1⟧ + 1"]})
+
+      assert [%{args: ["42 + 1"]}] = Core.plan_recalc(book, "pass1", call_ids: ["c2"]).entries
+    end
+
+    test "an unknown call id raises, same boundary as set_prev/set_effect", %{book: book} do
+      assert_raise RuntimeError, fn -> Core.set_result(book, "nonexistent", "1") end
+    end
+  end
+
+  describe "call_label/2" do
+    test "formats Module.name/arity from the call's node" do
+      book =
+        Book.new()
+        |> Core.put_node("n1", pure_node("f"))
+        |> Core.add_call("c1", %{node: "n1", args: []})
+
+      assert Core.call_label(book, "c1") == "M.f/1"
+    end
+
+    test "nil for an unknown call id" do
+      assert Core.call_label(Book.new(), "nonexistent") == nil
+    end
+
+    test "nil for a call whose node no longer exists" do
+      book = Book.new() |> Core.add_call("c1", %{node: "gone", args: []})
+      assert Core.call_label(book, "c1") == nil
     end
   end
 

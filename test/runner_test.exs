@@ -146,6 +146,46 @@ defmodule RunnerTest do
     assert Book.get(new_book, :calls, "c2").eval_count == 1
   end
 
+  test "an \"eval\" command excludes a writes-effect row by default (filter_by_effect/3's own default)" do
+    book =
+      Book.new()
+      |> Core.put_node("n1", %{module: "M", name: "f", arity: 1, effect: "writes", effect_source: "user"})
+      |> Core.add_call("c1", %{node: "n1", args: ["1"]})
+
+    commands = [%{"method" => "eval", "params" => %{"call_ids" => ["c1"]}}]
+    {new_book, [outcome]} = Runner.run(book, ".", commands, sender: EchoSender, launch_opts: [])
+
+    assert outcome.ok?
+    assert outcome.result["results"] == []
+    assert Book.get(new_book, :calls, "c1").eval_count == 0
+  end
+
+  test "\"include_writes\" => true in an \"eval\" command's params opts a writes-effect row in (prebuild.md §16.2/§16.4, previously unwired)" do
+    book =
+      Book.new()
+      |> Core.put_node("n1", %{module: "M", name: "f", arity: 1, effect: "writes", effect_source: "user"})
+      |> Core.add_call("c1", %{node: "n1", args: ["1"]})
+
+    commands = [%{"method" => "eval", "params" => %{"call_ids" => ["c1"], "include_writes" => true}}]
+    {new_book, [outcome]} = Runner.run(book, ".", commands, sender: EchoSender, launch_opts: [])
+
+    assert outcome.ok?
+    assert [%{call_id: "c1", outcome: {:ok, _}}] = outcome.result["results"]
+    assert Book.get(new_book, :calls, "c1").eval_count == 1
+  end
+
+  test "\"include_writes\" also accepts the plain string \"true\" that `xipe do`'s generic key=value parsing produces" do
+    book =
+      Book.new()
+      |> Core.put_node("n1", %{module: "M", name: "f", arity: 1, effect: "writes", effect_source: "user"})
+      |> Core.add_call("c1", %{node: "n1", args: ["1"]})
+
+    commands = [%{"method" => "eval", "params" => %{"call_ids" => ["c1"], "include_writes" => "true"}}]
+    {_new_book, [outcome]} = Runner.run(book, ".", commands, sender: EchoSender, launch_opts: [])
+
+    assert [%{call_id: "c1"}] = outcome.result["results"]
+  end
+
   test "a launch failure in an \"eval\" command is reported without touching the book" do
     book = Book.new() |> Core.put_node("n1", pure_node("f")) |> Core.add_call("c1", %{node: "n1", args: ["1"]})
     commands = [%{"method" => "eval", "params" => %{"call_ids" => ["c1"]}}]

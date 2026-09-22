@@ -173,6 +173,43 @@ defmodule XipeTotec.Dispatch do
   def handle(book, "cell/resolve", _params, _ctx),
     do: {:error, book, invalid_params("cell/resolve needs \"ref\" (string, e.g. \"⟦01ABC...⟧\")")}
 
+  # prebuild.md §16.3/§16.4 (2026-09-19/20-21): the upstream ⟦id⟧
+  # dependency chain, not §16.3's original method table -- new ground, not
+  # a v0.4 spec method. "row/" matches row/add|remove's existing calc-row-
+  # level namespace; deliberately not under "graph/" (that prefix already
+  # means the static :links call graph, GraphQuery -- a different edge
+  # type, see Core.upstream_chain/2's own moduledoc).
+  def handle(book, "row/depends", %{"call_ids" => call_ids}, _ctx) when is_list(call_ids) do
+    if Enum.all?(call_ids, &is_binary/1) do
+      {:ok, book, %{"chain" => Core.upstream_chain(book, call_ids)}}
+    else
+      {:error, book, invalid_params("row/depends needs call_ids ([string])")}
+    end
+  end
+
+  def handle(book, "row/depends", _params, _ctx),
+    do: {:error, book, invalid_params("row/depends needs call_ids ([string])")}
+
+  # prebuild.md §16.4/§19 (2026-09-22): the dependency-chain negotiation's
+  # "insert a value into X" step -- writes a user-supplied literal straight
+  # into a call's result, no REPL involved (Core.set_result/3 is pure, so
+  # this fits Dispatch's synchronous Book-in-Book-out contract exactly,
+  # unlike "eval"/Runner's REPL-bound pseudo-method). New ground, not a v0.4
+  # spec method; "row/" namespace for the same reason row/depends picked it.
+  def handle(book, "row/set-result", %{"id" => call_id, "result" => result}, _ctx)
+      when is_binary(call_id) and is_binary(result) do
+    try do
+      {:ok, Core.set_result(book, call_id, result), %{"id" => call_id, "result" => result}}
+    rescue
+      # Core.set_result/3 -> fetch!/3 raises on an unknown call id, same
+      # boundary-conversion reasoning as effect/set's own rescue above.
+      RuntimeError -> {:error, book, not_found("call", call_id)}
+    end
+  end
+
+  def handle(book, "row/set-result", _params, _ctx),
+    do: {:error, book, invalid_params("row/set-result needs id (string) and result (string)")}
+
   def handle(book, method, _params, _ctx) when method in @not_implemented,
     do: {:error, book, %{"code" => "not_implemented", "message" => "#{method}: not implemented yet (prebuild.md §9 tier map)"}}
 
@@ -199,7 +236,16 @@ defmodule XipeTotec.Dispatch do
   defp parse_direction(other), do: {:error, "direction must be one of in|out|both, got #{inspect(other)}"}
 
   defp render_match(book, {:nodes, id, row}), do: compose_card(book, id, row)
-  defp render_match(_book, {:calls, id, row}), do: %{"id" => id, "row" => row}
+
+  # A "row=<call_id>" address resolves straight to a single :calls row
+  # (Address.resolve/2's own doing), but card/get's whole point is to
+  # return a card (spec glossary: "カード = 1関数分の行のまとまり"), not a
+  # bare row -- so compose the owning card the same way a module/name/arity
+  # address already does, just entering through the call's own `node`
+  # column instead of a direct node match (crux 2026-09-22 co-design: this
+  # unifies the two address styles onto one response shape now, rather than
+  # deferring it as a later addition).
+  defp render_match(book, {:calls, _id, row}), do: compose_card(book, row.node, Book.get(book, :nodes, row.node))
 
   # spec glossary: "カード = 1関数分の行のまとまり" -- a node plus its own
   # calc rows and link rows, not just the bare node row.
