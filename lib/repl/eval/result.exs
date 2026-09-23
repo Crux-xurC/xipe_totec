@@ -2,13 +2,13 @@ defmodule XipeTotec.Repl.Eval.Result do
   @moduledoc """
   Converts a parsed eval-result (from `Scan`/`Scan.Direct.Iex` + a future
   `field_drip`) into the `Evaluator.Result` shape `Core.apply_results/3`
-  already expects (prebuild.md §4.4, `core.exs`'s `apply_result/3`).
+  already expects (Old.md §4.4, `core.exs`'s `apply_result/3`).
 
   Built ahead of `scan.exs`/`field_drip.exs` on purpose (2026-09-18,
   crux's call): its own scope has nothing left undecided, so it doesn't
   need to wait for the rest of the parser pipeline to settle -- only the
   already-verified `eval_template` output shape (repr/type/display/
-  compare/bin_base64, prebuild.md §10.5/§10.11) as its input contract.
+  compare/bin_base64, Old.md §10.5/§10.11) as its input contract.
 
   **`repr`/`compare` are passed through as the plain strings
   `eval_template` already prints, never converted to atoms** (fixed
@@ -19,7 +19,7 @@ defmodule XipeTotec.Repl.Eval.Result do
   "binary"]` (string literals), so an atom-valued `repr` stored in the
   book could never match and the "embed a plan-external exact/binary
   value as literal text" path would silently never fire once a real
-  Evaluator started feeding it; and 課題.mkd B2's own rule ("Core に入る
+  Evaluator started feeding it; and Old.md §28 B2's own rule ("Core に入る
   行の値は JSON にそのまま載る型... に限ります") already rules atoms out
   at this exact boundary. `Core.apply_result/3` stores whatever `repr`/
   `compare` it's handed verbatim (`Map.merge`, no conversion), and
@@ -31,7 +31,7 @@ defmodule XipeTotec.Repl.Eval.Result do
   `fields` (from field_drip's success parse): a map with string keys
   `"repr"` (`"exact"` | `"binary"` | `"unsupported"`), `"type"`,
   `"compare"` (`"none"` | `"skipped"` | `"changed"` | `"same"`,
-  prebuild.md §10.11), `"display"`, and optionally `"bin_base64"` (only
+  Old.md §10.11), `"display"`, and optionally `"bin_base64"` (only
   for `repr: binary`, itself already base64 text -- kept as-is, never
   decoded to raw bytes here: `Store.persist_diff/4` -> `Store.append/2`
   JSON-encodes every column, and arbitrary `:erlang.term_to_binary/1`

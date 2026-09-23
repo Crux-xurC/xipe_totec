@@ -1,7 +1,7 @@
 defmodule XipeTotec.Protocol do
   @moduledoc """
   spec §16.3 wire shape, encode/decode only -- no dispatch, no Book, no
-  process state. Pure, testable the same way `Core` is (prebuild.md §9,
+  process state. Pure, testable the same way `Core` is (Old.md §9,
   2026-09-17).
 
   §16.2's relay-compatibility rules shape this module directly: request,
@@ -60,7 +60,7 @@ defmodule XipeTotec.Protocol do
 
   @doc """
   Encode a response to a client (or client-answered-provider) request `id`.
-  `envelope` (prebuild.md §17.2, 2026-09-20) merges extra top-level fields
+  `envelope` (Old.md §17.2, 2026-09-20) merges extra top-level fields
   in alongside `id`/`result`/`error` -- today only `Serve.Socket` passes
   one (`"from"`/`"dialogue"`, the `InOut` adapter-mode tag), so it defaults
   to `%{}` and every pre-existing 2-arity call site is unchanged.

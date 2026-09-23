@@ -48,6 +48,28 @@ defmodule DispatchTest do
       assert book == Book.new()
     end
 
+    test "rejects an unknown node (Old.md §32)" do
+      assert {:error, book, %{"code" => "not_found"}} =
+               Dispatch.handle(Book.new(), "row/add", %{"node" => "nope", "args" => ["1"]}, %{})
+
+      assert book.calls == %{}
+    end
+
+    test "rejects args that don't match the node's arity, naming the function (Old.md §32)" do
+      book = Book.new() |> Core.put_node("n1", %{module: "M", name: "f", arity: 1})
+
+      assert {:error, ^book, %{"code" => "invalid_params", "message" => message}} =
+               Dispatch.handle(book, "row/add", %{"node" => "n1", "args" => ["3", ""]}, %{})
+
+      assert message =~ "M.f/1"
+      assert message =~ "got 2"
+    end
+
+    test "accepts a 0-arity node with an empty args list" do
+      book = Book.new() |> Core.put_node("n0", %{module: "M", name: "g", arity: 0})
+      assert {:ok, _book, %{"row" => %{args: []}}} = Dispatch.handle(book, "row/add", %{"node" => "n0", "args" => []}, %{})
+    end
+
     test "rejects a missing node/args shape" do
       assert {:error, _book, %{"code" => "invalid_params"}} =
                Dispatch.handle(Book.new(), "row/add", %{}, %{})
@@ -217,7 +239,7 @@ defmodule DispatchTest do
     end
   end
 
-  describe "row/depends (prebuild.md §16.3/§16.4, not a v0.4 spec method)" do
+  describe "row/depends (Old.md §16.3/§16.4, not a v0.4 spec method)" do
     test "returns the upstream ⟦id⟧ chain, deepest-first, self included" do
       book =
         Book.new()
@@ -234,7 +256,7 @@ defmodule DispatchTest do
     end
   end
 
-  describe "row/set-result (prebuild.md §16.4/§19, the dependency-chain negotiation's stub-value step)" do
+  describe "row/set-result (Old.md §16.4/§19, the dependency-chain negotiation's stub-value step)" do
     test "writes a literal result with no evaluation, repr always \"exact\"" do
       book = Book.new() |> Core.add_call("c1", %{node: "n1", args: []})
 

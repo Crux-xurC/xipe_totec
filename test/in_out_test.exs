@@ -5,7 +5,7 @@ Code.require_file(Path.expand("../lib/in_out.exs", __DIR__))
 defmodule InOutTest.ToyDialogue do
   # A minimal fake Dialogue program (mirrors ReplEvaluatorTest's
   # ToyLanguage) -- proves InOut's wiring/holding/2-bit derivation without
-  # any real dialogue program existing yet (prebuild.md §17: the
+  # any real dialogue program existing yet (Old.md §17: the
   # dependency-chain negotiation is step 4, InOut is step 3).
   @behaviour XipeTotec.Dialogue
 
@@ -31,9 +31,18 @@ defmodule InOutTest do
 
   @programs %{"toy/negotiate" => ToyDialogue}
 
+  # row/add now requires the node to exist with a matching arity
+  # (Dispatch, Old.md §32), so every book a row/add reaches carries these.
+  defp book do
+    Book.new()
+    |> XipeTotec.Core.put_node("N", %{module: "M", name: "n", arity: 1})
+    |> XipeTotec.Core.put_node("N0", %{module: "M", name: "n0", arity: 0})
+    |> XipeTotec.Core.put_node("Toy.f/1", %{module: "Toy", name: "f", arity: 1})
+  end
+
   test "an ordinary command with no dialogue held passes straight through, tagged 01" do
     {dialogue, book, outcome} =
-      InOut.handle(nil, Book.new(), ".", %{"method" => "row/add", "params" => %{"node" => "N", "args" => ["1"]}})
+      InOut.handle(nil, book(), ".", %{"method" => "row/add", "params" => %{"node" => "N", "args" => ["1"]}})
 
     assert dialogue == nil
     assert outcome.hold == false
@@ -43,19 +52,19 @@ defmodule InOutTest do
   end
 
   test "a Pipeline-routed method (eval/run, still a stub) is tagged 00 -- via_repl, not held" do
-    {dialogue, _book, outcome} = InOut.handle(nil, Book.new(), ".", %{"method" => "eval/run", "params" => %{}})
+    {dialogue, _book, outcome} = InOut.handle(nil, book(), ".", %{"method" => "eval/run", "params" => %{}})
 
     assert dialogue == nil
     assert outcome.hold == false
     assert outcome.via_repl == true
-    # the pipeline's "eval" stage is still a stub (prebuild.md §15) -- this
+    # the pipeline's "eval" stage is still a stub (Old.md §15) -- this
     # only proves the tag, not that eval/run itself works yet.
     assert outcome.ok? == false
   end
 
   test "starting a registered dialogue holds, tagged 11, and returns the program's question" do
     {dialogue, _book, outcome} =
-      InOut.handle(nil, Book.new(), ".", %{"method" => "toy/negotiate", "params" => %{}}, [], @programs)
+      InOut.handle(nil, book(), ".", %{"method" => "toy/negotiate", "params" => %{}}, [], @programs)
 
     assert {ToyDialogue, %{step: 1}} = dialogue
     assert outcome.hold == true
@@ -65,10 +74,10 @@ defmodule InOutTest do
 
   test "an unrelated command reaches Dispatch normally while a dialogue is held, dialogue untouched" do
     {dialogue, _book, _q} =
-      InOut.handle(nil, Book.new(), ".", %{"method" => "toy/negotiate", "params" => %{}}, [], @programs)
+      InOut.handle(nil, book(), ".", %{"method" => "toy/negotiate", "params" => %{}}, [], @programs)
 
     {still_held, book, outcome} =
-      InOut.handle(dialogue, Book.new(), ".", %{"method" => "row/add", "params" => %{"node" => "N", "args" => []}}, [], @programs)
+      InOut.handle(dialogue, book(), ".", %{"method" => "row/add", "params" => %{"node" => "N0", "args" => []}}, [], @programs)
 
     assert still_held == dialogue
     assert outcome.hold == false
@@ -77,7 +86,7 @@ defmodule InOutTest do
   end
 
   test "answering a held dialogue can keep holding across multiple turns" do
-    {dialogue, book, _} = InOut.handle(nil, Book.new(), ".", %{"method" => "toy/negotiate", "params" => %{}}, [], @programs)
+    {dialogue, book, _} = InOut.handle(nil, book(), ".", %{"method" => "toy/negotiate", "params" => %{}}, [], @programs)
 
     {dialogue, book, outcome} =
       InOut.handle(dialogue, book, ".", %{"method" => "dialogue/answer", "params" => %{"choice" => "continue"}}, [], @programs)
@@ -89,7 +98,7 @@ defmodule InOutTest do
   end
 
   test "finishing with no commands releases the dialogue, tagged 01" do
-    {dialogue, book, _} = InOut.handle(nil, Book.new(), ".", %{"method" => "toy/negotiate", "params" => %{}}, [], @programs)
+    {dialogue, book, _} = InOut.handle(nil, book(), ".", %{"method" => "toy/negotiate", "params" => %{}}, [], @programs)
     {dialogue, book, _} = InOut.handle(dialogue, book, ".", %{"method" => "dialogue/answer", "params" => %{"choice" => "continue"}}, [], @programs)
 
     {dialogue, _book, outcome} =
@@ -102,7 +111,7 @@ defmodule InOutTest do
   end
 
   test "finishing with commands releases the dialogue, tagged 00, and runs them immediately" do
-    {dialogue, book, _} = InOut.handle(nil, Book.new(), ".", %{"method" => "toy/negotiate", "params" => %{}}, [], @programs)
+    {dialogue, book, _} = InOut.handle(nil, book(), ".", %{"method" => "toy/negotiate", "params" => %{}}, [], @programs)
     {dialogue, book, _} = InOut.handle(dialogue, book, ".", %{"method" => "dialogue/answer", "params" => %{"choice" => "continue"}}, [], @programs)
 
     {dialogue, book, outcome} =
@@ -130,7 +139,7 @@ defmodule InOutTest do
     on_text = fn text -> Agent.update(texts, &(&1 ++ [text])) end
 
     {book, outcome} =
-      InOut.run_to_completion(Book.new(), ".", %{"method" => "toy/negotiate", "params" => %{}}, [], @programs, next_answer, on_text)
+      InOut.run_to_completion(book(), ".", %{"method" => "toy/negotiate", "params" => %{}}, [], @programs, next_answer, on_text)
 
     assert outcome.hold == false
     assert outcome.via_repl == true
@@ -139,7 +148,7 @@ defmodule InOutTest do
   end
 
   test "\"dialogue/answer\" with nothing held is a clean error, dialogue stays nil" do
-    {dialogue, _book, outcome} = InOut.handle(nil, Book.new(), ".", %{"method" => "dialogue/answer", "params" => %{}})
+    {dialogue, _book, outcome} = InOut.handle(nil, book(), ".", %{"method" => "dialogue/answer", "params" => %{}})
 
     assert dialogue == nil
     assert outcome.ok? == false

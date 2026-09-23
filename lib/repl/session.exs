@@ -1,6 +1,6 @@
 defmodule XipeTotec.Repl.Session do
   @moduledoc """
-  Generic session-lifecycle orchestration (prebuild.md §10.2, 2026-09-18):
+  Generic session-lifecycle orchestration (Old.md §10.2, 2026-09-18):
   built only from `Repl.Sender`'s three primitives (`send/1`, `write/2`,
   `kill/1`) and the per-language values `Repl.Launch` computes
   (`ready_pattern`, `exit_input`) -- no language-specific branching lives
@@ -42,7 +42,7 @@ defmodule XipeTotec.Repl.Session do
   @doc """
   Graceful-then-forceful shutdown: writes `exit_input` via `sender.write/2`,
   then waits up to `graceful_timeout` for the "XT_EXIT" marker. If it
-  doesn't show up (prebuild.md §10.2's caveat -- the session wasn't
+  doesn't show up (Old.md §10.2's caveat -- the session wasn't
   reading stdin, whether busy or hung), escalates to `sender.kill/1` and
   waits again with no timeout, since `kill/1` is documented to always end
   the session eventually. Either way this always returns once exit has

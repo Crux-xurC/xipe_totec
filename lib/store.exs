@@ -2,7 +2,7 @@ Code.require_file("book.exs", __DIR__)
 
 defmodule XipeTotec.Store do
   @moduledoc """
-  Append-only JSON Lines persistence (spec §17, prebuild.md §2). One row per
+  Append-only JSON Lines persistence (spec §17, Old.md §2). One row per
   line, tagged by `type`; the same logical entity may appear on many lines
   over time (an evaluation, an edit, a removal each append a fresh line) --
   the *last* line for a given `{type, id}` pair wins when folding into a
@@ -74,7 +74,7 @@ defmodule XipeTotec.Store do
   Append to the Store at `path` only the rows in `tables` that are new or
   changed between `old_book` and `new_book`, and tombstone (`deleted: true`)
   any that disappeared -- the diff `XipeTotec.Project.persist_scan/3` used
-  to do inline for `[:sheets, :nodes, :links]` only, generalized (prebuild.md
+  to do inline for `[:sheets, :nodes, :links]` only, generalized (Old.md
   §9, 2026-09-17) so `Serve.Project` can persist the effect of *any*
   `Dispatch.handle/4` call across all six tables the same way.
   """

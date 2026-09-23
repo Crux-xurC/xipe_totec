@@ -18,7 +18,7 @@ defmodule XipeTotec.Repl.Eval.Parser do
 
   alias XipeTotec.Repl.Eval.{Result, Scan}
 
-  @type cleaned :: %{buffer: String.t(), heartbeats: non_neg_integer(), exit_status: String.t() | nil}
+  @type cleaned :: %{buffer: String.t(), exit_status: String.t() | nil}
 
   @doc """
   `buffer` is the caller's full accumulated `:data` output so far (the
@@ -29,10 +29,8 @@ defmodule XipeTotec.Repl.Eval.Parser do
 
   Returns:
     * `{:pending, cleaned}` -- `call_id`'s result hasn't arrived yet.
-      `cleaned` still carries this step's heartbeat count / exit_status
-      (if any) so the caller's own liveness tracking doesn't miss them
-      just because the eval itself isn't done -- see prebuild.md §10's
-      heartbeat/timeout design.
+      `cleaned` still carries this step's `exit_status` (if any) so the
+      caller doesn't miss it just because the eval itself isn't done.
     * `{:ok, evaluator_result, cleaned}` -- `call_id`'s result is ready,
       already in `Core.apply_results/3`'s expected shape.
   """

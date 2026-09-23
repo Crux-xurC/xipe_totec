@@ -6,7 +6,7 @@ defmodule ServeProjectTest.ToyDialogue do
   # Same minimal fake as test/in_out_test.exs's ToyDialogue -- proves
   # request_dialogue/5's wiring (InOut -> Store persist -> notify
   # broadcast, all inside one GenServer.call) without a real dialogue
-  # program existing yet (prebuild.md §16.4 step 4 is still unbuilt).
+  # program existing yet (Old.md §16.4 step 4 is still unbuilt).
   @behaviour XipeTotec.Dialogue
 
   @impl true
@@ -24,13 +24,22 @@ defmodule ServeProjectTest do
   alias XipeTotec.Serve.Project
 
   # Project is registered under its own module name (one `xipe serve` process
-  # = one project, prebuild.md §9) -- start/stop it around every test rather
+  # = one project, Old.md §9) -- start/stop it around every test rather
   # than `async: true`, since two tests can't hold the same named GenServer
   # at once.
   setup context do
     dir = Path.join(System.tmp_dir!(), "xipe_totec_serve_test_#{System.unique_integer([:positive])}")
     File.mkdir_p!(Path.join(dir, "lib"))
     store_file = Path.join(dir, "book.jsonl")
+
+    # row/add requires an existing node with a matching arity (Dispatch,
+    # Old.md §32): seed the store before the project loads it.
+    nodes =
+      XipeTotec.Book.new()
+      |> XipeTotec.Core.put_node("n0", %{sheet: "s0", module: "M", name: "f0", arity: 0})
+      |> XipeTotec.Core.put_node("n1", %{sheet: "s0", module: "M", name: "f1", arity: 1})
+
+    unless context[:empty_book], do: XipeTotec.Store.persist_diff(store_file, XipeTotec.Book.new(), nodes, [:nodes])
 
     opts = %{root: dir, store_file: store_file}
     opts = if programs = context[:programs], do: Map.put(opts, :programs, programs), else: opts
@@ -55,7 +64,7 @@ defmodule ServeProjectTest do
 
   test "attach/2 + a write broadcasts notify/rowChanged to the attached session" do
     :ok = Project.attach(self())
-    {:ok, %{"id" => call_id}} = Project.request("row/add", %{"node" => "n0", "args" => ["1"]})
+    {:ok, %{"id" => call_id}} = Project.request("row/add", %{"node" => "n1", "args" => ["1"]})
 
     assert_receive {:xipe_out, text}
     assert {:ok, {:notify, "notify/rowChanged", %{"id" => ^call_id} = params}} = XipeTotec.Protocol.decode(text)
@@ -88,6 +97,7 @@ defmodule ServeProjectTest do
     refute_receive {:xipe_out, _text}, 50
   end
 
+  @tag :empty_book
   test "scan/run populates the book from ctx.root and notifies the new node (sheets/links aren't notify-worthy in v0)",
        %{dir: dir} do
     File.write!(Path.join(dir, "lib/a.ex"), """

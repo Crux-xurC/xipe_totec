@@ -33,9 +33,6 @@ defmodule ReplEvaluatorTest.EchoSender do
         Kernel.send(handle, {handle, {:data, body}})
 
       # exit_input (Session.close's graceful write) -- answer with XT_EXIT.
-      # heartbeat_input (also routed through write/2, right after boot)
-      # matches neither branch and is silently ignored, same as a real
-      # session just not having anything to say about it yet.
       text == "System.halt()\n" ->
         Kernel.send(handle, {handle, {:data, "XT_EXIT 0\n"}})
 
@@ -47,6 +44,7 @@ defmodule ReplEvaluatorTest.EchoSender do
   end
 
   def kill(_handle), do: :ok
+  def interrupt(_handle), do: :ok
 end
 
 defmodule ReplEvaluatorTest.SilentSender do
@@ -71,6 +69,12 @@ defmodule ReplEvaluatorTest.SilentSender do
     Kernel.send(handle, :fake_kill_called)
     :ok
   end
+
+  # A no-op, same as write/2 -- this fake's whole premise is that nothing
+  # it's asked to do produces any reaction, interrupt/1 included, so
+  # end_hung_session/4 always falls through to kill/1 after waiting out
+  # interrupt_grace_ms.
+  def interrupt(_handle), do: :ok
 end
 
 defmodule ReplEvaluatorTest.RefusingSender do
@@ -78,6 +82,7 @@ defmodule ReplEvaluatorTest.RefusingSender do
   def send(_message), do: {:error, {:executable_not_found, "nope"}}
   def write(_handle, _text), do: :ok
   def kill(_handle), do: :ok
+  def interrupt(_handle), do: :ok
 end
 
 # A deliberately non-Elixir "language" -- none of these four modules touch
@@ -98,8 +103,7 @@ defmodule ReplEvaluatorTest.ToyLanguage do
         "cwd" => Keyword.fetch!(opts, :cwd),
         "files" => [],
         "ready_pattern" => "TOY_READY",
-        "exit_input" => "bye\n",
-        "heartbeat_input" => "TOY_BEAT\n"
+        "exit_input" => "bye\n"
       }
     end
   end
@@ -109,7 +113,7 @@ defmodule ReplEvaluatorTest.ToyLanguage do
   end
 
   defmodule Scan do
-    def clean(buffer), do: %{buffer: buffer, heartbeats: 0, exit_status: nil}
+    def clean(buffer), do: %{buffer: buffer, exit_status: nil}
   end
 
   defmodule FieldDrip do
@@ -148,6 +152,9 @@ defmodule ReplEvaluatorTest.ToyLanguage do
 
     @impl true
     def kill(_handle), do: :ok
+
+    @impl true
+    def interrupt(_handle), do: :ok
   end
 end
 
@@ -203,10 +210,12 @@ defmodule ReplEvaluatorTest do
                call_ids: ["c1", "c2"],
                sender: SilentSender,
                # a real entry's timeout defaults to 5s (core.exs's
-               # build_entry/3, not caller-overridable) -- hang_grace_ms
-               # lets this test exercise the hang path without waiting
-               # out 5s + 3 heartbeat intervals of real silence
+               # build_entry/3, not caller-overridable) -- hang_grace_ms/
+               # interrupt_grace_ms let this test exercise the hang +
+               # interrupt-then-kill path without waiting out either
+               # timeout for real
                hang_grace_ms: 30,
+               interrupt_grace_ms: 10,
                launch_opts: [ready_pattern: "READY"]
              )
 

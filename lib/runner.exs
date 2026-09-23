@@ -1,6 +1,7 @@
 Code.require_file("book.exs", __DIR__)
 Code.require_file("dispatch.exs", __DIR__)
 Code.require_file("project.exs", __DIR__)
+Code.require_file("surface_table.exs", __DIR__)
 Code.require_file("pipeline.exs", __DIR__)
 Code.require_file("repl/evaluator.exs", __DIR__)
 Code.require_file("repl/source_sanitize.exs", __DIR__)
@@ -56,7 +57,7 @@ Three kinds of command, dispatched by method name:
   that failed (no result) resolves to `nil`.
   """
 
-  alias XipeTotec.{Book, Dispatch, Pipeline, Project}
+  alias XipeTotec.{Book, Core, Dispatch, Pipeline, Project, SurfaceTable}
   alias XipeTotec.Repl.{Evaluator, SourceSanitize}
 
   @type command :: %{String.t() => term()}
@@ -98,7 +99,7 @@ Three kinds of command, dispatched by method name:
     call_ids = if given_ids == [], do: Map.keys(book.calls), else: given_ids
     {launch_opts, cleanup} = launch_opts_for(root, opts)
 
-    # "include_writes" (prebuild.md §16.2/§16.4, 2026-09-21): Core.plan_recalc/3
+    # "include_writes" (Old.md §16.2/§16.4, 2026-09-21): Core.plan_recalc/3
     # (via Repl.Evaluator.run_pass/3, both already wired -- see the moduledoc
     # note this fixes) has always accepted :include_writes, but nothing on the
     # CLI side ever read it out of a command's own params, so writes-effect
@@ -118,7 +119,16 @@ Three kinds of command, dispatched by method name:
 
     case result do
       {:ok, new_book, results} ->
-        {new_book, %{method: "eval", ok?: true, result: %{"results" => results}, error: nil}}
+        # Requested ids the plan never reached the REPL with, and why
+        # (Old.md §33) -- Core.plan_recalc/3 drops them silently.
+        evaluated = MapSet.new(results, & &1.call_id)
+
+        not_run =
+          for id <- call_ids, id not in evaluated do
+            %{"id" => id, "reason" => Core.exclusion_reason(book, id, include_writes: include_writes) || "not scheduled"}
+          end
+
+        {new_book, %{method: "eval", ok?: true, result: %{"results" => results, "not_run" => not_run}, error: nil}}
 
       {:error, reason} ->
         {book, %{method: "eval", ok?: false, result: nil, error: %{"code" => "eval_failed", "message" => inspect(reason)}}}
@@ -153,12 +163,19 @@ Three kinds of command, dispatched by method name:
   # tried to boot that in a `mix.exs`-less directory -- an instant boot
   # failure, not a hang) gets one inferred from `root` itself: mix-mode
   # (empty `launch_opts`, `Launch`'s own `["iex", "-S", "mix"]` default) if
-  # `root/mix.exs` exists, scripts-mode (`argv: ["iex"]` + every `.ex`/
-  # `.exs` file `Project.find_sheets/1` finds, loaded via `-r`) otherwise --
-  # crux's own real projects (tezcatl included) are all the latter. A
-  # caller that already knows better (the CLI's `--mix` override, or a
-  # future tezcatl caller with its own opinion) passes `:launch_opts`
-  # itself, and neither this inference nor the sanitize step below runs.
+  # `SurfaceTable.generate/2` found `build_tool: "mix"` for `root`,
+  # scripts-mode (`argv: ["iex"]` + every `.ex`/`.exs` file
+  # `Project.find_sheets/1` finds, loaded via `-r`) otherwise -- crux's own
+  # real projects (tezcatl included) are all the latter. §26's co-design:
+  # this used to check `File.exists?(Path.join(root, "mix.exs"))` directly;
+  # that check now lives once, in `SurfaceTable.generate/2` itself, and
+  # this reads the result off the same rows instead of re-deriving it (a
+  # non-Elixir/non-mix `build_tool` stays undetected, §25.2/§25.4's
+  # priority-table design is still future work -- this only moved the one
+  # check that already existed, it didn't add new detection). A caller
+  # that already knows better (the CLI's `--mix` override, or a future
+  # tezcatl caller with its own opinion) passes `:launch_opts` itself, and
+  # neither this inference nor the sanitize step below runs.
   #
   # Returns `{launch_opts, cleanup}` -- scripts-mode's file list is never
   # the *original* project files (review finding, 2026-09-18): `-r`ing them
@@ -174,13 +191,23 @@ Three kinds of command, dispatched by method name:
     if Keyword.has_key?(opts, :launch_opts) do
       {Keyword.fetch!(opts, :launch_opts), fn -> :ok end}
     else
-      if File.exists?(Path.join(root, "mix.exs")) do
+      if elixir_build_tool(root) == "mix" do
         {[], fn -> :ok end}
       else
         {tmp_dir, files} = SourceSanitize.sanitize(root, Project.find_sheets(root))
         {[argv: ["iex"], files: files], fn -> File.rm_rf!(tmp_dir) end}
       end
     end
+  end
+
+  # The first elixir row's `build_tool` (every row shares the same value,
+  # §25.5/§26 -- it's a project-level fact denormalized per row, not a
+  # per-file one). `nil` for a project with no elixir rows at all, same as
+  # an empty `SurfaceTable.generate/2` result.
+  defp elixir_build_tool(root) do
+    root
+    |> SurfaceTable.generate()
+    |> Enum.find_value(&(&1["language"] == "elixir" && &1["build_tool"]))
   end
 
   defp truthy?(true), do: true

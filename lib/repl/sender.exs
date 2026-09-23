@@ -13,13 +13,23 @@ defmodule XipeTotec.Repl.Sender do
   That relay-side piece is explicitly out of scope here: it belongs to
   tezcatl and isn't being built from this repo.
 
-  `write/2` and `kill/1` (2026-09-18, prebuild.md §10.2) were added once a
+  `write/2` and `kill/1` (2026-09-18, Old.md §10.2) were added once a
   second and third real need showed up -- sending `exit_input` (or, later,
   a marker-wrapped eval request) needs a way to write to the running
-  session's stdin, and a hung session (heartbeat stopped, not reading
-  stdin) needs a way to force it down that doesn't depend on the session
-  cooperating. Both are generic: neither one knows or cares what text is
-  being written or why -- that's `Repl.Launch`/`Repl.Session`'s job.
+  session's stdin, and a hung session (not reading stdin) needs a way to
+  force it down that doesn't depend on the session cooperating. Both are
+  generic: neither one knows or cares what text is being written or why --
+  that's `Repl.Launch`/`Repl.Session`'s job.
+
+  `interrupt/1` (2026-09-22, Old.md §23, replacing the removed
+  heartbeat mechanism) is a gentler alternative to `kill/1` for a hung
+  entry: sends SIGINT to the whole process group (not just the direct
+  child) rather than SIGKILL. Whether the target REPL actually has a
+  handler for it (vs. just dying, same as `kill/1` would do anyway) is
+  `message["interruptible"]` (`Repl.Launch`'s own field) -- `Evaluator`
+  still always falls back to `kill/1` after a short grace window
+  regardless, so a `false`/wrong-guess `interruptible` costs a little
+  wasted wait time, never a stuck session.
 
   ## The handle contract (2026-09-18, made explicit after review; revised
   ## 2026-09-18 to a single message shape after the PTY-vs-plain-pipe
@@ -79,15 +89,28 @@ defmodule XipeTotec.Repl.Sender do
     a session that isn't reading stdin** (busy evaluating, or hung) --
     text just queues up unread. This is why `exit_input` (a graceful
     `write/2`) is not a substitute for `kill/1` on a hung session
-    (prebuild.md §10.2's caveat) -- only `kill/1` is guaranteed to end it.
+    (Old.md §10.2's caveat) -- only `kill/1` is guaranteed to end it.
   * `kill(handle)` -- forceful, unconditional: ends the session regardless
-    of what it's doing. Still expected to eventually produce the
-    `"XT_EXIT <status>"` marker (§ above) through the normal `:data`
+    of what it's doing. Signals the *whole process group* the session was
+    launched into (2026-09-22), not just the direct child -- a REPL that
+    forks its own children (an `iex -S mix` build step, say) would
+    otherwise leave those orphaned. Still expected to eventually produce
+    the `"XT_EXIT <status>"` marker (§ above) through the normal `:data`
     channel, same as a graceful exit -- callers don't need a different
     code path to notice it happened.
+  * `interrupt(handle)` (2026-09-22) -- gentler, best-effort: sends SIGINT
+    to the same process group `kill/1` targets. Whether this actually
+    interrupts the target REPL's current evaluation (vs. terminating it
+    outright, vs. doing nothing it notices at all) is entirely up to that
+    REPL/language -- this callback only promises the signal was sent, not
+    any particular reaction. Callers that need a guaranteed end still call
+    `kill/1` afterward; `interrupt/1` exists only to give a
+    signal-handling REPL a chance to shut down (or recover) more
+    gracefully first.
   """
 
   @callback send(message :: %{String.t() => term()}) :: {:ok, handle :: term()} | {:error, term()}
   @callback write(handle :: term(), text :: String.t()) :: :ok | {:error, term()}
   @callback kill(handle :: term()) :: :ok | {:error, term()}
+  @callback interrupt(handle :: term()) :: :ok | {:error, term()}
 end

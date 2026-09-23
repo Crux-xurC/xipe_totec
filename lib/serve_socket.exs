@@ -4,7 +4,7 @@ Code.require_file("serve_project.exs", __DIR__)
 defmodule XipeTotec.Serve.Socket do
   @moduledoc """
   §16.1's WebSocket (localhost) entry, one `:cowboy_websocket` instance per
-  accepted connection (prebuild.md §9, 2026-09-17). A thin transport shell:
+  accepted connection (Old.md §9, 2026-09-17). A thin transport shell:
   decode/encode via `Protocol`, forward real work to the single
   `Serve.Project` GenServer. No auth, no Origin check -- spec §16.1: "いず
   れもローカルホストのみで待ち受け、認証は設けず" (every §16.1 entry point
@@ -27,13 +27,13 @@ defmodule XipeTotec.Serve.Socket do
   but is a no-op until per-topic filtering exists.
 
   `state.dialogue` (`InOut.dialogue()`, `nil` if none held) is the other
-  piece of connection-local state living here (prebuild.md §17, §17's "1
+  piece of connection-local state living here (Old.md §17, §17's "1
   connection = 1 dialogue" decision, 2026-09-20) -- every ordinary request
   now goes through `Project.request_dialogue/5` instead of `request/3`, so
   an unrelated method reaches `Dispatch`/`Pipeline`/`"eval"` exactly as
   before regardless of whether a dialogue happens to be held at the time
   (`InOut`'s own pass-through case). The reply envelope's `"from"`/
-  `"dialogue"` fields are prebuild.md §17.2's adapter-mode encoding of
+  `"dialogue"` fields are Old.md §17.2's adapter-mode encoding of
   `InOut`'s 2-bit tag; `outcome.ok?` decides whether `Protocol.encode_response/3`
   gets `{:ok, ...}` or `{:error, ...}`.
   """
@@ -91,7 +91,7 @@ defmodule XipeTotec.Serve.Socket do
 
       {:ok, {:response, _id, _outcome}} ->
         # a reply to a provider/* request this server sent -- not built yet
-        # (prebuild.md §9: deferred), so nothing is pending to match it to.
+        # (Old.md §9: deferred), so nothing is pending to match it to.
         {:ok, state}
 
       {:error, _reason} ->

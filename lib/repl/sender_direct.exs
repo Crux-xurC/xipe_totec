@@ -2,31 +2,50 @@ Code.require_file("sender.exs", __DIR__)
 
 defmodule XipeTotec.Repl.Sender.Direct do
   @moduledoc """
-  Default `Repl.Sender`: spawns the process locally via a bare `Port`, no
-  extra dependency. xipe_totec earlier decided against pulling in
-  `erlexec` for the §16 WS server, reasoning that xipe_totec is the side
-  being connected TO there, not the side connecting out (see
-  xipe-totec-design memory, Tier 0 note). A REPL launch is a genuine
-  "connecting out" need, but a plain argv+env+cwd spawn is exactly what
-  Erlang's own `Port` already does, so that reasoning still holds -- no
-  new dependency needed for this.
+  Default `Repl.Sender`: spawns the process locally via `erlexec`
+  (`:exec.run/2`), in its own process group (2026-09-22, Old.md §23
+  -- replaces the earlier bare-`Port` implementation). A bare `Port`
+  cannot create or signal a POSIX process group, which `kill/1`'s
+  group-wide SIGKILL and `interrupt/1`'s group-wide SIGINT both need:
+  without a group of its own, the REPL child shares xipe_totec's own
+  process group, so (a) a Ctrl-C on xipe_totec's own CLI process would
+  hit the REPL child too as collateral damage, and (b) a REPL that forks
+  its own children (`iex -S mix`'s build step, say) would leave those
+  orphaned by a single-pid kill. `{:group, 0}` (`:exec.run/2`'s own spawn
+  option) fixes both -- the child gets a session/group of its own, and
+  erlexec's own C helper delivers `kill/2`'s signal to that whole group.
+  Confirmed live 2026-09-22 against a plain-pipe `iex`: `:exec.kill(ospid,
+  2)` reaches BEAM's own SIGINT handler and drops it into the
+  interactive "BREAK: (a)bort..." menu, exactly as a real terminal's
+  Ctrl-C would -- no PTY required.
 
-  The returned `handle` is a `GenServer` pid, not the raw `Port` itself:
+  xipe_totec earlier decided against `erlexec` for a *different* need
+  (the §16 WS server, which is the side being connected *to*, never
+  spawning anything) -- that reasoning never applied to this module's own
+  need (spawning the target REPL), and no longer holds now that group
+  isolation is required.
+
+  The returned `handle` is a `GenServer` pid, not the raw erlexec ospid:
   `Repl.Sender`'s contract requires exit to show up as an `"XT_EXIT
-  <status>"` marker inside the ordinary `:data` stream rather than as a
-  `Port`-specific `:exit_status` message, and requires `write/2`/`kill/1`
-  to work against the same handle -- so this module owns the real port
-  privately and exposes only the generic contract.
+  <status>"` marker inside the ordinary `:data` stream rather than as
+  erlexec's own `:DOWN` monitor message, and requires
+  `write/2`/`kill/1`/`interrupt/1` to work against the same handle -- so
+  this module owns the ospid privately and exposes only the generic
+  contract.
 
   Not supervised -- if the caller dies without calling `kill/1`, this
-  GenServer (and the OS process under it) is orphaned. Session/process
-  lifecycle beyond that is `Repl.Session`'s and, eventually, `Evaluator`'s
-  concern (プロセスアーキテクチャ, E in 課題.mkd), not this module's.
+  GenServer (and the OS process group under it) is orphaned.
+  Session/process lifecycle beyond that is `Repl.Session`'s and,
+  eventually, `Evaluator`'s concern (プロセスアーキテクチャ, E in
+  Old.md §28), not this module's.
   """
 
   use GenServer
 
   @behaviour XipeTotec.Repl.Sender
+
+  @sigint 2
+  @sigkill 9
 
   @impl XipeTotec.Repl.Sender
   def send(%{"kind" => "repl/launch", "argv" => [exe | args], "env" => env, "cwd" => cwd} = message)
@@ -38,28 +57,21 @@ defmodule XipeTotec.Repl.Sender.Direct do
       path ->
         files = Map.get(message, "files", [])
         spawn_args = with_files(args, files)
-        port_env = Enum.map(env, fn {k, v} -> {String.to_charlist(k), String.to_charlist(v)} end)
-        GenServer.start_link(__MODULE__, {path, spawn_args, cwd, port_env, self()})
+        argv = Enum.map([path | spawn_args], &String.to_charlist/1)
+        exec_env = Enum.map(env, fn {k, v} -> {String.to_charlist(k), String.to_charlist(v)} end)
+        GenServer.start_link(__MODULE__, {argv, cwd, exec_env, self()})
     end
   end
 
   def send(other), do: {:error, {:unsupported_message, other}}
 
-  # A handle can legitimately already be gone by the time write/2 or kill/1
-  # is called (fixed 2026-09-18, found via a real crash): a raw
-  # `GenServer.call/2` to a dead pid `exit`s with `{:noproc, _}` rather than
-  # returning an error value, which neither callback's own `:ok | {:error,
-  # term()}` contract expects a caller to have to guard against everywhere.
-  # Concretely: after `System.halt()` (or a SIGKILL) the OS process dies,
-  # the Port's `{:exit_status,...}` message races the caller's own next
-  # move, and this GenServer stops itself (`{:stop,:normal,...}`, see
-  # handle_info/2 below) as soon as it forwards that as the XT_EXIT marker
-  # -- a `write/2`/`kill/1` issued right around then can land after the
-  # stop. `write/2` on a dead handle reports it as an ordinary
-  # `{:error, :noproc}` (nothing to write to, same shape as any other
-  # failed write); `kill/1` on one instead returns plain `:ok` -- the
-  # thing it was asked to end is already gone, which is the goal `kill/1`
-  # exists for, not a failure of it.
+  # See ../sender_direct.exs (Port version)'s own note, still true here:
+  # a handle can legitimately already be gone by the time write/2,
+  # kill/1, or interrupt/1 is called -- a raw GenServer.call/2 to a dead
+  # pid exits with {:noproc, _} rather than returning an error value.
+  # write/2 on a dead handle reports it as an ordinary {:error, :noproc}
+  # (nothing to write to); kill/1 and interrupt/1 on one instead return
+  # plain :ok -- the session is already gone either way.
   @impl XipeTotec.Repl.Sender
   def write(handle, text) when is_binary(text) do
     GenServer.call(handle, {:write, text})
@@ -74,6 +86,13 @@ defmodule XipeTotec.Repl.Sender.Direct do
     :exit, {:noproc, _} -> :ok
   end
 
+  @impl XipeTotec.Repl.Sender
+  def interrupt(handle) do
+    GenServer.call(handle, :interrupt)
+  catch
+    :exit, {:noproc, _} -> :ok
+  end
+
   # `message["files"]` is plain data, opaque to `Repl.Launch` -- this
   # sender decides the only thing it means for *this* delivery mechanism:
   # one `-r <file>` pair per file, inserted before the rest of argv (so it
@@ -84,63 +103,94 @@ defmodule XipeTotec.Repl.Sender.Direct do
   def with_files(args, files), do: Enum.flat_map(files, &["-r", &1]) ++ args
 
   # ---------------------------------------------------------------------
-  # GenServer: privately owns the real Port, translates its two native
-  # message shapes into Repl.Sender's single `{handle, {:data, ...}}`
-  # contract (sender.exs has the full rationale).
+  # GenServer: privately owns the real erlexec ospid, translates its
+  # native message shapes into Repl.Sender's single `{handle, {:data,
+  # ...}}` contract (sender.exs has the full rationale).
   # ---------------------------------------------------------------------
 
   @impl GenServer
-  def init({path, args, cwd, env, caller}) do
-    port =
-      Port.open({:spawn_executable, path}, [
-        :binary,
-        :exit_status,
-        :stderr_to_stdout,
-        args: args,
-        cd: cwd,
-        env: env
-      ])
-
-    {:ok, %{port: port, caller: caller}}
-  end
-
-  @impl GenServer
-  def handle_call({:write, text}, _from, %{port: port} = state) do
-    Port.command(port, text)
-    {:reply, :ok, state}
-  rescue
-    e -> {:reply, {:error, e}, state}
-  end
-
-  # `Port.close/1` alone is NOT enough here: closing a port's pipes does
-  # not itself guarantee the OS process notices and exits (the well-known
-  # Erlang gotcha -- a process that isn't checking stdin/stdout can just
-  # keep running as an orphan), and "doesn't notice" is exactly the hung
-  # state this callback exists to handle. So this sends a real SIGKILL to
-  # the OS process by pid. The port then detects the death on its own and
-  # delivers the ordinary `{:exit_status, ...}` message through the same
-  # `handle_info` clause below as any other exit (128 + signal number per
-  # Erlang's own convention, so SIGKILL shows up as status 137) -- kill/1
-  # doesn't need to (and doesn't) synthesize the XT_EXIT marker itself.
-  def handle_call(:kill, _from, %{port: port} = state) do
-    case Port.info(port, :os_pid) do
-      {:os_pid, os_pid} -> System.cmd("kill", ["-9", Integer.to_string(os_pid)])
-      nil -> :ok
+  def init({argv, cwd, env, caller}) do
+    case Application.ensure_all_started(:erlexec) do
+      {:ok, _} -> :ok
+      {:error, r} -> raise "erlexec failed to start: #{inspect(r)}"
     end
 
-    {:reply, :ok, state}
-  rescue
-    e -> {:reply, {:error, e}, state}
+    opts = [:stdin, :stdout, :stderr, :monitor, {:group, 0}, {:cd, String.to_charlist(cwd)}, {:env, env}]
+
+    case :exec.run(argv, opts) do
+      {:ok, _pid, ospid} -> {:ok, %{ospid: ospid, caller: caller}}
+      {:error, reason} -> {:stop, {:spawn_failed, reason}}
+    end
   end
 
   @impl GenServer
-  def handle_info({port, {:data, bin}}, %{port: port, caller: caller} = state) do
+  def handle_call({:write, text}, _from, %{ospid: ospid} = state) do
+    case :exec.send(ospid, text) do
+      :ok -> {:reply, :ok, state}
+      {:error, reason} -> {:reply, {:error, reason}, state}
+    end
+  end
+
+  # Group-wide SIGKILL: `{:group, 0}` at spawn (init/1) is what makes this
+  # reach children the direct ospid alone wouldn't (see moduledoc).
+  # `:exec.stop/1` exists as a higher-level "try graceful, escalate"
+  # helper built into erlexec itself, but `Evaluator` already owns that
+  # escalation (`interrupt/1` first, `kill/1` as the guaranteed fallback)
+  # -- this callback itself stays a single unconditional SIGKILL, same
+  # contract the old Port-based implementation had.
+  def handle_call(:kill, _from, %{ospid: ospid} = state) do
+    _ = :exec.kill(ospid, @sigkill)
+    {:reply, :ok, state}
+  end
+
+  def handle_call(:interrupt, _from, %{ospid: ospid} = state) do
+    case :exec.kill(ospid, @sigint) do
+      :ok -> {:reply, :ok, state}
+      {:error, reason} -> {:reply, {:error, reason}, state}
+    end
+  end
+
+  @impl GenServer
+  def handle_info({:stdout, ospid, bin}, %{ospid: ospid, caller: caller} = state) do
     Kernel.send(caller, {self(), {:data, bin}})
     {:noreply, state}
   end
 
-  def handle_info({port, {:exit_status, status}}, %{port: port, caller: caller} = state) do
-    Kernel.send(caller, {self(), {:data, "XT_EXIT #{status}\n"}})
+  # stderr forwarded the same way stdout is -- the old Port implementation
+  # merged both into one stream via :stderr_to_stdout; erlexec keeps them
+  # as separate message tags, so this module does the merge itself here
+  # instead, same net effect for every downstream consumer (Scan/Parser
+  # never distinguished the two either).
+  def handle_info({:stderr, ospid, bin}, %{ospid: ospid, caller: caller} = state) do
+    Kernel.send(caller, {self(), {:data, bin}})
+    {:noreply, state}
+  end
+
+  def handle_info({:DOWN, ospid, :process, _pid, reason}, %{ospid: ospid, caller: caller} = state) do
+    Kernel.send(caller, {self(), {:data, "XT_EXIT #{exit_status_of(reason)}\n"}})
     {:stop, :normal, state}
   end
+
+  def handle_info(_other, state), do: {:noreply, state}
+
+  # erlexec's raw :DOWN reason (confirmed live, 2026-09-22): a clean exit
+  # 0 is reported as the bare atom `:normal`, not a tuple at all; any
+  # other exit_status packs a normal (nonzero) exit code as `code << 8`
+  # and a signal death as the bare signal number -- :exec.status/1 is
+  # erlexec's own decoder for that packed form. Signal deaths keep the
+  # pre-existing "128 + signal number" convention (matching what the old
+  # Port-based `kill -9` path produced, so a SIGKILL still shows up as
+  # status 137) for anyone already expecting that shape; normal exits
+  # print the plain code, matching every existing test (`"XT_EXIT 0"`,
+  # `"XT_EXIT 3"`, ...).
+  defp exit_status_of(:normal), do: 0
+
+  defp exit_status_of({:exit_status, raw}) do
+    case :exec.status(raw) do
+      {:status, code} -> code
+      {:signal, sig, _core_dumped} -> 128 + :exec.signal_to_int(sig)
+    end
+  end
+
+  defp exit_status_of(other), do: inspect(other)
 end

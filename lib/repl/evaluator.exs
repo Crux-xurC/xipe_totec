@@ -9,13 +9,13 @@ Code.require_file("eval/field_drip/elixir.exs", __DIR__)
 
 defmodule XipeTotec.Repl.Evaluator do
   @moduledoc """
-  The orchestration piece prebuild.md's status paragraph (2026-09-18) flags
+  The orchestration piece Old.md's status paragraph (2026-09-18) flags
   as still missing: wires `Repl.Eval.Parser`'s output into
   `Core.apply_results/3`, and drives a whole `Core.plan_recalc/3` Plan
   through one launched REPL session, entry by entry, the same synchronous
   one-shot shape `Project.scan_dir/2` already has (launch -> await_ready ->
   write/collect per entry -> apply_results -> return). Scoped for the CLI's
-  `xipe eval` (main.exs) first, per prebuild.md's own note that this can be
+  `xipe eval` (main.exs) first, per Old.md's own note that this can be
   built "thin" ahead of the async, notify/rowChanged-streaming `eval/run`
   §16 server method (still `@not_implemented` in `Dispatch` on purpose --
   that one needs a persistent per-project Evaluator process, pass_id
@@ -49,7 +49,8 @@ defmodule XipeTotec.Repl.Evaluator do
   today), it can hand this module a different four-module set without
   editing `Evaluator` itself.
 
-  ## Hang detection (課題.mkd's heartbeat design, now applied post-pivot)
+  ## Hang detection (2026-09-22 rewrite -- see Old.md §23; the
+  ## heartbeat mechanism this section used to describe is gone)
 
   Each entry's own `EvalTemplate`-generated code is already
   self-terminating within `entry.limits.timeout` (its `spawn_monitor` +
@@ -60,16 +61,13 @@ defmodule XipeTotec.Repl.Evaluator do
 
   1. The *session itself* wedges solid enough that it stops scheduling
      entirely (a busy NIF hogging the one OS thread running it, for
-     instance) -- then not even the heartbeat ticker's `IO.puts` gets to
-     run, and nothing at all arrives on `handle` ever again.
+     instance) -- nothing at all arrives on `handle` ever again.
   2. A malformed argument (an unclosed bracket, say) makes the *call
      expression itself* fail to parse as a complete Elixir form. A REPL
      doesn't error on this -- it just waits for more input (iex's
      `...(N)>` continuation prompt), silently absorbing everything
      written afterward into the same still-open expression instead of
-     treating it as separate statements. The heartbeat ticker is a
-     *separate* process and keeps ticking the whole time, so this looks
-     identical to "alive and well" from here. `EvalTemplate.build/1` now
+     treating it as separate statements. `EvalTemplate.build/1` now
      catches this specific case itself before ever emitting text that
      could trigger it (`build_syntax_error/3`), but a hang-detection
      design that only defends against (1) would still wait forever on
@@ -77,19 +75,25 @@ defmodule XipeTotec.Repl.Evaluator do
      guard.
 
   `run_entries/6`/`wait_result/6` treat total silence (no `:data` chunk of
-  ANY kind -- heartbeat, partial marker text, whatever) for longer than
-  `entry.limits.timeout + 3 * heartbeat_interval_ms` as a hang -- but,
-  since (2) above means heartbeats alone don't prove progress, this is
+  any kind) for longer than `entry.limits.timeout + <padding>` as a hang,
   enforced as a **fixed wall-clock deadline computed once when an entry
-  starts waiting**, not a per-chunk-reset silence window: incoming data
-  (heartbeats included) no longer pushes the deadline back, so an entry
-  that's absorbing endless input into one open expression still times out
-  at the same total ceiling an entirely-silent session would. It kills the
-  session and reports the stuck entry as a plain crash plus every
-  remaining entry as `:aborted` (Core's `apply_result/3` treats `:aborted`
-  as a pure no-op on the book -- same "node down -> abort the rest of the
-  pass" shape 課題.mkd D originally
-  designed for distributed-node death, now reused for this instead).
+  starts waiting**, not a per-chunk-reset silence window: incoming data no
+  longer pushes the deadline back, so an entry that's absorbing endless
+  input into one open expression still times out at the same total
+  ceiling an entirely-silent session would.
+
+  Once that deadline hits, `end_hung_session/3` tries `Sender.interrupt/1`
+  first when `message["interruptible"]` says the target REPL might
+  actually handle SIGINT (`Repl.Launch`'s own per-language field), gives
+  it a short grace window to exit on its own (evidenced by the ordinary
+  `XT_EXIT` marker), and unconditionally calls `Sender.kill/1` either way
+  as the guaranteed fallback (crux's "option A", 2026-09-22: this never
+  changes the stuck entry's own outcome, only how cleanly the process
+  group comes down first). The stuck entry is reported as `session_hung`
+  and every remaining entry as `:aborted` (Core's `apply_result/3` treats
+  `:aborted` as a pure no-op on the book -- same "node down -> abort the
+  rest of the pass" shape Old.md §28 D originally designed for
+  distributed-node death, now reused for this instead).
   """
 
   alias XipeTotec.{Book, Core}
@@ -105,8 +109,9 @@ defmodule XipeTotec.Repl.Evaluator do
   @default_scan_module XipeTotec.Repl.Eval.Scan.Direct.Iex
   @default_field_drip_module XipeTotec.Repl.Eval.FieldDrip.Elixir
 
-  @default_heartbeat_interval_ms 5_000
+  @default_deadline_padding_ms 2_000
   @default_boot_timeout_ms 15_000
+  @default_interrupt_grace_ms 2_000
 
   @doc """
   Runs one recalc pass end-to-end: `Core.plan_recalc/3` (same `opts` keys:
@@ -123,43 +128,64 @@ defmodule XipeTotec.Repl.Evaluator do
       (`:argv`, `:files`, `:env`, ...) -- e.g. scripts-mode
       (`argv: ["iex"], files: [...]`) vs. mix-mode defaults
     * `:sender` -- a `Repl.Sender` implementation (default `Sender.Direct`)
-    * `:heartbeat_interval_ms` (default #{@default_heartbeat_interval_ms})
     * `:boot_timeout_ms` (default #{@default_boot_timeout_ms})
     * `:hang_grace_ms` -- override for the "declare the session hung"
-      silence window (default: computed per entry as `entry.limits.timeout
-      + 3 * heartbeat_interval_ms`, see moduledoc). Exposed mainly so a
-      test can exercise the hang path without waiting out a real entry's
-      5s default timeout.
+      absolute deadline (default: computed per entry as
+      `entry.limits.timeout + #{@default_deadline_padding_ms}`, see
+      moduledoc). Exposed mainly so a test can exercise the hang path
+      without waiting out a real entry's 5s default timeout.
+    * `:interrupt_grace_ms` (default #{@default_interrupt_grace_ms}) --
+      how long `end_hung_session/3` waits for `Sender.interrupt/1` to
+      have actually ended the session (an `XT_EXIT` marker) before
+      falling back to `Sender.kill/1` regardless. Same testability reason
+      as `:hang_grace_ms`.
     * `:launch_module`/`:eval_template_module`/`:scan_module`/
       `:field_drip_module` -- the per-language adapter set (moduledoc's
       "Language independence" section); default to Elixir's own
       (`Repl.Launch`/`Repl.EvalTemplate`/`Repl.Eval.Scan.Direct.Iex`/
       `Repl.Eval.FieldDrip.Elixir`).
 
-  An empty plan (nothing to do) short-circuits to `{:ok, book, []}` without
-  ever launching a session. Returns `{:error, {:launch_failed, reason}}` /
+  An empty `plan.entries` (nothing left to run after `Core.plan_recalc/3`'s
+  own `:skipped` filtering) short-circuits to `{:ok, book, results}` without
+  ever launching a session -- `results` is `plan.skipped` (`[]` when there
+  was nothing to skip either, the previous behavior). Returns
+  `{:error, {:launch_failed, reason}}` /
   `{:error, {:boot_failed, reason}}` if the session itself never came up --
   the book is untouched in either case (nothing was evaluated, so there's
   nothing for `apply_results/3` to fold in; unlike a mid-pass hang, a
   boot failure has no partial results to report as `:aborted` either).
+  `plan.skipped` (if any) is computed before the launch attempt but is
+  **not** persisted on this path either -- a later successful `run_pass/3`
+  call recomputes and applies it the same way, so nothing is lost long
+  term, just deferred.
   """
   @spec run_pass(Book.t(), String.t(), keyword()) :: {:ok, Book.t(), [map()]} | {:error, term()}
   def run_pass(book, pass_id, opts) do
     cwd = Keyword.fetch!(opts, :cwd)
     ctx = Keyword.get(opts, :ctx, %{commit: nil, commit_at: nil, dirty: nil})
     sender = Keyword.get(opts, :sender, XipeTotec.Repl.Sender.Direct)
-    hb_ms = Keyword.get(opts, :heartbeat_interval_ms, @default_heartbeat_interval_ms)
     boot_timeout_ms = Keyword.get(opts, :boot_timeout_ms, @default_boot_timeout_ms)
     hang_grace_ms = Keyword.get(opts, :hang_grace_ms)
+    interrupt_grace_ms = Keyword.get(opts, :interrupt_grace_ms, @default_interrupt_grace_ms)
     launch_opts = Keyword.get(opts, :launch_opts, [])
     adapter = adapter_from(opts)
 
     plan_opts = Keyword.take(opts, [:call_ids, :changed_node_ids, :include_writes])
     plan = Core.plan_recalc(book, pass_id, plan_opts)
+    # plan.skipped needs no REPL round trip (Core.plan_recalc/3's own
+    # moduledoc) -- fold it in before ever deciding whether a session needs
+    # launching at all, so a pass that skips everything still persists why.
+    book = Core.apply_results(book, ctx, plan.skipped)
 
     case plan.entries do
-      [] -> {:ok, book, []}
-      entries -> run_plan(book, ctx, entries, cwd, sender, adapter, hb_ms, boot_timeout_ms, hang_grace_ms, launch_opts)
+      [] ->
+        {:ok, book, plan.skipped}
+
+      entries ->
+        case run_plan(book, ctx, entries, cwd, sender, adapter, boot_timeout_ms, hang_grace_ms, interrupt_grace_ms, launch_opts) do
+          {:ok, new_book, results} -> {:ok, new_book, plan.skipped ++ results}
+          error -> error
+        end
     end
   end
 
@@ -175,24 +201,24 @@ defmodule XipeTotec.Repl.Evaluator do
     }
   end
 
-  defp run_plan(book, ctx, entries, cwd, sender, adapter, hb_ms, boot_timeout_ms, hang_grace_ms, launch_opts) do
-    message = adapter.launch.build([{:cwd, cwd}, {:heartbeat_interval_ms, hb_ms} | launch_opts])
+  defp run_plan(book, ctx, entries, cwd, sender, adapter, boot_timeout_ms, hang_grace_ms, interrupt_grace_ms, launch_opts) do
+    message = adapter.launch.build([{:cwd, cwd} | launch_opts])
 
     case sender.send(message) do
       {:ok, handle} ->
         case Session.await_ready(handle, message["ready_pattern"], boot_timeout_ms) do
           :ok ->
-            sender.write(handle, message["heartbeat_input"])
-
-            {status, results} = run_entries(entries, handle, sender, adapter, hb_ms, hang_grace_ms)
+            interruptible = Map.get(message, "interruptible", false)
+            {status, results} = run_entries(entries, handle, sender, adapter, interruptible, hang_grace_ms, interrupt_grace_ms)
 
             # a hung session was already forced down (run_entries' :hung
-            # branch calls sender.kill/1 itself): calling Session.close/4
-            # again here would re-send exit_input / re-wait for XT_EXIT
-            # against a handle that -- for a real Sender.Direct -- is
-            # racing its own async {:exit_status,...} -> {:stop, :normal}
-            # shutdown, so a second `write/2` could hit a dead GenServer
-            # (`:noproc`) instead of the intended no-op.
+            # branch calls end_hung_session/3, which itself always calls
+            # sender.kill/1): calling Session.close/4 again here would
+            # re-send exit_input / re-wait for XT_EXIT against a handle
+            # that -- for a real Sender.Direct -- is racing its own async
+            # {:DOWN,...} -> {:stop, :normal} shutdown, so a second
+            # `write/2` could hit a dead GenServer (`:noproc`) instead of
+            # the intended no-op.
             if status == :ok, do: Session.close(sender, handle, message["exit_input"])
 
             {:ok, Core.apply_results(book, ctx, results), results}
@@ -207,11 +233,11 @@ defmodule XipeTotec.Repl.Evaluator do
     end
   end
 
-  defp run_entries([], _handle, _sender, _adapter, _hb_ms, _hang_grace_ms), do: {:ok, []}
+  defp run_entries([], _handle, _sender, _adapter, _interruptible, _hang_grace_ms, _interrupt_grace_ms), do: {:ok, []}
 
-  defp run_entries([entry | rest], handle, sender, adapter, hb_ms, hang_grace_ms) do
+  defp run_entries([entry | rest], handle, sender, adapter, interruptible, hang_grace_ms, interrupt_grace_ms) do
     sender.write(handle, adapter.eval_template.build(entry))
-    grace_ms = hang_grace_ms || entry.limits.timeout + 3 * hb_ms
+    grace_ms = hang_grace_ms || entry.limits.timeout + @default_deadline_padding_ms
     # a fixed wall-clock deadline, not a per-chunk silence window -- see
     # wait_result/6's comment for why this changed (2026-09-18 review
     # finding).
@@ -219,33 +245,62 @@ defmodule XipeTotec.Repl.Evaluator do
 
     case wait_result(handle, entry.call_id, "", 1, adapter, deadline) do
       {:ok, result} ->
-        {status, rest_results} = run_entries(rest, handle, sender, adapter, hb_ms, hang_grace_ms)
+        {status, rest_results} = run_entries(rest, handle, sender, adapter, interruptible, hang_grace_ms, interrupt_grace_ms)
         {status, [result | rest_results]}
 
       :hung ->
-        sender.kill(handle)
+        end_hung_session(sender, handle, interruptible, interrupt_grace_ms)
         hung = %{call_id: entry.call_id, outcome: {:error, "session_hung"}, compare: "skipped", evaluated_at: nil, session_gen: nil}
         aborted = for e <- rest, do: %{call_id: e.call_id, outcome: :aborted, compare: "skipped", evaluated_at: nil, session_gen: nil}
         {:hung, [hung | aborted]}
     end
   end
 
+  # On a confirmed hang, try the gentler Sender.interrupt/1 first when the
+  # adapter says this REPL might actually handle it (message's own
+  # "interruptible" field, Repl.Launch), and give it interrupt_grace_ms to
+  # exit on its own (evidenced by the ordinary XT_EXIT marker) before
+  # falling back to the unconditional Sender.kill/1 either way (crux's
+  # "option A", 2026-09-22 -- this never changes the stuck entry's own
+  # outcome, only how cleanly the process group comes down first).
+  defp end_hung_session(sender, handle, interruptible, interrupt_grace_ms) do
+    if interruptible do
+      sender.interrupt(handle)
+      deadline = System.monotonic_time(:millisecond) + interrupt_grace_ms
+      wait_for_exit(handle, deadline)
+    end
+
+    sender.kill(handle)
+  end
+
+  defp wait_for_exit(handle, deadline) do
+    remaining = deadline - System.monotonic_time(:millisecond)
+
+    if remaining > 0 do
+      receive do
+        {^handle, {:data, chunk}} ->
+          unless String.contains?(chunk, "XT_EXIT"), do: wait_for_exit(handle, deadline)
+      after
+        remaining -> :timeout
+      end
+    end
+  end
+
   # `deadline` is an absolute `System.monotonic_time(:millisecond)` value,
-  # fixed once per entry in run_entries/6 -- NOT reset on every received
+  # fixed once per entry in run_entries/7 -- NOT reset on every received
   # chunk the way it used to be. Review finding, 2026-09-18: an unclosed
   # arg expression (now caught before this ever runs, by
   # `EvalTemplate.build/1`'s own `build_syntax_error/3` path -- but a
   # future language's `eval_template`-equivalent might not always catch
   # every such case, and a session can get stuck for other reasons too)
   # puts iex into its `...(N)>` continuation prompt, silently absorbing
-  # everything written afterward into the same still-open expression. The
-  # heartbeat ticker is a *separate* process and keeps ticking the whole
-  # time regardless, so a per-chunk-reset "silence since the last message"
-  # window (the old behavior) never elapses -- this entry would wait
-  # forever, heartbeats and all. A fixed deadline computed once and never
-  # pushed back by incoming data closes that: no matter how much keeps
-  # arriving, this entry gives up at `grace_ms` total, same ceiling as
-  # before for the ordinary "truly silent" hang case.
+  # everything written afterward into the same still-open expression. A
+  # per-chunk-reset "silence since the last message" window (the old
+  # behavior) never elapses in that case -- this entry would wait forever.
+  # A fixed deadline computed once and never pushed back by incoming data
+  # closes that: no matter how much keeps arriving, this entry gives up at
+  # `grace_ms` total, same ceiling as before for the ordinary "truly
+  # silent" hang case.
   defp wait_result(handle, call_id, buffer, session_gen, adapter, deadline) do
     case Parser.step(buffer, call_id, adapter.scan, adapter.field_drip, session_gen) do
       {:ok, result, _cleaned} ->

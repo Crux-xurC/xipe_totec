@@ -4,7 +4,7 @@ defmodule XipeTotec.Repl.EvalTemplate do
   (`document/repl-adapter-guide.md`'s `eval_template`, call-expression-
   assembly half). Pure string manipulation -- no process spawning, no I/O.
 
-  Per 課題.mkd B's division of labor: Core hands over `args` with
+  Per Old.md §28 B's division of labor: Core hands over `args` with
   embeddable references already substituted (exact/binary) and
   non-embeddable ones left as placeholder tokens plus typed `inputs`
   (`core.exs`'s `resolve_ref/4`). This module is the "REPL adapter" side
@@ -44,7 +44,7 @@ defmodule XipeTotec.Repl.EvalTemplate do
     "#{module}.#{name}(#{Enum.join(resolved, ", ")})"
   end
 
-  # compare's float tolerance (課題.mkd C: "誤差の値は設定パラメータにする").
+  # compare's float tolerance (Old.md §28 C: "誤差の値は設定パラメータにする").
   # No config-loading mechanism exists anywhere in this codebase yet (no
   # config.json, nothing reads one) -- introducing one just for this one
   # pair of numbers would be scope creep beyond what compare itself needs,
@@ -54,10 +54,10 @@ defmodule XipeTotec.Repl.EvalTemplate do
   @default_float_abs_tol 1.0e-9
 
   @doc """
-  Builds the full evaluation source text for `entry` (prebuild.md §10.3):
+  Builds the full evaluation source text for `entry` (Old.md §10.3):
   call-expression assembly + the safety wrapper (spawn_monitor/max_heap/
-  timeout) + repr judgment (prebuild.md §10.3's a -> b -> c) + compare
-  judgment against `entry.basis` (課題.mkd C, 2026-09-18) + marker-wrapped
+  timeout) + repr judgment (Old.md §10.3's a -> b -> c) + compare
+  judgment against `entry.basis` (Old.md §28 C, 2026-09-18) + marker-wrapped
   printing, all as target-language text to be typed into the running REPL
   session (never executed locally -- xipe_totec's own BEAM can't
   necessarily `inspect`/reconstruct the target project's own types, and
@@ -97,10 +97,9 @@ defmodule XipeTotec.Repl.EvalTemplate do
   # never emits ANY marker for this entry, and everything written
   # afterward (the rest of a would-be marker-wrapped template, the *next*
   # entry's whole template) gets silently absorbed into the same still-open
-  # expression instead of being parsed as separate statements. The
-  # heartbeat ticker is a separate process and keeps ticking the whole
-  # time, so this was invisible to hang detection before §5.10's absolute
-  # deadline (`wait_result/6`) -- catching it here, before ever writing
+  # expression instead of being parsed as separate statements. This was
+  # invisible to hang detection before §5.10's absolute deadline
+  # (`wait_result/6`) -- catching it here, before ever writing
   # anything to the session, is strictly better than waiting out that
   # deadline: the entry fails fast with the real reason instead of a
   # generic "session_hung", and the session is never put in the
@@ -172,14 +171,13 @@ defmodule XipeTotec.Repl.EvalTemplate do
           # A single IO.puts/1 per branch, not one per field (fixed
           # 2026-09-18, review finding): several separate IO.puts calls are
           # each individually atomic at the group-leader level, but nothing
-          # stops a DIFFERENT process's own output (the heartbeat ticker
-          # aside -- Scan.Direct.Iex.clean/1 already strips that wherever it
-          # lands -- but Logger output, or anything the evaluated call
-          # itself spawns and prints from) from being interleaved *between*
-          # our calls, landing inside the XT_BEGIN..XT_END span as a line
-          # that doesn't match the key=value format and breaks
-          # FieldDrip.Elixir.parse/1. One IO.puts of the whole joined block
-          # is one atomic write, so nothing else can land inside it.
+          # stops a DIFFERENT process's own output (Logger output, or
+          # anything the evaluated call itself spawns and prints from) from
+          # being interleaved *between* our calls, landing inside the
+          # XT_BEGIN..XT_END span as a line that doesn't match the
+          # key=value format and breaks FieldDrip.Elixir.parse/1. One
+          # IO.puts of the whole joined block is one atomic write, so
+          # nothing else can land inside it.
           cond do
             xt_is_unsupported ->
               IO.puts(
@@ -270,12 +268,12 @@ defmodule XipeTotec.Repl.EvalTemplate do
   # Emits the statements needed to bind `xt_compare` (a plain string --
   # "none" | "skipped" | "changed" | "same", the same string-typed
   # convention `Core`/`core_test.exs` already use for repr/compare, not
-  # atoms -- see 課題.mkd C and the B2 JSON-safety rule this mirrors).
+  # atoms -- see Old.md §28 C and the B2 JSON-safety rule this mirrors).
   # `:none` (never evaluated before) skips reconstruction/comparison
   # machinery entirely, keeping the common "first eval of this call" case
   # cheap; `xt_is_unsupported` (computed once above, for the repr cond
   # too) makes an unsupported *new* value "skipped" regardless of basis,
-  # per 課題.mkd C's "either side unsupported -> skipped".
+  # per Old.md §28 C's "either side unsupported -> skipped".
   defp compare_snippet(:none), do: ~s(      xt_compare = "none"\n)
 
   defp compare_snippet({tag, prev_text}) when tag in [:exact, :binary] do

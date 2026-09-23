@@ -6,7 +6,7 @@ defmodule XipeTotec.Id do
   Namespaced under `XipeTotec.*` (like every other module in this project):
   Scanner compiles modules extracted from the *target* project's own source
   into this same BEAM to run the compiler tracer over them (spec §5.4 note in
-  the prebuild doc, point F) -- an unnamespaced module name here could be
+  Old.md, point F) -- an unnamespaced module name here could be
   silently redefined by a target project that happens to define e.g. `Book`
   or `Id` itself.
   """

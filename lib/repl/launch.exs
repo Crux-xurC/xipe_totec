@@ -3,7 +3,7 @@ defmodule XipeTotec.Repl.Launch do
   Builds the JSON-able "please launch a REPL for me" message -- pure, no
   process spawning here. Message generation and delivery are kept as two
   separate layers on purpose: xipe_totec must keep working as a standalone
-  CLI tool with no relay attached (prebuild.md §9's "xipe_totecは独立
+  CLI tool with no relay attached (Old.md §9's "xipe_totecは独立
   ツールとして使われるのが基本"), so the message this module builds has to
   be usable by the bundled `XipeTotec.Repl.Sender.Direct` (spawn it
   locally) just as well as by some future relay-side sender that inserts
@@ -15,17 +15,19 @@ defmodule XipeTotec.Repl.Launch do
   value that crosses this boundary must be JSON-encodable as-is (string,
   number, bool, null, or a map/list of those). No atoms, no tuples.
 
-  All language-specific knowledge lives *here* (prebuild.md §10.2) --
+  All language-specific knowledge lives *here* (Old.md §10.2) --
   `argv`/`env`/`cwd`/`files` plus, since 2026-09-18, `ready_pattern`
   (how to recognize the REPL finished booting), `exit_input` (what to
-  type in for a graceful shutdown), and `heartbeat_input` (a self-
-  contained snippet that starts a background liveness ticker). Everything
-  downstream of this module (`Repl.Sender`, `Repl.Session`) is generic: it
-  reads these values out of the message and never branches on language or
-  project_kind itself.
+  type in for a graceful shutdown), and, since 2026-09-22 (Old.md
+  §23, replacing the removed heartbeat mechanism), `interruptible` (can
+  `Sender.interrupt/1`'s SIGINT-to-process-group actually reach and be
+  handled by this REPL, or is a hang only ever recoverable by `kill/1`).
+  Everything downstream of this module (`Repl.Sender`, `Repl.Session`) is
+  generic: it reads these values out of the message and never branches on
+  language or project_kind itself.
 
   Distributed-Erlang connection (node names/cookie/loopback restriction)
-  was dropped here 2026-09-18 -- see prebuild.md §10's pivot note.
+  was dropped here 2026-09-18 -- see Old.md §10's pivot note.
   Xipe Totec now drives the target REPL exactly the way a human would
   (type text in via stdin, read text out via stdout/PTY), which is the
   whole reason this tool exists in the first place.
@@ -34,7 +36,12 @@ defmodule XipeTotec.Repl.Launch do
   @default_argv ["iex", "-S", "mix"]
   @default_ready_pattern "Interactive Elixir"
   @default_exit_input "System.halt()\n"
-  @default_heartbeat_interval_ms 5_000
+  # Confirmed live 2026-09-22 (Old.md §23): a SIGINT delivered to
+  # iex's own process group via erlexec (Sender.Direct, plain pipe, no
+  # PTY needed) reaches BEAM's own signal handler and drops it into the
+  # "BREAK: (a)bort (A)bort with dump (c)ontinue ..." menu, the same as a
+  # real terminal's Ctrl-C -- so `Sender.interrupt/1` is meaningful here.
+  @default_interruptible true
 
   @doc """
   `opts`:
@@ -60,17 +67,14 @@ defmodule XipeTotec.Repl.Launch do
     * `:exit_input` -- text to write to the REPL's stdin for a graceful
       shutdown (default: `#{inspect(@default_exit_input)}`). Only works
       while the session is actually reading stdin -- a hung session needs
-      `Sender.kill/1` instead, not this (prebuild.md §10.2's caveat).
-    * `:heartbeat_interval_ms` -- how often the background ticker prints
-      `"XT_HEARTBEAT"` (default: `#{@default_heartbeat_interval_ms}`).
-      `message["heartbeat_input"]` is meant to be written to the session
-      *once*, right after boot (before any eval request) -- it spawns its
-      own long-lived loop, it isn't itself a per-eval snippet. Confirmed
-      locally that a tight synchronous busy-loop in one process doesn't
-      starve a `spawn`ed heartbeat loop in another, thanks to BEAM's
-      preemptive scheduling -- this is the whole reason a heartbeat can
-      tell "still alive, just slow" apart from "actually hung"
-      (prebuild.md §10's liveness design).
+      `Sender.kill/1` instead, not this (Old.md §10.2's caveat).
+    * `:interruptible` -- whether `Sender.interrupt/1` (SIGINT to this
+      REPL's process group) is expected to reach a handler this REPL
+      actually has, rather than just terminating it outright (default:
+      `#{@default_interruptible}`). `Evaluator`'s hang handling still
+      always falls back to `Sender.kill/1` regardless of this value --
+      the difference is only whether it tries the gentler `interrupt/1`
+      first and gives it a short grace window before that fallback.
   """
   @spec build(keyword()) :: %{String.t() => term()}
   def build(opts) do
@@ -80,7 +84,7 @@ defmodule XipeTotec.Repl.Launch do
     files = Keyword.get(opts, :files, [])
     ready_pattern = Keyword.get(opts, :ready_pattern, @default_ready_pattern)
     exit_input = Keyword.get(opts, :exit_input, @default_exit_input)
-    heartbeat_interval_ms = Keyword.get(opts, :heartbeat_interval_ms, @default_heartbeat_interval_ms)
+    interruptible = Keyword.get(opts, :interruptible, @default_interruptible)
 
     %{
       "kind" => "repl/launch",
@@ -90,22 +94,7 @@ defmodule XipeTotec.Repl.Launch do
       "files" => files,
       "ready_pattern" => ready_pattern,
       "exit_input" => exit_input,
-      "heartbeat_input" => heartbeat_input(heartbeat_interval_ms)
+      "interruptible" => interruptible
     }
-  end
-
-  defp heartbeat_input(interval_ms) do
-    """
-    xt_heartbeat_pid =
-      spawn(fn ->
-        xt_beat = fn xt_beat ->
-          Process.sleep(#{interval_ms})
-          IO.puts("XT_HEARTBEAT")
-          xt_beat.(xt_beat)
-        end
-
-        xt_beat.(xt_beat)
-      end)
-    """
   end
 end

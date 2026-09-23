@@ -7,7 +7,7 @@ Code.require_file("graph_query.exs", __DIR__)
 
 defmodule XipeTotec.Dispatch do
   @moduledoc """
-  §16.3 client -> server method table (prebuild.md §9, 2026-09-17). Stays as
+  §16.3 client -> server method table (Old.md §9, 2026-09-17). Stays as
   pure as `Core` -- `handle/4` takes a `Book` and returns a `Book`. The one
   exception is `scan/run`, which needs `ctx.root` to read source files off
   disk (the same "orchestration one level above pure Core" shape
@@ -17,7 +17,7 @@ defmodule XipeTotec.Dispatch do
   same way `Project.persist_scan` already diffs `scan_dir`'s before/after --
   just generalized from sheets/nodes/links to all six tables.
 
-  Tier map (prebuild.md §9): only Tier 1 methods actually do anything here.
+  Tier map (Old.md §9): only Tier 1 methods actually do anything here.
   Tier 2-5 methods are still real entries in `@not_implemented` (so an
   unknown-method error and a not-implemented-yet error are visibly
   different things to a client) but every one of them returns a clean
@@ -29,7 +29,7 @@ defmodule XipeTotec.Dispatch do
 
   `initialize`/`subscribe` are deliberately not entries here at all (not
   even in `@not_implemented`) -- they're transport/session bookkeeping
-  (prebuild.md §9: session state lives in `Serve.Socket`, not
+  (Old.md §9: session state lives in `Serve.Socket`, not
   `Serve.Project`), not `Book` operations. `Serve.Socket` intercepts them
   before a message ever reaches here.
   """
@@ -65,12 +65,28 @@ defmodule XipeTotec.Dispatch do
 
   def handle(book, "row/add", %{"node" => node_id, "args" => args}, _ctx)
       when is_binary(node_id) and is_list(args) do
-    if Enum.all?(args, &is_binary/1) do
-      id = Id.ulid()
-      new_book = Core.add_call(book, id, %{node: node_id, args: args})
-      {:ok, new_book, %{"id" => id, "row" => Book.get(new_book, :calls, id)}}
-    else
-      {:error, book, invalid_params("row/add needs node (string) and args ([string])")}
+    # A calc row is one call to one scanned node, so the node has to exist
+    # and the args have to match its arity -- checked here rather than left
+    # to the REPL, where an arity mismatch would only surface as a crash at
+    # eval time. Old.md §32: `xipe do row/add ... args=3,` used to silently
+    # mint a 2-arg row for a 1-arity function.
+    node = Book.get(book, :nodes, node_id)
+
+    cond do
+      not Enum.all?(args, &is_binary/1) ->
+        {:error, book, invalid_params("row/add needs node (string) and args ([string])")}
+
+      node == nil ->
+        {:error, book, not_found("node", node_id)}
+
+      length(args) != node.arity ->
+        {:error, book,
+         invalid_params("row/add: #{node.module}.#{node.name}/#{node.arity} takes #{node.arity} arg(s), got #{length(args)}: #{inspect(args)}")}
+
+      true ->
+        id = Id.ulid()
+        new_book = Core.add_call(book, id, %{node: node_id, args: args})
+        {:ok, new_book, %{"id" => id, "row" => Book.get(new_book, :calls, id)}}
     end
   end
 
@@ -105,7 +121,7 @@ defmodule XipeTotec.Dispatch do
   def handle(book, method, params, _ctx) when method in ["card/get", "card/search"] and is_map(params) do
     # card/search's spec text additionally promises "型による逆引き"
     # (reverse lookup by type) -- that needs a provider/* round trip to the
-    # client (prebuild.md §9: deferred, no client implements it yet), so for
+    # client (Old.md §9: deferred, no client implements it yet), so for
     # now both methods just run the same address resolution.
     case Address.resolve(book, params) do
       {:ok, matches} ->
@@ -173,7 +189,7 @@ defmodule XipeTotec.Dispatch do
   def handle(book, "cell/resolve", _params, _ctx),
     do: {:error, book, invalid_params("cell/resolve needs \"ref\" (string, e.g. \"⟦01ABC...⟧\")")}
 
-  # prebuild.md §16.3/§16.4 (2026-09-19/20-21): the upstream ⟦id⟧
+  # Old.md §16.3/§16.4 (2026-09-19/20-21): the upstream ⟦id⟧
   # dependency chain, not §16.3's original method table -- new ground, not
   # a v0.4 spec method. "row/" matches row/add|remove's existing calc-row-
   # level namespace; deliberately not under "graph/" (that prefix already
@@ -190,7 +206,7 @@ defmodule XipeTotec.Dispatch do
   def handle(book, "row/depends", _params, _ctx),
     do: {:error, book, invalid_params("row/depends needs call_ids ([string])")}
 
-  # prebuild.md §16.4/§19 (2026-09-22): the dependency-chain negotiation's
+  # Old.md §16.4/§19 (2026-09-22): the dependency-chain negotiation's
   # "insert a value into X" step -- writes a user-supplied literal straight
   # into a call's result, no REPL involved (Core.set_result/3 is pure, so
   # this fits Dispatch's synchronous Book-in-Book-out contract exactly,
@@ -211,7 +227,7 @@ defmodule XipeTotec.Dispatch do
     do: {:error, book, invalid_params("row/set-result needs id (string) and result (string)")}
 
   def handle(book, method, _params, _ctx) when method in @not_implemented,
-    do: {:error, book, %{"code" => "not_implemented", "message" => "#{method}: not implemented yet (prebuild.md §9 tier map)"}}
+    do: {:error, book, %{"code" => "not_implemented", "message" => "#{method}: not implemented yet (Old.md §9 tier map)"}}
 
   def handle(book, method, _params, _ctx),
     do: {:error, book, %{"code" => "unknown_method", "message" => method}}

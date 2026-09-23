@@ -32,7 +32,7 @@ defmodule ReplSenderDirectTest do
   # A trivial, always-available command stands in for a real REPL launch
   # here -- this test is about the Port plumbing (argv/env/cwd/exit,
   # message shape), not about iex or distributed Erlang, which stays a
-  # live 2-node concern out of this fast suite (課題.mkd G's split).
+  # live 2-node concern out of this fast suite (Old.md §28 G's split).
   test "spawns argv[0] with the given args, cwd, and env, and the caller receives its stdout" do
     {:ok, handle} =
       Direct.send(%{

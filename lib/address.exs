@@ -9,7 +9,7 @@ defmodule XipeTotec.Address do
   "name": "add_tax", "arity": 2}`.
 
   Shared by `card/get`/`card/search`/`graph/export`'s range selection
-  (prebuild.md §9, 2026-09-17) -- one resolver, several callers.
+  (Old.md §9, 2026-09-17) -- one resolver, several callers.
 
   v0 scope: matches `:nodes` (optionally joined through `sheet` to the
   owning sheet's `path`, for the spec's `file` column) and, directly, a
@@ -18,7 +18,7 @@ defmodule XipeTotec.Address do
   -- `resolve/2` returns `{:error, {:unsupported_column, name}}` for them
   rather than matching everything, since a silently-too-broad candidate set
   would be a worse failure than a loud one. `hier` has no home yet because
-  node rows don't carry a hierarchy code (prebuild.md §8, still deferred);
+  node rows don't carry a hierarchy code (Old.md §8, still deferred);
   `type` (restricting which table an address can hit) has no caller needing
   it yet since v0's own callers are all node/call oriented.
   """

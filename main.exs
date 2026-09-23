@@ -15,14 +15,16 @@ Code.require_file("lib/runner.exs", __DIR__)
 Code.require_file("lib/dialogue.exs", __DIR__)
 Code.require_file("lib/in_out.exs", __DIR__)
 Code.require_file("lib/dialogue/depends.exs", __DIR__)
+Code.require_file("lib/info.exs", __DIR__)
+Code.require_file("lib/workspace.exs", __DIR__)
+Code.require_file("lib/command_line.exs", __DIR__)
 
 defmodule XipeTotec.CLI do
   @moduledoc false
 
-  alias XipeTotec.{Book, Core, InOut, Runner, Store}
+  alias XipeTotec.{Book, CommandLine, Core, Info, InOut, Runner, Store, Workspace}
   alias XipeTotec.Serve.Project, as: ServeProject
 
-  @store_file "book.jsonl"
   @default_serve_port 4200
   @all_tables [:sheets, :nodes, :calls, :links, :runs, :providers]
 
@@ -31,13 +33,17 @@ defmodule XipeTotec.CLI do
       [] -> help()
       ["help"] -> help()
       ["version"] -> IO.puts("xipe 0.1.0-dev")
+      ["choice", "project", path] -> choice_project(path)
+      ["table", "generate" | rest] -> table_generate(rest)
       ["scan", dir] -> scan(dir)
-      ["scan"] -> scan(".")
-      ["show"] -> show()
+      ["scan"] -> scan(nil)
+      ["show", dir] -> show(dir)
+      ["show"] -> show(nil)
       ["serve" | rest] -> serve(rest)
       ["eval" | rest] -> eval(rest)
       ["do" | rest] -> do_cmd(rest)
       ["dialogue", "depends" | rest] -> dialogue_depends(rest)
+      ["reflesh" | rest] -> reflesh(rest)
       [cmd | _] -> unknown(cmd)
     end
   end
@@ -46,17 +52,27 @@ defmodule XipeTotec.CLI do
     IO.puts("""
     xipe -- Xipe Totec CLI (scaffold; most of §15 is not implemented yet)
 
-      xipe scan [<dir>]        scan every .ex/.exs file under <dir> (default: .), update ./#{@store_file}
-      xipe show                print a summary of the current book (from ./#{@store_file})
+    Every command below that takes an optional <dir> acts on the selected project
+    (`xipe choice project`) when <dir> is omitted; a given <dir> must already be
+    registered. Each project's book lives in tables/project/<id>_<name>/book.jsonl.
+
+      xipe choice project <path>
+                                register <path> if new (generating its surface table) and make
+                                it the selected project (info.json's "project")
+      xipe table generate [<path>]
+                                regenerate <path>'s surface table (registering it if new) and save
+                                it to tables/project/<id>_<name>/table
+      xipe scan [<dir>]        scan the project's .ex/.exs files and update its book
+      xipe show [<dir>]        print a summary of the project's book
       xipe serve [<dir>] [--port N]
-                                §16.1 WebSocket (localhost) entry over <dir>'s ./#{@store_file}
+                                §16.1 WebSocket (localhost) entry over the project's book
                                 (default port #{@default_serve_port}, or $XIPE_TOTEC_PORT)
       xipe eval [<dir>] [id...] [--mix] [--include-writes]
                                 launch <dir>'s REPL and (re)evaluate the given calc-row ids
-                                (default: every call in ./#{@store_file}); persists results back
+                                (default: every call in the book); persists results back
                                 and prints an outcome line per call. --mix launches via `iex -S
                                 mix` instead of the default scripts-mode (`iex`, loading every
-                                scanned .ex/.exs file under <dir> via -r). --include-writes also
+                                scanned .ex/.exs file via -r). --include-writes also
                                 schedules writes/unknown-effect rows (still requires each one's
                                 node to have an explicit `effect/set` first)
       xipe do [--dir <dir>] <method> [key=value...] [-- <method> [key=value...]]...
@@ -67,10 +83,11 @@ defmodule XipeTotec.CLI do
                                 XipeTotec.Runner's moduledoc. A later command can reference an
                                 earlier one's result with "$<index>.<path>", e.g.:
                                   xipe do row/add node=n1 args=1,2 \\
-                                       -- effect/set id=$0.id effect=pure \\
+                                       -- effect/set id=n1 effect=pure \\
                                        -- eval call_ids=$0.id
-                                (values containing a comma become a list; everything else stays
-                                a plain string)
+                                Values: [..] is always a list ([] empty, [10] one element,
+                                [1,2] two); any other value containing a comma is a list too
+                                (args=1,2); everything else stays a plain string
       xipe dialogue depends [<dir>] <call_id>
                                 §16.4 interactive dependency-chain negotiation: walks <call_id>'s
                                 upstream ⟦id⟧ chain deepest-first, asking at each step whether to
@@ -78,15 +95,42 @@ defmodule XipeTotec.CLI do
                                 everything deeper) and run everything from there up through
                                 <call_id> for real. At a prompt, answer "y <literal>" (target-
                                 language source text) or "n"; declining every step does nothing.
+      xipe reflesh -l|-r|-a     re-scan xipe_totec's own adapter modules and update ./info.json:
+                                -l (--languages) lib/repl/eval/field_drip/*.exs, -r (--repls)
+                                lib/repl/eval/scan/<transport>/*.exs, -a (--all) both. A file being
+                                present is not proof it works (§24) -- this only records what's
+                                there, run it after adding/removing an adapter module yourself.
       xipe version              show version
       xipe help                 show this message
     """)
   end
 
-  defp scan(dir), do: run_commands(dir, [%{"method" => "scan/run", "params" => %{}}])
+  defp choice_project(path) do
+    unless File.dir?(path), do: usage_error("xipe choice project: #{path} is not a directory")
+    {project, status} = Workspace.choose(path)
+    IO.puts("xipe choice project: #{project.id}  #{project.path}  (#{status})")
+  end
 
-  defp show do
-    book = Store.load(@store_file)
+  defp table_generate(args) do
+    path =
+      case args do
+        [p] -> p
+        [] -> project!(nil).path
+        _ -> usage_error("xipe table generate: usage: xipe table generate [<path>]")
+      end
+
+    unless File.dir?(path), do: usage_error("xipe table generate: #{path} is not a directory")
+    {project, rows} = Workspace.generate_table(path)
+    counts = rows |> Enum.frequencies_by(&(&1["language"] || "-")) |> Enum.sort() |> Enum.map_join("  ", fn {l, n} -> "#{l}=#{n}" end)
+    IO.puts("xipe table generate: #{project.id}  #{project.path}  #{length(rows)} files  #{counts}")
+  end
+
+  defp scan(dir), do: run_commands(project!(dir), [%{"method" => "scan/run", "params" => %{}}])
+
+  defp show(dir) do
+    project = project!(dir)
+    book = Store.load(project.store_file)
+    IO.puts("project #{project.id}  #{project.path}")
 
     for {id, row} <- book.sheets do
       IO.puts("sheet #{id}  #{row.path}")
@@ -105,10 +149,21 @@ defmodule XipeTotec.CLI do
     end
   end
 
+  # The project a command acts on (XipeTotec.Workspace.resolve/2): the
+  # given <dir> if registered, else info.json's selected project. Halts
+  # with the resolver's own message otherwise.
+  defp project!(dir) do
+    case Workspace.resolve(dir) do
+      {:ok, project} -> project
+      {:error, message} -> usage_error("xipe: #{message}")
+    end
+  end
+
   defp serve(args) do
     {opts, positional, _invalid} = OptionParser.parse(args, strict: [port: :integer])
-    root = Path.expand(List.first(positional) || ".")
-    store_file = Path.join(root, @store_file)
+    project = project!(List.first(positional))
+    root = project.path
+    store_file = project.store_file
     port = opts[:port] || String.to_integer(System.get_env("XIPE_TOTEC_PORT") || Integer.to_string(@default_serve_port))
 
     {:ok, _} = Application.ensure_all_started(:cowboy)
@@ -135,40 +190,45 @@ defmodule XipeTotec.CLI do
     end
   end
 
-  # Synchronous one-shot, same shape as scan/1 and show/1 (prebuild.md's own
+  # Synchronous one-shot, same shape as scan/1 and show/1 (Old.md's own
   # framing: "xipe eval can be scoped the same synchronous one-shot way
-  # xipe scan/xipe show already are"). Store.load/persist_diff stay relative
-  # to CWD, matching scan/show's own convention (unlike serve/1, which joins
-  # <dir> in -- eval's <dir> is only where the REPL itself launches/scans
-  # from, same role as scan's own <dir> argument).
+  # xipe scan/xipe show already are"). The leading <dir> is optional: a
+  # first positional that is an existing directory is <dir>, anything else
+  # is already a call id (ULIDs never collide with a real directory name
+  # in practice).
   defp eval(args) do
     {opts, positional, _invalid} = OptionParser.parse(args, strict: [mix: :boolean, include_writes: :boolean])
-    dir = List.first(positional) || "."
-    ids = Enum.drop(positional, 1)
 
-    old_book = Store.load(@store_file)
+    {dir, ids} =
+      case positional do
+        [first | rest] -> if File.dir?(first), do: {first, rest}, else: {nil, positional}
+        [] -> {nil, []}
+      end
+
+    project = project!(dir)
+    old_book = Store.load(project.store_file)
     target_ids = if ids == [], do: Map.keys(old_book.calls), else: ids
 
     if target_ids == [] do
       IO.puts("xipe eval: nothing to evaluate (book has no calls -- add some with `xipe do row/add ...` first)")
     else
       # --mix forces Runner's own scripts-vs-mix auto-detection
-      # (default_launch_opts/1) off in favor of the mix-mode default;
+      # (launch_opts_for/2) off in favor of the mix-mode default;
       # otherwise leave :launch_opts unset and let Runner decide from
-      # whether <dir>/mix.exs exists.
+      # the project's surface table.
       evaluator_opts = if opts[:mix], do: [launch_opts: []], else: []
-      # --include-writes (prebuild.md §16.2/§16.4, 2026-09-21): the dedicated
+      # --include-writes (Old.md §16.2/§16.4, 2026-09-21): the dedicated
       # `xipe eval` command's own equivalent of `xipe do ... eval
       # include_writes=true` -- Runner.run_one/4's "eval" case is what
       # actually reads this out of the command's params.
       params = %{"call_ids" => target_ids, "include_writes" => opts[:include_writes] || false}
       command = %{"method" => "eval", "params" => params}
-      run_commands(dir, [command], Keyword.put(evaluator_opts, :ctx, git_ctx(dir)))
+      run_commands(project, [command], Keyword.put(evaluator_opts, :ctx, git_ctx(project.path)))
     end
   end
 
   # `xipe dialogue depends [<dir>] <call_id>` -- the real §16.4 dependency-
-  # chain negotiation (prebuild.md §19), the first real `Dialogue` program
+  # chain negotiation (Old.md §19), the first real `Dialogue` program
   # to ride on `InOut.run_to_completion/7` (previously only proven by a
   # throwaway toy program, now removed). Resolves <call_id>'s upstream
   # chain via `Core.upstream_chain/2` + `Core.call_label/2` *before*
@@ -179,11 +239,13 @@ defmodule XipeTotec.CLI do
     {dir, call_id} =
       case args do
         [d, id] -> {d, id}
-        [id] -> {".", id}
+        [id] -> {nil, id}
         _ -> usage_error("xipe dialogue depends: usage: xipe dialogue depends [<dir>] <call_id>")
       end
 
-    old_book = Store.load(@store_file)
+    project = project!(dir)
+    dir = project.path
+    old_book = Store.load(project.store_file)
 
     if Book.get(old_book, :calls, call_id) == nil do
       IO.puts(:stderr, "xipe dialogue depends: unknown call id #{call_id}")
@@ -211,7 +273,7 @@ defmodule XipeTotec.CLI do
       {new_book, outcome} =
         InOut.run_to_completion(old_book, dir, first, [ctx: git_ctx(dir)], programs, next_answer, &IO.puts/1)
 
-      Store.persist_diff(@store_file, old_book, new_book, @all_tables)
+      Store.persist_diff(project.store_file, old_book, new_book, @all_tables)
 
       case outcome.result do
         %{"outcomes" => outcomes} -> print_outcomes(outcomes)
@@ -220,6 +282,31 @@ defmodule XipeTotec.CLI do
 
       unless outcome.ok?, do: System.halt(1)
     end
+  end
+
+  # `xipe reflesh -l|-r|-a` (Old.md §24): a deliberate registration
+  # step, not something every command silently re-derives -- see
+  # `XipeTotec.Info`'s own moduledoc for why. Flags are independent
+  # (`-a` is just `-l` + `-r` together, not a distinct third code path) so
+  # a future `-l`-only or `-r`-only re-run never clobbers the other half.
+  defp reflesh(args) do
+    {opts, _positional, _invalid} =
+      OptionParser.parse(args, strict: [languages: :boolean, repls: :boolean, all: :boolean], aliases: [l: :languages, r: :repls, a: :all])
+
+    do_languages = opts[:languages] || opts[:all] || false
+    do_repls = opts[:repls] || opts[:all] || false
+
+    if not do_languages and not do_repls do
+      usage_error("xipe reflesh: usage: xipe reflesh -l|--languages | -r|--repls | -a|--all (at least one)")
+    end
+
+    info = Info.load()
+    info = if do_languages, do: Info.refresh_languages(info), else: info
+    info = if do_repls, do: Info.refresh_repls(info), else: info
+    Info.save(info)
+
+    if do_languages, do: IO.puts("xipe reflesh: languages = #{inspect(info["languages"])}")
+    if do_repls, do: IO.puts("xipe reflesh: repls = #{inspect(info["repls"])}")
   end
 
   defp usage_error(message) do
@@ -236,10 +323,10 @@ defmodule XipeTotec.CLI do
   # directly here. `scan`/`eval` above are now both one-command lists built
   # this same way; `do_cmd/1` below is the general form for any number of
   # chained commands.
-  defp run_commands(dir, commands, evaluator_opts \\ []) do
-    old_book = Store.load(@store_file)
-    {new_book, outcomes} = Runner.run(old_book, dir, commands, evaluator_opts)
-    Store.persist_diff(@store_file, old_book, new_book, @all_tables)
+  defp run_commands(project, commands, evaluator_opts \\ []) do
+    old_book = Store.load(project.store_file)
+    {new_book, outcomes} = Runner.run(old_book, project.path, commands, evaluator_opts)
+    Store.persist_diff(project.store_file, old_book, new_book, @all_tables)
     print_outcomes(outcomes)
     unless Enum.all?(outcomes, & &1.ok?), do: System.halt(1)
   end
@@ -249,8 +336,9 @@ defmodule XipeTotec.CLI do
     IO.puts("xipe: #{length(outcomes)} command(s), #{Enum.count(outcomes, & &1.ok?)} ok")
   end
 
-  defp print_outcome(%{method: "eval", ok?: true, result: %{"results" => results}}) do
+  defp print_outcome(%{method: "eval", ok?: true, result: %{"results" => results} = result}) do
     for r <- results, do: IO.puts("  eval call #{r.call_id}  #{format_eval_call_outcome(r.outcome)}  compare=#{r.compare}")
+    for n <- Map.get(result, "not_run", []), do: IO.puts("  eval call #{n["id"]}  not run  #{n["reason"]}")
   end
 
   defp print_outcome(%{method: method, ok?: true, result: result}), do: IO.puts("#{method}  ok  #{inspect(result)}")
@@ -268,19 +356,16 @@ defmodule XipeTotec.CLI do
 
   # `xipe do [--dir <dir>] <method> [key=value...] [-- <method> [key=value...]]...`
   # -- the general "input" front end onto Runner, per XipeTotec.Runner's own
-  # moduledoc. Deliberately hand-rolled rather than OptionParser for the
-  # `--`-separated command groups: OptionParser's own `--` handling is about
-  # ending *its* option parsing, not a repeatable general-purpose separator,
-  # and every token after the method name here is a plain `key=value` pair,
-  # not a `--flag`.
+  # moduledoc. The argv → command-list parsing itself (value rules
+  # included) lives in XipeTotec.CommandLine.
   defp do_cmd(args) do
     {dir, rest} =
       case args do
         ["--dir", d | rest] -> {d, rest}
-        rest -> {".", rest}
+        rest -> {nil, rest}
       end
 
-    commands = rest |> split_on_dashdash() |> Enum.map(&parse_command_group/1)
+    commands = CommandLine.parse(rest)
 
     if commands == [] do
       IO.puts(:stderr, "xipe do: no command given (xipe help for the syntax)")
@@ -291,40 +376,12 @@ defmodule XipeTotec.CLI do
       # instead of the real git provenance the dedicated `xipe eval`
       # command records for the identical underlying operation (2026-09-19
       # review finding).
-      run_commands(dir, commands, ctx: git_ctx(dir))
+      project = project!(dir)
+      run_commands(project, commands, ctx: git_ctx(project.path))
     end
   end
 
-  defp split_on_dashdash(args) do
-    args
-    |> Enum.chunk_while(
-      [],
-      fn
-        "--", acc -> {:cont, Enum.reverse(acc), []}
-        token, acc -> {:cont, [token | acc]}
-      end,
-      fn acc -> {:cont, Enum.reverse(acc), []} end
-    )
-    |> Enum.reject(&(&1 == []))
-  end
-
-  defp parse_command_group([method | kvs]), do: %{"method" => method, "params" => Map.new(kvs, &parse_kv/1)}
-
-  defp parse_kv(kv) do
-    case String.split(kv, "=", parts: 2) do
-      [k, v] -> {k, coerce_value(v)}
-      [k] -> {k, ""}
-    end
-  end
-
-  # a comma-containing value becomes a list (row/add's "args", eval's
-  # "call_ids", ...); everything else stays the plain string Dispatch's
-  # own params already tolerate (e.g. graph/export's "depth" normalizes a
-  # string itself). Not meant to be a general type system -- a value that
-  # legitimately needs a literal comma has no escape hatch here.
-  defp coerce_value(v), do: if(String.contains?(v, ","), do: String.split(v, ","), else: v)
-
-  # git info for apply_results/3's ctx (prebuild.md §4.4: "git読み取りは
+  # git info for apply_results/3's ctx (Old.md §4.4: "git読み取りは
   # GenServer側で行い、ここに渡すだけ" -- reading git is this shell's job,
   # not Core's/Evaluator's). `dir` need not be a git repo at all (or `git`
   # need not be installed) -- every field just stays nil rather than raise,

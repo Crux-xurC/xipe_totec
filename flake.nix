@@ -18,12 +18,15 @@
       beamPackages = pkgs.beam.packages.erlang_27;
 
       # WS server stack for spec §16's WebSocket entry (§16 サーバーインター
-      # フェース). cowlib/ranch/cowboy only -- xipe_totec is the server being
-      # connected to (tezcatl's /xipe relay dials out to it), so no `gun`
-      # (WS client) or `erlexec` (child-process spawn) here, unlike
-      # ../tezcatl/nix/relay-packages.nix.
+      # フェース) -- cowlib/ranch/cowboy, no `gun` (WS client; that's
+      # tezcatl's /xipe relay's job, dialing out to us, not the reverse).
+      # `erlexec` (2026-09-22, Old.md §23) is for a different spawn
+      # need: `Repl.Sender.Direct` uses it to launch the target project's
+      # REPL in its own process group, so a hang/interrupt on that REPL
+      # can be signaled group-wide without touching xipe_totec's own
+      # process or leaving grandchildren orphaned.
       relayPkgs = import ./nix/relay-packages.nix { inherit pkgs beamPackages; };
-      relayDeps = [ relayPkgs.cowlib relayPkgs.ranch relayPkgs.cowboy ];
+      relayDeps = [ relayPkgs.cowlib relayPkgs.ranch relayPkgs.cowboy relayPkgs.erlexec ];
     in
     {
       devShells.${system}.default = pkgs.mkShell {
@@ -44,8 +47,12 @@
           # above but not required by any lib/*.exs yet -- the §16 WebSocket
           # listener module itself is still unwritten.
 
+          # No cd: every file xipe_totec itself reads/writes (info.json,
+          # pipelines.json, tables/project/<id>_<name>/{project.json,table,
+          # book.jsonl}) resolves from main.exs's own __DIR__, so a relative
+          # <path> argument stays relative to the caller's own CWD.
           xipe() {
-            ( cd "$XIPE_TOTEC_DIR" && elixir main.exs "$@" )
+            elixir "$XIPE_TOTEC_DIR/main.exs" "$@"
           }
 
           echo "--------------------------------------------------"

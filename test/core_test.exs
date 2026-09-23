@@ -90,7 +90,7 @@ defmodule CoreTest do
     end
   end
 
-  describe "upstream_chain/2 (prebuild.md §16.3/§16.4, the mirror of affected_set/3's downstream walk)" do
+  describe "upstream_chain/2 (Old.md §16.3/§16.4, the mirror of affected_set/3's downstream walk)" do
     test "a straight chain c1 -> c2 -> c3 comes back deepest-first, self included" do
       book =
         Book.new()
@@ -169,6 +169,44 @@ defmodule CoreTest do
     end
   end
 
+  describe "exclusion_reason/3 (Old.md §33: why plan_recalc/3 leaves a call out)" do
+    defp excl_book(effect, source) do
+      Book.new()
+      |> Core.put_node("n1", %{module: "M", name: "f", arity: 1, effect: effect, effect_source: source})
+      |> Core.add_call("c1", %{node: "n1", args: ["1"]})
+    end
+
+    test "an unclassified node names the effect/set to run" do
+      assert Core.exclusion_reason(excl_book("unknown", nil), "c1") =~ "effect/set id=n1"
+    end
+
+    test "writes without include_writes points at --include-writes; with it, nothing excludes" do
+      assert Core.exclusion_reason(excl_book("writes", "user"), "c1") =~ "--include-writes"
+      assert Core.exclusion_reason(excl_book("writes", "user"), "c1", include_writes: true) == nil
+    end
+
+    test "pure/reads classified by the user are not excluded" do
+      assert Core.exclusion_reason(excl_book("pure", "user"), "c1") == nil
+      assert Core.exclusion_reason(excl_book("reads", "user"), "c1") == nil
+    end
+
+    test "an unknown call id and a circular reference are named" do
+      assert Core.exclusion_reason(Book.new(), "nope") == "unknown call id"
+
+      book =
+        excl_book("pure", "user")
+        |> Core.add_call("c2", %{node: "n1", args: ["⟦c3⟧"]})
+        |> Core.add_call("c3", %{node: "n1", args: ["⟦c2⟧"]})
+
+      assert Core.exclusion_reason(book, "c2") =~ "circular"
+    end
+
+    test "a call whose node was removed" do
+      book = Book.new() |> Core.add_call("c1", %{node: "gone", args: ["1"]})
+      assert Core.exclusion_reason(book, "c1") =~ "no longer exists"
+    end
+  end
+
   describe "topo_sort/2" do
     test "dependencies come before dependents" do
       graph = %{"a" => ["b"], "b" => ["c"], "c" => []}
@@ -226,7 +264,16 @@ defmodule CoreTest do
       assert arg == placeholder
     end
 
-    test "a plan-external unsupported+non-pure reference falls back to a session binding", %{book: book} do
+    # These three used to assert that a plan-external `:binding` fallback
+    # gets scheduled as a normal entry -- that was the Old.md §18
+    # `session_hung` bug itself (a bare `xt_<id>` reference that nothing in
+    # the pass ever binds fails Elixir's *compile*-time variable resolution
+    # inside EvalTemplate's `spawn_monitor` closure, before any `XT_*`
+    # marker can print). `drop_unresolvable/2` (2026-09-22) now catches this
+    # at plan-build time and skips the call instead of scheduling a doomed
+    # entry -- see its moduledoc in `core.exs`.
+    test "a plan-external unsupported+non-pure reference is unresolvable, so the dependent call is skipped",
+         %{book: book} do
       book =
         book
         |> Core.put_node("n3", %{module: "M", name: "h", arity: 0, effect: "writes", effect_source: "user"})
@@ -234,14 +281,11 @@ defmodule CoreTest do
         |> Core.add_call("c6", %{node: "n2", args: ["⟦c5⟧"]})
 
       plan = Core.plan_recalc(book, "pass1", call_ids: ["c6"])
-      assert [%{call_id: "c6", args: [arg], inputs: inputs}] = plan.entries
-
-      assert [{:binding, %{var: var, gen: 3, placeholder: placeholder}}] = inputs
-      assert placeholder == Atom.to_string(var)
-      assert arg == placeholder
+      assert plan.entries == []
+      assert [%{call_id: "c6", outcome: {:skipped, "c5"}}] = plan.skipped
     end
 
-    test "an inline_call cycle (a reaches back into itself through unsupported+pure refs) terminates via an occurs-check, falling back to a binding for the repeat",
+    test "an inline_call cycle (a reaches back into itself through unsupported+pure refs) is unresolvable via the occurs-check binding, so the call is skipped",
          %{book: book} do
       book =
         book
@@ -250,25 +294,21 @@ defmodule CoreTest do
         |> Core.add_call("c10", %{node: "n2", args: ["⟦c8⟧"]})
 
       # c8 <-> c9 form a static ⟦id⟧ cycle, so they're excluded from
-      # scheduling -- but c10 (not itself cyclic) still reaches into them
-      # via inline_call, which must not loop forever expanding c8 -> c9 -> c8.
+      # scheduling -- c10 (not itself cyclic) reaches into them via
+      # inline_call, but the occurs-check's own binding fallback for the
+      # repeated c8 is just as unresolvable as any other plan-external
+      # binding (c8 never runs either), so c10 is skipped too.
       plan = Core.plan_recalc(book, "pass1", call_ids: ["c10"])
-      assert [%{call_id: "c10", inputs: inputs}] = plan.entries
-
-      assert [{:inline_call, c8_call}, {:inline_call, c9_call}, {:binding, _}] = inputs
-      assert c8_call.module == "M" and c8_call.name == "f"
-      assert c9_call.module == "M" and c9_call.name == "g"
+      assert plan.entries == []
+      assert [%{call_id: "c10", outcome: {:skipped, "c8"}}] = plan.skipped
     end
 
-    test "an unknown/dangling reference falls back to a session binding with no gen", %{book: book} do
+    test "an unknown/dangling reference is unresolvable, so the dependent call is skipped", %{book: book} do
       book = Core.add_call(book, "c7", %{node: "n2", args: ["⟦missing⟧"]})
 
       plan = Core.plan_recalc(book, "pass1", call_ids: ["c7"])
-      assert [%{call_id: "c7", args: [arg], inputs: inputs}] = plan.entries
-
-      assert [{:binding, %{var: var, gen: nil, placeholder: placeholder}}] = inputs
-      assert placeholder == Atom.to_string(var)
-      assert arg == placeholder
+      assert plan.entries == []
+      assert [%{call_id: "c7", outcome: {:skipped, "missing"}}] = plan.skipped
     end
 
     test "a call in a cycle is excluded from the plan and reported separately" do
@@ -281,6 +321,34 @@ defmodule CoreTest do
       plan = Core.plan_recalc(book, "pass1", call_ids: ["c1", "c2"])
       assert plan.entries == []
       assert plan.cyclic_ids == MapSet.new(["c1", "c2"])
+    end
+
+    test "an unresolvable reference cascades: a call depending on a skipped call is skipped too (Old.md §18's session_hung scenario)" do
+      # Mirrors the real base->mid->top chain from §18/§19: c_base's node
+      # was never classified (no effect_source: "user", as if the row had
+      # been poked into Store directly), so filter_by_effect/3 drops
+      # c_base from scheduling entirely. c_mid references c_base -- an
+      # unresolvable :binding -- and is skipped. c_top references c_mid,
+      # which *was* a same-pass (:in_plan) reference right up until c_mid
+      # itself got skipped; the fixed-point loop in drop_unresolvable/2
+      # must re-check c_top against the shrunk set and skip it too,
+      # instead of leaving it scheduled with a now-dangling :in_plan input
+      # that would never actually get bound (the same doomed-compile-error
+      # shape as a plain :binding).
+      book =
+        Book.new()
+        |> Core.put_node("n1", %{module: "M", name: "base", arity: 0, effect: "unknown", effect_source: nil})
+        |> Core.put_node("n2", pure_node("mid"))
+        |> Core.put_node("n3", pure_node("top"))
+        |> Core.add_call("c_base", %{node: "n1", args: []})
+        |> Core.add_call("c_mid", %{node: "n2", args: ["⟦c_base⟧"]})
+        |> Core.add_call("c_top", %{node: "n3", args: ["⟦c_mid⟧"]})
+
+      plan = Core.plan_recalc(book, "pass1", call_ids: ["c_base", "c_mid", "c_top"])
+
+      assert plan.entries == []
+      assert [%{call_id: "c_mid", outcome: {:skipped, "c_base"}}, %{call_id: "c_top", outcome: {:skipped, "c_mid"}}] =
+               plan.skipped
     end
   end
 
@@ -347,7 +415,7 @@ defmodule CoreTest do
     end
   end
 
-  describe "set_result/3 (prebuild.md §16.4/§19, the dependency-chain negotiation's 'insert a value' step)" do
+  describe "set_result/3 (Old.md §16.4/§19, the dependency-chain negotiation's 'insert a value' step)" do
     setup do
       book =
         Book.new()

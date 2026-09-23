@@ -4,7 +4,7 @@ Code.require_file("id.exs", __DIR__)
 defmodule XipeTotec.Scanner.Tracer do
   @moduledoc """
   Compiler-tracer collector used by `XipeTotec.Scanner` (spec §11.1 基本動作:
-  "コンパイラトレーサー", prebuild.md §6's fix F). Handed to
+  "コンパイラトレーサー", Old.md §6's fix F). Handed to
   `Code.put_compiler_option(:tracers, [__MODULE__])`; events are stashed in
   the calling process's dictionary (tracer callbacks run synchronously, in
   the same process that calls `Code.compile_quoted/2`) rather than in module
@@ -85,7 +85,7 @@ defmodule XipeTotec.Scanner do
   Basic-behavior scan (spec §11.1/§14.1): given one Elixir source file's
   text, extract its `node` rows (module/function/arity/span/body_hash) via
   `Code.string_to_quoted!/2`, and its outgoing `link` rows via the compiler
-  tracer (prebuild.md fix F: compiled with `Code.compile_quoted/2` in this
+  tracer (Old.md fix F: compiled with `Code.compile_quoted/2` in this
   process -- a separate BEAM from any live target application -- never by
   executing the file's own top-level code).
 

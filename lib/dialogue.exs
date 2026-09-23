@@ -1,7 +1,7 @@
 defmodule XipeTotec.Dialogue do
   @moduledoc """
   The contract a multi-turn dialogue program implements to plug into
-  `InOut` (this file's sibling, prebuild.md §17, 2026-09-20 co-design).
+  `InOut` (this file's sibling, Old.md §17, 2026-09-20 co-design).
 
   A program never encodes the wire-level 2-bit message type itself --
   `InOut` infers it mechanically from which of the two return shapes below
@@ -17,13 +17,13 @@ defmodule XipeTotec.Dialogue do
       folds its outcomes into the reply, in the same turn.
 
   `text` in both shapes is the human-readable line `InOut` appends to the
-  `:out` side of the dialogue log (prebuild.md §17's `{:in, text} | {:out,
+  `:out` side of the dialogue log (Old.md §17's `{:in, text} | {:out,
   text}` entries) -- a question ("Xに値を入れて評価しますか？(y/n)") while
   holding, a closing remark ("以上の内容で評価を行います" and similar)
   when done. The program owns its own `state` shape entirely; `InOut`
   never inspects it, only threads it back on the next `answer/2` call.
 
-  No program exists yet that implements this (prebuild.md §16.4's
+  No program exists yet that implements this (Old.md §16.4's
   dependency-chain negotiation is designed but not built -- it's step 4 of
   §16.4's agreed order, this behaviour and `InOut` are step 3).
   `test/in_out_test.exs`'s `ToyDialogue` is the only implementation today,

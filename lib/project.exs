@@ -4,6 +4,7 @@ Code.require_file("identity.exs", __DIR__)
 Code.require_file("core.exs", __DIR__)
 Code.require_file("scanner.exs", __DIR__)
 Code.require_file("store.exs", __DIR__)
+Code.require_file("surface_table.exs", __DIR__)
 
 defmodule XipeTotec.Project do
   @moduledoc """
@@ -17,31 +18,34 @@ defmodule XipeTotec.Project do
   of the pure Core.
   """
 
-  alias XipeTotec.{Core, Id, Identity, Scanner, Store}
+  alias XipeTotec.{Core, Id, Identity, Scanner, Store, SurfaceTable}
 
   @doc """
-  Every `.ex`/`.exs` file under `dir` (recursively), as paths relative to
-  `dir`, sorted. Both extensions (revised 2026-09-18, wiring `xipe eval`'s
-  scripts-mode file list -- see `document/repl-adapter-guide.md`'s `files`
-  section): a `.exs`-only project (crux's own real projects, tezcatl
-  included -- no `mix.exs`, so no `-S mix` autoload) has nothing under
-  `.ex` at all, and both `find_sheets/1`'s two callers (`scan_dir/2`'s
-  indexing and, via `main.exs`'s `xipe eval`, the REPL's `-r` file list)
-  need those files to do anything useful for such a project. `scan_dir/2`
-  itself was already safe to point at `.exs` sources even before this --
-  fix F (`Scanner`'s compiler-tracer pass) only ever compiles `defmodule`
-  forms, never a script's other top-level statements -- this was purely an
+  Every Elixir-language file under `dir` (recursively, `.ex`/`.exs` -- both
+  extensions, revised 2026-09-18, wiring `xipe eval`'s scripts-mode file
+  list -- see `document/repl-adapter-guide.md`'s `files` section: a
+  `.exs`-only project, crux's own real projects/tezcatl included, has
+  nothing under `.ex` at all, and both `find_sheets/1`'s two callers
+  (`scan_dir/2`'s indexing and, via `main.exs`'s `xipe eval`, the REPL's
+  `-r` file list) need those files to do anything useful for such a
+  project), as paths relative to `dir`, sorted.
+
+  Delegates to `SurfaceTable.generate/2` and filters on `language ==
+  "elixir"` (§26's co-design) rather than hardcoding the extension list
+  itself a second time -- `SurfaceTable`'s own `@extension_language` is
+  now the one place that fact lives. `scan_dir/2` was already safe to
+  point at `.exs` sources even before this -- fix F (`Scanner`'s
+  compiler-tracer pass) only ever compiles `defmodule` forms, never a
+  script's other top-level statements -- this was purely an
   indexing-signal call (entry-point scripts vs. library code), not a
-  safety one, and crux's own project layout is exactly the case the old
-  doc comment flagged as the reason to revisit it.
+  safety one.
   """
   @spec find_sheets(String.t()) :: [String.t()]
   def find_sheets(dir) do
     dir
-    |> Path.join("**/*.{ex,exs}")
-    |> Path.wildcard()
-    |> Enum.map(&Path.relative_to(&1, dir))
-    |> Enum.sort()
+    |> SurfaceTable.generate()
+    |> Enum.filter(&(&1["language"] == "elixir"))
+    |> Enum.map(& &1["path"])
   end
 
   @doc "Scan every `.ex`/`.exs` file under `dir` into `book`. Returns `{book, paths}`."

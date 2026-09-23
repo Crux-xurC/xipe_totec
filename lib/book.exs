@@ -3,7 +3,7 @@ defmodule XipeTotec.Book do
   The in-memory current-state view (spec §4). Every table is `id => latest
   row` -- Book never holds more than "current"; full history lives only in
   the append-only Store (JSON Lines) and is folded into a Book at load time
-  (prebuild.md §3).
+  (Old.md §3).
 
   `link` rows have no independent identity in the spec's own JSON Lines
   example (§4.6) -- they are wholly derived from source, never user-edited

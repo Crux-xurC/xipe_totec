@@ -16,8 +16,8 @@ defmodule XipeTotec.Pipeline do
   pure (Book-in-Book-out, no I/O beyond `scan/run`'s file reads), and
   `Serve.Project`'s `GenServer.call` is synchronous, so blocking either of
   those on a live eval pass would freeze the whole project's request
-  handling for the duration (課題.mkd E, never retracted post-pivot -- see
-  `document/XipeTotec_prebuild.md` §10's intro). So this module is
+  handling for the duration (Old.md §28 E, never retracted post-pivot -- see
+  `document/Old.md` §10's intro). So this module is
   deliberately called *around* `Dispatch`, not from inside it -- both
   `Runner.run_one/4` (CLI) and `Serve.Project.handle_call/3` (§16 WS
   server) check `handles?/1` first and call `run/4` instead of

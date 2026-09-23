@@ -17,12 +17,10 @@ defmodule ReplLaunchTest do
     assert message["env"] == %{}
     assert message["ready_pattern"] == "Interactive Elixir"
     assert message["exit_input"] == "System.halt()\n"
-    assert message["heartbeat_input"] =~ "Process.sleep(5000)"
-    assert message["heartbeat_input"] =~ "XT_HEARTBEAT"
-    assert {:ok, _quoted} = Code.string_to_quoted(message["heartbeat_input"])
+    assert message["interruptible"] == true
   end
 
-  test "argv, env, files, ready_pattern, exit_input, and heartbeat_interval_ms are all overridable" do
+  test "argv, env, files, ready_pattern, exit_input, and interruptible are all overridable" do
     message =
       Launch.build(
         cwd: "/tmp/proj",
@@ -31,7 +29,7 @@ defmodule ReplLaunchTest do
         files: ["a.exs"],
         ready_pattern: "ready>",
         exit_input: ":quit\n",
-        heartbeat_interval_ms: 1_000
+        interruptible: false
       )
 
     assert message["argv"] == ["iex"]
@@ -39,7 +37,7 @@ defmodule ReplLaunchTest do
     assert message["files"] == ["a.exs"]
     assert message["ready_pattern"] == "ready>"
     assert message["exit_input"] == ":quit\n"
-    assert message["heartbeat_input"] =~ "Process.sleep(1000)"
+    assert message["interruptible"] == false
   end
 
   test "the message is JSON round-trippable" do

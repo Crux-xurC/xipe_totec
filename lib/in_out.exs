@@ -5,7 +5,7 @@ Code.require_file("dialogue.exs", __DIR__)
 
 defmodule XipeTotec.InOut do
   @moduledoc """
-  The "第4層" structured dialogue I/O core (prebuild.md §16.4/§17,
+  The "第4層" structured dialogue I/O core (Old.md §16.4/§17,
   2026-09-19/20 co-design). Stays pure like `Runner`/`Dispatch`/`Pipeline`
   -- `handle/6` takes a `Book` and a `dialogue` (the one piece of state
   this layer adds) and returns both back, plus one tagged reply. No
@@ -46,10 +46,10 @@ defmodule XipeTotec.InOut do
       pseudo-method exactly as if `InOut` didn't exist, whether or not a
       dialogue happens to be held at the time.
 
-  ## The 2-bit reply tag (prebuild.md §17)
+  ## The 2-bit reply tag (Old.md §17)
 
   `programs` is fixed to `%{}` by default (`programs/0`) -- no real
-  dialogue program exists yet (prebuild.md §16.4's dependency-chain
+  dialogue program exists yet (Old.md §16.4's dependency-chain
   negotiation is step 4, this module is step 3); pass it explicitly to
   register one, the same override-for-tests shape `Pipeline.run/5`'s
   `stage_handlers` argument uses. `test/in_out_test.exs`'s `ToyDialogue`
@@ -69,7 +69,7 @@ defmodule XipeTotec.InOut do
       by `via_repl?/1` (`true` for `"eval"` and anything
       `Pipeline.handles?/1` says yes to, `false` -- i.e. an ordinary
       `Dispatch` method -- otherwise). This is the same static
-      per-execution-path classification prebuild.md §17.1 already worked
+      per-execution-path classification Old.md §17.1 already worked
       out for the existing command surface (`Dispatch` Tier1 methods all
       `01`, the `"eval"` pseudo-method `00`); `InOut` doesn't invent a new
       rule here, only applies that one mechanically.
@@ -201,7 +201,7 @@ defmodule XipeTotec.InOut do
      }}
   end
 
-  # Static per-method classification (prebuild.md §17.1) -- "eval" (the
+  # Static per-method classification (Old.md §17.1) -- "eval" (the
   # Runner pseudo-method) and anything Pipeline.handles?/1 (its "eval"
   # stage) both do live REPL I/O; every other method that reaches here is
   # an ordinary Dispatch Tier1 call, no REPL involved.

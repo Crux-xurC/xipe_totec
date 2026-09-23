@@ -2,7 +2,7 @@ Code.require_file("book.exs", __DIR__)
 
 defmodule XipeTotec.Identity do
   @moduledoc """
-  Minimal rescan identity rule (spec §7.3, prebuild.md §4.5, fix E): reuse
+  Minimal rescan identity rule (spec §7.3, Old.md §4.5, fix E): reuse
   an existing id only on an *exact* natural-key match. The fuller §7.3
   table (name-changed-but-body-same, body-changed-but-name-same,
   moved-file, needs_review) is out of scope for this build -- without even

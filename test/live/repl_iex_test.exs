@@ -12,7 +12,7 @@ Code.require_file(Path.expand("../../lib/repl/eval/scan/direct/iex.exs", __DIR__
 Code.require_file(Path.expand("../../lib/repl/eval/field_drip/elixir.exs", __DIR__))
 
 # Live verification against a real `iex`, not a stand-in `sh`/`cat`/`sleep`
-# (unlike the rest of the Repl.* test suite, per 課題.mkd G's split of pure/
+# (unlike the rest of the Repl.* test suite, per Old.md §28 G's split of pure/
 # fast-testable logic from live-process checks). NOT swept into test/run.sh
 # (its glob is `test/*_test.exs`, non-recursive -- this lives one directory
 # deeper on purpose). Run directly: `elixir test/live/repl_iex_test.exs`.

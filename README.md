@@ -17,27 +17,34 @@ Elixir 実装。アプリ名 `:xipe_totec`、モジュール名 `XipeTotec`、CL
 
 出発点は、REPL で関数を試すときの手間である。入力値を毎回手で打つ、ファイル
 パスを指定する、といった操作を、**計算行**として保存し再利用できるようにする。
-計算行の引数には、別の計算行の出力への参照を置ける ── 上流を変えれば下流が
-再計算される、表計算ソフトと同じ仕組みが手に入る。
+計算行の引数には、別の計算行の出力への参照（`⟦id⟧`）を置ける ── 上流を変えれば
+下流が再計算される、表計算ソフトと同じ仕組みが手に入る。
 
-もう一つの柱は**連動修正**である。カード上で関数名やファイル名を変更すると、
-その変更が対象プロジェクトのソース（定義側）に反映され、さらにそれを参照している
-他のモジュールのソース（参照側）にも反映される。
+評価は、人が REPL の端末で行う操作をそのまま自動化する形で行う。対象プロジェクト
+自身の REPL（Elixir なら `iex`）を起動し、標準入力へ呼び出し式を書き込み、
+標準出力に印字された結果を読む。
+
+もう一つの柱は**参照一覧**である。スキャンで得た静的な呼び出し関係（`:links`）から、
+ある関数を誰が呼んでいるかを引ける。当初は、カード上の名前変更をソースへ書き戻す
+**連動修正**（`edit/propose`/`edit/apply`）を柱にしていたが、2026-09-22 に撤回した。
+実際の書き換えはエディタ側（LSP の rename など）に任せ、Xipe Totec は参照一覧を
+出すところまでを受け持つ（`document/Old.md` §21）。
 
 加えて、実行中のプログラムの関数呼び出しを動作順に1つの表として記録し
-（**trace 表**）、計算行の入力候補として使えるようにする。
+（**trace 表**）、計算行の入力候補として使えるようにする構想がある（凍結中）。
 
 ### 何ではないか
 
 - IDE やエディタの置き換え。表の表示・セル移動・ハイライト・補完候補の表示は
   クライアント（[tezcatl](../tezcatl) など）の責務
+- ソースの書き換えツール。リネーム等はエディタ／LSP に任せる
 - LLM 向けのコード索引（読み取り専用の文脈供給）。既存の tree-sitter 系 MCP
-  サーバー群の領域であり、Xipe Totec は「値」と「書き戻し」に独自性を置く
+  サーバー群の領域であり、Xipe Totec は「値」に独自性を置く
 - 汎用の実行時ロガー・プロファイラ。実行時の記録は関数の入出力と呼び出し順に限る
 - 判定式など、コードの中身そのものの編集
-- マクロを計算行の評価対象にすること
+- マクロ・パイプ・複数文を計算行の評価対象にすること（計算行は常に
+  `Module.function(args...)` の1呼び出し。多段処理は計算行を `⟦id⟧` で繋ぐ）
 - 評価のサンドボックス化（副作用の判定を誤れば、書き込みは実際に起こる）
-- 汎用リファクタリングツールとしての網羅性
 
 ### 設計原則
 
@@ -54,6 +61,10 @@ Elixir 実装。アプリ名 `:xipe_totec`、モジュール名 `XipeTotec`、CL
 | P9 | 判定しきれないものは表に出す。推定値と状態を列として示し、利用者の確認に委ねる |
 | P10 | 対象プロジェクトの環境で動かす。評価・trace・構文解析は対象プロジェクトの REPL の中で行う |
 
+P1 の具体形: 副作用の分類（`pure`/`reads`/`writes`）は利用者が `effect/set` で
+明示したものだけを信用し、未分類の関数は評価しない。`writes` は
+`--include-writes` を付けたときだけ評価する。
+
 ### 動く場所の前提
 
 §16.1: 「いずれもローカルホストのみで待ち受け、認証は設けず、外部ネットワークには
@@ -67,68 +78,84 @@ Elixir 実装。アプリ名 `:xipe_totec`、モジュール名 `XipeTotec`、CL
 ```
 対象プロジェクトのソース
         │ scan（AST 抽出 + コンパイラトレーサーによる link 抽出）
-   Project / Scanner ── Identity（再スキャン時の ID 継続規則）
+   SurfaceTable（ファイル→言語/REPL/ビルドツール）→ Project / Scanner ── Identity
         │
-       Core（純粋関数。Book への イベント適用・参照グラフ・再計算計画）
+       Core（純粋関数。参照グラフ・再計算計画 plan_recalc・結果の反映 apply_results）
         │
-       Book（id => 最新行、テーブルごと）⇄ Store（追記のみの JSON Lines 永続化）
+       Book（id => 最新行、6テーブル）⇄ Store（追記のみの JSON Lines = プロジェクトごとの book.jsonl）
         │
-   §16 サーバーインターフェース
-     Dispatch（method 名 → ハンドラ表）
-       ├─ Address（§6.1 住所オブジェクトの列フィルタ解決）
-       ├─ GraphQuery（:links 上の呼び出しグラフ BFS、mermaid/dot/json/doctest 整形）
-       └─ Core / Project への委譲（row/add・row/remove・effect/set・scan/run）
-     Serve.Project（GenServer。1プロジェクト1インスタンス。Book の差分を Store へ
-                    永続化し、notify/* を全 attach 中セッションへブロードキャスト）
-     Serve.Socket（:cowboy_websocket。§16.1 の WebSocket エントリ。1接続=1インスタンス）
+   コマンド列  Runner ─┬─ Dispatch（Book だけで完結する method の表引き）
+                       ├─ Pipeline（REPL を挟む method。pipelines.json に登録）
+                       └─ "eval" → Repl.Evaluator
+                                     Launch → Sender.Direct(erlexec) → Session
+                                     → EvalTemplate → iex → Eval.Parser → Core.apply_results
+   対話        InOut / Dialogue（複数ターンの対話。例: Dialogue.Depends）
+        │
+   入口        CLI（main.exs）／ Serve.Project（GenServer）+ Serve.Socket（WebSocket）
         │ WebSocket（localhost）
-   tezcatl の `/xipe`（設計済み・未実装 ── 下記参照）
+   tezcatl の `/xipe`（設計済み・未実装）
 ```
 
-| モジュール | 役割 | 状態 |
+言語によって処理が分かれるように作ってあるのは、`Repl.Evaluator` に渡す4モジュール
+（`launch`/`eval_template`/`Eval.Scan`/`field_drip`）の選択だけで、いまは Elixir
+実装しかない。これとは別に、`Scanner`・`Project`・`SurfaceTable`・
+`Runner.launch_opts_for/2` は分岐の仕組みを持たず、Elixir を前提に書かれている
+（`document/動作原理.md` §11）。`Scanner`（ソースから定義を抽出）と `Eval.Scan`
+（REPL 出力からマーカーを検出）は名前が似ているが別物。
+
+| 層 | モジュール | 役割 |
 |---|---|---|
-| `Book` | in-memory の現在状態（`id => 最新行`、テーブルごと） | 実装済み |
-| `Store` | 追記のみの JSON Lines 永続化。fold/load・tombstone・`compact`・`persist_diff` | 実装済み |
-| `Core` | 純粋関数。イベント適用・参照グラフ・循環検出・affected 集合・topo sort・`plan_recalc`/`apply_results` | 実装済み |
-| `Identity` | §7.3 最小限の再スキャン ID 継続規則 | 実装済み |
-| `Scanner` | AST 抽出＋コンパイラトレーサーによる link 抽出。`defmodule` のみコンパイル | 実装済み |
-| `Project` | ディレクトリ横断の2パス走査＋差分書き込み | 実装済み |
-| `Address` | §6.1 住所オブジェクト（列の組による部分一致フィルタ）の解決 | 実装済み |
-| `Protocol` | §16.3 wire 形のエンコード・デコード | 実装済み |
-| `Dispatch` | §16.3 method 名 → ハンドラ表 | Tier1 実装済み、Tier3 以降は明示エラー |
-| `GraphQuery` | `graph/neighbors`・`graph/export`（mermaid/dot/json/doctest） | 実装済み（doctest はテーブルからの即席生成のみ） |
-| `Serve.Project` | 1プロジェクト1GenServer。永続化＋notify ブロードキャスト | 実装済み |
-| `Serve.Socket` | §16.1 WebSocket エントリ | 実装済み |
-| `Evaluator` / REPL アダプタ | 対象プロジェクトの `iex` への分散 Erlang 接続、実評価 | **未着手** |
+| 土台 | `Book` / `Store` / `Core` / `Id` / `Identity` | 現在状態・追記型永続化・純粋な参照グラフと再計算計画・再スキャン時の ID 継続 |
+| スキャン | `Scanner` / `Project` / `SurfaceTable` | AST 抽出と link 抽出（`defmodule` のみコンパイル）、ディレクトリ横断の2パス走査、ファイルごとの言語判定 |
+| コマンド | `Runner` / `Dispatch` / `Pipeline` / `Address` / `GraphQuery` | コマンド列の実行（`$<n>.<path>` で前の結果を参照）、method の表、住所の解決、呼び出しグラフの BFS と書き出し |
+| 評価 | `Repl.Evaluator` / `Launch` / `Sender(.Direct)` / `Session` / `EvalTemplate` / `SourceSanitize` / `Eval.{Scan,FieldDrip,Parser,Result}` | REPL の起動・完了待ち・式の送信・マーカー受信・ハング時の SIGINT→SIGKILL |
+| 対話 | `InOut` / `Dialogue` / `Dialogue.Depends` | 複数ターンの構造化対話と、依存チェーン交渉 |
+| サーバー | `Protocol` / `Serve.Project` / `Serve.Socket` | §16.3 の wire 形、1プロジェクト1GenServer、WebSocket の入口 |
+| プロジェクト | `Workspace` / `ProjectRegistry` / `Info` | どのプロジェクトを対象にするかの解決、3桁 ID の登録、xipe_totec 自身の `info.json`（選択中のプロジェクト、アダプタ一覧） |
 
 ---
 
 ## いまどこまで動くか
 
-`Book`/`Store`/`Core`/`Identity`/`Scanner`/`Project` と §16 サーバーインター
-フェース一式（`Address`/`Protocol`/`Dispatch`/`GraphQuery`/`Serve.Project`/
-`Serve.Socket`）まで実装・テスト済み（104 ExUnit tests, all green）。
+2026-09-24 時点。`./test/run.sh` の全32ファイル・291件がすべて通る。これとは別に、
+実機の `iex` を起動するテスト（`test/live/`）がある。
 
-- `xipe scan <dir>` → `xipe show` の実機動作を2ファイル構成のサンプルで確認済み
-  （クロスファイル参照の解決、変更なし再スキャンで追記ゼロ、を含む）
-- `xipe serve <dir> --port <p>` を実際に起動し、生 WebSocket クライアントで
-  `initialize`（未初期化リクエストの拒否込み）→`scan/run`→`notify/nodeChanged`
-  受信までの実機ラウンドトリップを確認済み
+**CLI からは、Elixir プロジェクトに対してスキャン → 計算行の作成 → 実評価 → 結果の
+永続化まで、一通り動く。** mix 構成（`iex -S mix`）とスクリプト構成（`defmodule`
+部分だけを抜き出して `-r`）の両方に対応している。
 
-§16.3 の method は次の状態:
+- 評価結果は `repr`（`exact`/`binary`/`unsupported`）、表示用文字列、前回値との
+  `compare`（浮動小数点は許容誤差込み）を持つ
+- 1件ごとに timeout と max_heap の安全装置を付けて評価する。セッションが固まれば
+  SIGINT、効かなければプロセスグループごと SIGKILL で落とし、残りは `aborted` にする
+- 構文として閉じていない引数は REPL へ送らずにエラーにする。参照を解決できない
+  計算行は評価せず `skipped` にする
+- `xipe dialogue depends` で、上流の依存チェーンの深い段から順に「ここに値を手で
+  入れて、そこから上を評価するか」を対話で決められる
 
-| Tier | method | 状態 |
+**`xipe serve`（WebSocket）経由では、まだ評価できない。** Book の操作とクエリ、
+変更通知（`notify/*`）までは動く。
+
+§16.3 の method の状態:
+
+| 区分 | method | 状態 |
 |---|---|---|
-| 1 | `scan/run`・`row/add`・`row/remove`・`effect/set`・`card/get`・`card/search`・`graph/neighbors`・`graph/export`・`cell/resolve` | 実装済み |
-| 2 | `row/update` | 編集自体（`Core.edit_args`/`set_prev`）は実装済みだが、仕様が約束する再計算結果を返せないため method 全体は未実装 |
-| 3 | `eval/run`・`cell/complete`（値ベース部分） | **Evaluator 待ち** |
-| 4 | `edit/propose`・`edit/apply`・`provider/recheck` | REPL アダプタの書き換え規則・受け入れ検査待ち |
-| 5 | `trace/start`・`trace/stop`・`trace/get`・`trace/import` | ストレージ方式が v0.5 で再検討予定のため凍結 |
+| Tier 1 | `scan/run`・`row/add`・`row/remove`・`effect/set`・`card/get`・`card/search`・`graph/neighbors`・`graph/export`・`cell/resolve` | 実装済み |
+| 独自追加 | `row/depends`（上流依存チェーン）・`row/set-result`（値の手入力） | 実装済み（仕様 v0.4 には無い） |
+| CLI 専用 | `eval`（`xipe eval`／`xipe do ... eval`） | 実装済み（同期実行） |
+| Pipeline 経由 | `row/update`・`eval/run` | `pipelines.json` に登録済みで、段（`"edit"`/`"eval"`）の中身は空スタブ |
+| Tier 3 | `cell/complete` | 未実装 |
+| — | `edit/propose`・`edit/apply` | 撤回（参照一覧＋エディタ委譲へ方針転換）。`row/update` の `"edit"` 段とは別物 |
+| Tier 4〜5 | `provider/recheck`・`trace/*` | 未実装（trace は凍結） |
 
-**未着手なのは Evaluator / REPL アダプタ**（対象プロジェクトの `iex` への分散
-Erlang 接続・実評価・セッション束縛管理）。ライブな2ノード構成での検証が要る
-ため、crux 自身のトレース・修正パスに委ねている。上記 Tier 2〜4 の多くはこれ
-待ち。
+未実装の method は例外を投げず、`not_implemented` エラーを返す。
+
+複数のプロジェクトを扱える。`xipe choice project` で対象を選ぶと、以降のコマンドは
+そのプロジェクトの Book（`tables/project/<id>_<name>/book.jsonl`）を読み書きする。
+
+**進行中なのは多言語対応。** 言語・REPL・ビルドツールの判定テーブル
+（`SurfaceTable`）はできていて、判定はまだ Elixir＋mix の分しか入っていない。残りは
+[`document/課題.md`](document/課題.md) を見ること。
 
 ---
 
@@ -137,17 +164,56 @@ Erlang 接続・実評価・セッション束縛管理）。ライブな2ノー
 ```
 nix develop
 
-xipe scan [<dir>]        # <dir> 以下の .ex を走査、./book.jsonl を更新（既定 .）
-xipe show                 # 現在の book の要約を表示
+xipe choice project <path> # 対象プロジェクトを登録（初回）して選ぶ。以降の <dir> 省略時の対象になる
+xipe table generate [<path>]
+                           # ファイル→言語/REPL/ビルドツールの表を作り直して保存
+xipe scan [<dir>]          # .ex/.exs を走査し、Book を更新
+xipe show [<dir>]          # Book の要約を表示（ノード id もここで分かる）
+xipe eval [<dir>] [id...] [--mix] [--include-writes]
+                           # 計算行を実評価（id 省略時は全件）
+xipe do [--dir <dir>] <method> [key=value...] [-- <method> ...]
+                           # method を並べたコマンド列を実行。後ろのコマンドは
+                           # "$<番号>.<path>" で前の結果を参照できる。例:
+                           #   xipe do row/add node=n1 args=1,2 \
+                           #        -- effect/set id=n1 effect=pure \
+                           #        -- eval call_ids=$0.id
+xipe dialogue depends [<dir>] <call_id>
+                           # 依存チェーン交渉（"y <値>" か "n" で答える）
 xipe serve [<dir>] [--port N]
-                           # §16.1 WebSocket エントリ（既定ポート 4200、
-                           # $XIPE_TOTEC_PORT でも変更可）
+                           # §16.1 WebSocket の入口（既定ポート 4200、$XIPE_TOTEC_PORT でも可）
+xipe reflesh -l|-r|-a      # xipe_totec 自身の info.json（言語・REPL アダプタ一覧）を更新
 
-./test/run.sh              # ExUnit 全件（104 件、何も起動せず単体で走る）
+./test/run.sh                         # ExUnit 全件（何も起動せず単体で走る）
+elixir test/live/repl_iex_test.exs    # 実機 iex を使うテスト
+```
+
+`<dir>` を省略すると、選択中のプロジェクトが対象になる。`<dir>` を渡す場合も、
+そのディレクトリは `xipe choice project` で登録済みである必要がある（暗黙には登録しない）。
+
+基本の使い方:
+
+```
+xipe choice project ~/work/calc      # 1. プロジェクトを決める（表も作られる）
+xipe scan                            # 2. 関数をカードにする
+xipe show                            # 3. ノード id を確かめる
+xipe do row/add node=<id> args=[2,3] -- effect/set id=<id> effect=pure -- eval call_ids=[$0.id]
+                                     # 4. 計算行を作り、副作用を分類し、REPL で評価する
+xipe do card/get module=Calc name=add arity=2
+                                     # 5. カードを取り出す
 ```
 
 Mix プロジェクトではない（`mix.exs` なし）。tezcatl と同じ規約で、`main.exs` が
-`Code.require_file` で `lib/*.exs` を読み込む素の `elixir` スクリプト。
+`Code.require_file` で `lib/*.exs` を読み込む素の `elixir` スクリプト。外部の Hex
+パッケージ（cowboy・erlexec など）は `nix/relay-packages.nix` から入れる。
+
+プロジェクトごとのデータは `tables/project/<id>_<name>/` に置かれる（`project.json`・
+`table`・`book.jsonl`）。対象プロジェクトのディレクトリには何も書かない。`tables/` は
+マシンごとのデータなので git 管理外。
+
+`xipe do` の値は、`[...]` で囲むと常にリストになる（`[]` は空、`[10]` は1要素、
+`[1,2]` は2要素）。囲まずにカンマを含む値（`args=1,2`）もリストになり、それ以外は
+文字列のまま渡る。`row/add` は、ノードが存在し、引数の数がノードの arity と合うときだけ
+行を作る。
 
 ---
 
@@ -155,7 +221,7 @@ Mix プロジェクトではない（`mix.exs` なし）。tezcatl と同じ規�
 
 | 用語 | 定義 |
 |---|---|
-| ブック（Book） | 対象プロジェクト全体。テーブル群の集合 |
+| ブック（Book） | 対象プロジェクト全体。テーブル群（`sheets`/`nodes`/`calls`/`links`/`runs`/`providers`）の集合 |
 | シート | 対象プロジェクトのファイル1つ |
 | カード | 1関数分の行のまとまり。スキャンで自動的に作られ、関数がソースにある限り存在する |
 | 行 | カードを構成する単位。計算行とリンク行の2種 |
@@ -163,14 +229,16 @@ Mix プロジェクトではない（`mix.exs` なし）。tezcatl と同じ規�
 | リンク行 | 関数の接続関係を表す行。受信元・判定式・送信先のセルを持つ |
 | 参照 | セル内に `⟦ ⟧` で書かれる、他の計算行の結果への参照 |
 | 住所 | 対象を指定する列の組（区切り文字を使わない部分一致フィルタ） |
+| pass | 1回の再計算。1つの REPL セッションを起動し、計画された計算行を順に評価して閉じる |
+| マーカー | REPL の出力から結果を切り出すための固定文字列（`XT_BEGIN_<id>`/`XT_END_<id>`/`XT_ERROR_<id>`/`XT_EXIT`） |
 | trace 表 | 実行時の関数呼び出しを動作順に記録した表 |
 | run | trace 表への1回の記録単位 |
-| REPL アダプタ | 対象プロジェクトの環境にある REPL を Xipe Totec の共通操作に合わせる、言語ごとの部品 |
+| REPL アダプタ | 対象プロジェクトの環境にある REPL を Xipe Totec の共通操作に合わせる、言語ごとの部品（4モジュール） |
 | 境界規則 | 言語の境界をまたぐ関数の対応を扱う部品（例: Elixir と Rust をつなぐ Rustler） |
 | 提供元 | 構文解析・名前解決の結果を供給するもの（言語サーバー／基本動作） |
 | セッション | REPL アダプタが起動した REPL の1回の実行。世代番号を持つ |
 | 墓標 | 消失した対象を即削除せず保持する状態 |
-| 修正リスト | ソースファイルへのテキスト編集の集合。LSP の WorkspaceEdit に相当 |
+| surface_table | 対象プロジェクトのファイルツリーを、パス・深さ・言語・REPL・ビルドツールの行にした表 |
 | エラー値 | 評価できなかったセルが持つ値。参照を通じて下流に伝わる |
 
 ---
@@ -185,6 +253,9 @@ Mix プロジェクトではない（`mix.exs` なし）。tezcatl と同じ規�
 `/lsp` のような id 書き換え型の多重化はせず、状態を持たないブロードキャスト
 中継にする。tezcatl 側のコードはまだ無い。
 
+WebSocket の応答には、JSON-RPC の通常の `result`/`error` に加えて `from`（予約、
+常に `null`）と `dialogue`（`hold`/`via_repl`/`text`）が付く（`Old.md` §17.2）。
+
 ---
 
 ## 文書
@@ -192,5 +263,8 @@ Mix プロジェクトではない（`mix.exs` なし）。tezcatl と同じ規�
 | 文書 | 答える問い |
 |---|---|
 | この README | 何のために作られ、何ではなく、いまどこまで動くか |
-| `document/xipe_totec_spec_v0.4.html` | 仕様のたたき台（v0.4）。§6.6/§9 の call_hash 周りは下記 prebuild の決定と食い違うテキストが残っているので、そちらを優先すること |
-| `document/XipeTotec_prebuild.md` | 実装前確認書 rev.2 ＋ §9 実装ノート（2026-09-17〜）。仕様との差分・決定事項・進捗が日付順に追える |
+| [`document/動作原理.md`](document/動作原理.md) | 使う場面ごとに、何がどの順で呼ばれ、どのプログラムが担っているか |
+| [`document/repl-adapter-guide.md`](document/repl-adapter-guide.md) | 新しい言語・REPL のアダプタをどう書くか |
+| [`document/課題.md`](document/課題.md) | いま何が未解決で、次に何をするか |
+| [`document/Old.md`](document/Old.md) | いまの設計が、いつ・なぜそうなったか（決定歴。旧 `XipeTotec_prebuild.md` と旧 `課題.mkd`）。コード中の「Old.md §N」はここの節 |
+| `document/xipe_totec_spec_v0.4.html` | 仕様のたたき台（v0.4）。実装との差分がいくつも残っている（`課題.md` の「文書」節）。食い違うときは `Old.md` の決定を優先すること |

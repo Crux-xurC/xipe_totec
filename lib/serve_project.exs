@@ -7,7 +7,7 @@ Code.require_file("in_out.exs", __DIR__)
 
 defmodule XipeTotec.Serve.Project do
   @moduledoc """
-  "1プロジェクト1GenServer" (prebuild.md §3, §9 2026-09-17): the one place
+  "1プロジェクト1GenServer" (Old.md §3, §9 2026-09-17): the one place
   in the §16 server that holds mutable state (`Book`). Everything else
   (`Dispatch`, `Address`, `Core`, ...) stays a pure function over a `Book`
   it's handed.
@@ -53,7 +53,7 @@ defmodule XipeTotec.Serve.Project do
   def request(pid \\ __MODULE__, method, params), do: GenServer.call(pid, {:request, method, params})
 
   @doc """
-  `InOut`-routed variant of `request/3` (prebuild.md §17, 2026-09-20):
+  `InOut`-routed variant of `request/3` (Old.md §17, 2026-09-20):
   threads a per-connection `dialogue` (`InOut.dialogue()`, `nil` if none
   held) through `InOut.handle/6` instead of calling `Dispatch`/`Pipeline`
   directly. `Book` mutation still happens exactly once, inside this
@@ -67,7 +67,7 @@ defmodule XipeTotec.Serve.Project do
 
   `dialogue` itself is NOT this GenServer's state -- the caller
   (`Serve.Socket`, one process per connection) holds it and passes the
-  updated value back on its next call, same reasoning prebuild.md §17
+  updated value back on its next call, same reasoning Old.md §17
   already gave for keeping dialogue state connection-local rather than
   project-wide.
   """
@@ -81,7 +81,7 @@ defmodule XipeTotec.Serve.Project do
   @impl true
   def init(%{root: root, store_file: store_file} = opts) do
     # `:programs` (InOut.programs(), default `%{}` -- no real dialogue
-    # program exists yet, prebuild.md §16.4 step 4) is settable at
+    # program exists yet, Old.md §16.4 step 4) is settable at
     # start_link/1 only so tests can inject a toy one (test/serve_project_test.exs);
     # a real deployment never needs to pass it.
     programs = Map.get(opts, :programs, InOut.programs())
@@ -167,7 +167,7 @@ defmodule XipeTotec.Serve.Project do
   # notify/rowChanged and notify/nodeChanged only -- the spec has no
   # "removed" notify method, so a tombstoned id (row/remove, or a rescan
   # dropping a node) is persisted (above) but not itself pushed as a
-  # notification in this v0 (prebuild.md §9 known gap, not yet designed).
+  # notification in this v0 (Old.md §9 known gap, not yet designed).
   defp broadcast_changes(old_book, new_book, sessions) do
     for {id, row} <- new_book.nodes, Map.get(old_book.nodes, id) != row do
       push(sessions, "notify/nodeChanged", %{"id" => id, "row" => row})

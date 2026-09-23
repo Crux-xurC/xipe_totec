@@ -2,7 +2,7 @@ Code.require_file("../dialogue.exs", __DIR__)
 
 defmodule XipeTotec.Dialogue.Depends do
   @moduledoc """
-  The dependency-chain negotiation (prebuild.md §16.4/§19, crux's design,
+  The dependency-chain negotiation (Old.md §16.4/§19, crux's design,
   step 4 of §16.4's agreed build order -- steps 1-3, the `include_writes`
   wiring, `Core.upstream_chain/2`, and this `Dialogue`/`InOut` layer
   itself, were already built in earlier sessions). The concrete

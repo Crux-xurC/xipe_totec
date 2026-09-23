@@ -27,6 +27,7 @@ defmodule RunnerTest.EchoSender do
   end
 
   def kill(_handle), do: :ok
+  def interrupt(_handle), do: :ok
 end
 
 defmodule RunnerTest do
@@ -98,11 +99,15 @@ defmodule RunnerTest do
   end
 
   test "$n.path substitutes inside a list value too" do
-    book = Book.new() |> Core.put_node("n1", pure_node("f")) |> Core.add_call("c1", %{node: "n1", args: ["1"]})
+    book =
+      Book.new()
+      |> Core.put_node("n1", pure_node("f"))
+      |> Core.put_node("n2", %{pure_node("g") | arity: 2})
+      |> Core.add_call("c1", %{node: "n1", args: ["1"]})
 
     commands = [
       %{"method" => "cell/resolve", "params" => %{"ref" => "⟦c1⟧"}},
-      %{"method" => "row/add", "params" => %{"node" => "n1", "args" => ["$0.state", "2"]}}
+      %{"method" => "row/add", "params" => %{"node" => "n2", "args" => ["$0.state", "2"]}}
     ]
 
     {_book, [resolved, added]} = Runner.run(book, ".", commands)
@@ -160,7 +165,22 @@ defmodule RunnerTest do
     assert Book.get(new_book, :calls, "c1").eval_count == 0
   end
 
-  test "\"include_writes\" => true in an \"eval\" command's params opts a writes-effect row in (prebuild.md §16.2/§16.4, previously unwired)" do
+  test "an eval over an unclassified node reports it under not_run instead of silently doing nothing (Old.md §33)" do
+    book =
+      Book.new()
+      |> Core.put_node("n1", %{module: "M", name: "f", arity: 1, effect: "unknown", effect_source: nil})
+      |> Core.add_call("c1", %{node: "n1", args: ["1"]})
+
+    commands = [%{"method" => "eval", "params" => %{"call_ids" => ["c1"]}}]
+    {_new_book, [outcome]} = Runner.run(book, ".", commands, sender: EchoSender, launch_opts: [])
+
+    assert outcome.ok?
+    assert outcome.result["results"] == []
+    assert [%{"id" => "c1", "reason" => reason}] = outcome.result["not_run"]
+    assert reason =~ "effect/set"
+  end
+
+  test "\"include_writes\" => true in an \"eval\" command's params opts a writes-effect row in (Old.md §16.2/§16.4, previously unwired)" do
     book =
       Book.new()
       |> Core.put_node("n1", %{module: "M", name: "f", arity: 1, effect: "writes", effect_source: "user"})
@@ -195,6 +215,7 @@ defmodule RunnerTest do
       def send(_message), do: {:error, :nope}
       def write(_handle, _text), do: :ok
       def kill(_handle), do: :ok
+      def interrupt(_handle), do: :ok
     end
 
     {new_book, [outcome]} = Runner.run(book, ".", commands, sender: RefusingSender, launch_opts: [])
@@ -239,6 +260,9 @@ defmodule RunnerTest do
 
     @impl true
     def kill(_handle), do: :ok
+
+    @impl true
+    def interrupt(_handle), do: :ok
   end
 
   test "the default (no :launch_opts) eval path sanitizes scripts-mode's file list, and cleans up the temp dir after" do
@@ -262,6 +286,25 @@ defmodule RunnerTest do
     refute sanitized_path == Path.join(dir, "calc.exs")
     assert Path.basename(sanitized_path) =~ "calc.exs"
     refute File.exists?(sanitized_path)
+  end
+
+  test "the default (no :launch_opts) eval path uses mix-mode (empty launch_opts) when root has a mix.exs (§26)" do
+    dir = Path.join(System.tmp_dir!(), "xipe_totec_runner_launch_mix_test_#{System.unique_integer([:positive])}")
+    File.mkdir_p!(dir)
+    on_exit(fn -> File.rm_rf!(dir) end)
+    File.write!(Path.join(dir, "mix.exs"), "")
+
+    book = Book.new() |> Core.put_node("n1", pure_node("f")) |> Core.add_call("c1", %{node: "n1", args: ["1"]})
+    commands = [%{"method" => "eval", "params" => %{"call_ids" => ["c1"]}}]
+
+    {_book, [outcome]} = Runner.run(book, dir, commands, sender: RecordingSender)
+
+    refute outcome.ok?
+    message = Process.get(:recorded_launch_message)
+    # mix-mode passes launch_opts: [] through -- Repl.Launch.build/1's own
+    # default argv (["iex", "-S", "mix"]) is what actually shows up here.
+    assert message["argv"] == ["iex", "-S", "mix"]
+    assert message["files"] == []
   end
 
   test "eval/run and row/update route through Pipeline, not Dispatch's own @not_implemented" do

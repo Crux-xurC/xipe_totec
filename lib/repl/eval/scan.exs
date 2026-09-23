@@ -2,8 +2,8 @@ defmodule XipeTotec.Repl.Eval.Scan do
   @moduledoc """
   Generic (REPL/transport-independent) detection of the fixed eval-result
   marker pair/line for one `call_id`, in a buffer that's already been
-  cleaned of REPL/transport-specific noise (heartbeat/exit occurrences,
-  any PTY echo/ANSI) by the matching `Scan.<Sender>` module --
+  cleaned of REPL/transport-specific noise (the `XT_EXIT` occurrence, any
+  PTY echo/ANSI) by the matching `Scan.<Sender>` module --
   `lib/repl/eval/scan/direct/iex.exs` for an `iex` session reached over
   `Repl.Sender.Direct`'s plain pipe.
 

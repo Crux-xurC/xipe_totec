@@ -3,7 +3,7 @@ Code.require_file("address.exs", __DIR__)
 
 defmodule XipeTotec.GraphQuery do
   @moduledoc """
-  `graph/neighbors` and `graph/export` (spec §16.3, prebuild.md §9,
+  `graph/neighbors` and `graph/export` (spec §16.3, Old.md §9,
   2026-09-17). Built on the static `node --role("to")--> ref` call graph in
   `:links` rows -- **not** `Core.reference_graph/1`, which is the `⟦id⟧`
   *calc-row* reference graph Core uses for recalculation propagation. Spec's
@@ -24,13 +24,13 @@ defmodule XipeTotec.GraphQuery do
   the address. `graph/export` adds `"format": "mermaid"|"dot"|"json"|
   "doctest"`.
 
-  `doctest` format is prebuild.md §9's 2026-09-17 decision applied: a
+  `doctest` format is Old.md §9's 2026-09-17 decision applied: a
   frozen per-card snapshot is not a new storage mechanism, just this export
   format. Only the **table-fallback** path is implemented here (today's
   stored values, no re-evaluation) -- the higher-fidelity "re-run through
   the REPL in isolation first" path needs Evaluator (Tier 3, not built),
   and the precedence between an existing frozen file and a fresh
-  table-derived one is still undecided (prebuild.md §9), so this module
+  table-derived one is still undecided (Old.md §9), so this module
   doesn't attempt file-existence checks at all; that orchestration, if it's
   wanted, belongs a level up.
   """
@@ -164,7 +164,7 @@ defmodule XipeTotec.GraphQuery do
 
     result =
       call_row.result ||
-        "(unevaluated -- table-fallback rendering, no REPL re-run; freshness precedence still undecided, prebuild.md §9)"
+        "(unevaluated -- table-fallback rendering, no REPL re-run; freshness precedence still undecided, Old.md §9)"
 
     "#   iex> #{node_row.name}(#{args})\n#   #{result}"
   end

@@ -22,7 +22,7 @@ defmodule ServeSocketTest do
 
   alias XipeTotec.Serve.{Project, Socket}
 
-  # Serve.Project is a named GenServer (prebuild.md §9), same
+  # Serve.Project is a named GenServer (Old.md §9), same
   # one-at-a-time reasoning as serve_project_test.exs. Socket's own
   # callbacks (websocket_handle/2 etc.) are plain functions over a state
   # map -- no cowboy/real WS connection needed to exercise them directly.
@@ -30,6 +30,15 @@ defmodule ServeSocketTest do
     dir = Path.join(System.tmp_dir!(), "xipe_totec_socket_test_#{System.unique_integer([:positive])}")
     File.mkdir_p!(dir)
     store_file = Path.join(dir, "book.jsonl")
+
+    # row/add requires an existing node with a matching arity (Dispatch,
+    # Old.md §32): seed the store before the project loads it.
+    nodes =
+      XipeTotec.Book.new()
+      |> XipeTotec.Core.put_node("n0", %{sheet: "s0", module: "M", name: "f0", arity: 0})
+      |> XipeTotec.Core.put_node("n1", %{sheet: "s0", module: "M", name: "f1", arity: 1})
+
+    XipeTotec.Store.persist_diff(store_file, XipeTotec.Book.new(), nodes, [:nodes])
 
     {:ok, pid} =
       Project.start_link(%{root: dir, store_file: store_file, programs: %{"toy/negotiate" => ServeSocketTest.ToyDialogue}})

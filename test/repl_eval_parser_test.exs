@@ -28,10 +28,9 @@ defmodule ReplEvalParserTest do
   alias XipeTotec.Repl.Eval.Scan.Direct.Iex, as: ScanDirectIex
   alias ReplEvalParserTest.FakeFieldDrip
 
-  test "pending when the target call_id's result hasn't arrived, still reports interleaved heartbeats" do
-    buffer = "XT_HEARTBEAT\niex(1)> "
+  test "pending when the target call_id's result hasn't arrived yet" do
+    buffer = "iex(1)> "
     assert {:pending, cleaned} = Parser.step(buffer, "c1", ScanDirectIex, FakeFieldDrip, 1)
-    assert cleaned.heartbeats == 1
     assert cleaned.exit_status == nil
   end
 
