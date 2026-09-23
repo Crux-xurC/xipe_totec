@@ -25,7 +25,7 @@ defmodule XipeTotec.Workspace do
   `XipeTotec.Info`), written only by `choose/3`. `resolve/3` is what every
   other command goes through: an explicit `<dir>` must already be
   registered (no silent auto-registration from `scan`/`eval` -- choosing a
-  project is its own deliberate step, same spirit as `xipe reflesh`), and
+  project is its own deliberate step, same spirit as `xipe refresh`), and
   no `<dir>` means the selected project.
 
   `roots` (the last argument everywhere) is `%{registry: ..., info: ...}`,

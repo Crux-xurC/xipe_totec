@@ -111,13 +111,13 @@ P1 の具体形: 副作用の分類（`pure`/`reads`/`writes`）は利用者が 
 | 評価 | `Repl.Evaluator` / `Launch` / `Sender(.Direct)` / `Session` / `EvalTemplate` / `SourceSanitize` / `Eval.{Scan,FieldDrip,Parser,Result}` | REPL の起動・完了待ち・式の送信・マーカー受信・ハング時の SIGINT→SIGKILL |
 | 対話 | `InOut` / `Dialogue` / `Dialogue.Depends` | 複数ターンの構造化対話と、依存チェーン交渉 |
 | サーバー | `Protocol` / `Serve.Project` / `Serve.Socket` | §16.3 の wire 形、1プロジェクト1GenServer、WebSocket の入口 |
-| プロジェクト | `Workspace` / `ProjectRegistry` / `Info` | どのプロジェクトを対象にするかの解決、3桁 ID の登録、xipe_totec 自身の `info.json`（選択中のプロジェクト、アダプタ一覧） |
+| プロジェクト | `Workspace` / `ProjectRegistry` / `Info` / `Repl.Language` | どのプロジェクトを対象にするかの解決、3桁 ID の登録、xipe_totec 自身の `info.json`（選択中のプロジェクト、言語と拡張子、アダプタ一覧）、言語ごとの自己申告 |
 
 ---
 
 ## いまどこまで動くか
 
-2026-09-24 時点。`./test/run.sh` の全32ファイル・291件がすべて通る。これとは別に、
+2026-09-24 時点。`./test/run.sh` の全32ファイル・294件がすべて通る。これとは別に、
 実機の `iex` を起動するテスト（`test/live/`）がある。
 
 **CLI からは、Elixir プロジェクトに対してスキャン → 計算行の作成 → 実評価 → 結果の
@@ -181,7 +181,7 @@ xipe dialogue depends [<dir>] <call_id>
                            # 依存チェーン交渉（"y <値>" か "n" で答える）
 xipe serve [<dir>] [--port N]
                            # §16.1 WebSocket の入口（既定ポート 4200、$XIPE_TOTEC_PORT でも可）
-xipe reflesh -l|-r|-a      # xipe_totec 自身の info.json（言語・REPL アダプタ一覧）を更新
+xipe refresh -l|-r|-a      # xipe_totec 自身の info.json（言語と拡張子・REPL アダプタ一覧）を更新
 
 ./test/run.sh                         # ExUnit 全件（何も起動せず単体で走る）
 elixir test/live/repl_iex_test.exs    # 実機 iex を使うテスト

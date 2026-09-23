@@ -1,4 +1,5 @@
 Code.require_file("id.exs", __DIR__)
+Code.require_file("info.exs", __DIR__)
 
 defmodule XipeTotec.SurfaceTable do
   @moduledoc """
@@ -28,15 +29,14 @@ defmodule XipeTotec.SurfaceTable do
   this pass only had one build tool to detect that wasn't already a
   ~5-line inline check duplicated across two modules.
 
-  `language` comes from a **temporary, hardcoded** extension→language map
-  (`@extension_language` below) -- a deferred task from this same
-  co-design is to replace it with each `Repl.Eval.FieldDrip.*` module
-  self-declaring its own `extensions/0` (mirroring how `Repl.Launch`
-  modules already self-declare `argv`/`ready_pattern`/etc per language),
-  so this module stops being a second hand-maintained copy of the same
-  fact `Project.find_sheets/1` already hardcodes. Not done yet -- kept
-  inline here on purpose so it's obviously incomplete rather than quietly
-  duplicated.
+  `language` comes from `info.json`'s `extensions` map (extension → the
+  languages declaring it), which `xipe refresh -l` builds from each
+  `Repl.Language` module's own `extensions/0` (Old.md §34). An extension
+  exactly one language declares gets that language; one no language
+  declares, or one two or more languages both declare (`.h`, `.pl`,
+  `.cljc`, ...), gets `nil` -- an undecidable file is shown as undecided
+  (P9), not guessed at. Settling such a file by hand is a separate,
+  planned surface-table update command (課題.md).
 
   Regeneration is a **full overwrite**, not an append-log (`generate/2`'s
   `old_rows` is read once, upfront, purely to keep `id`s stable across
@@ -54,8 +54,6 @@ defmodule XipeTotec.SurfaceTable do
   @type row :: %{String.t() => term()}
   @type t :: [row()]
 
-  @extension_language %{"ex" => "elixir", "exs" => "elixir"}
-
   @doc """
   Walks every file (not just source files -- an unrecognized extension
   gets `language: nil`, not excluded) under `dir`, returning fresh rows
@@ -63,10 +61,12 @@ defmodule XipeTotec.SurfaceTable do
   result or `load/1`'s output) is consulted only to reuse an existing
   row's `id` for the same `path` -- a path with no match in `old_rows`
   gets a brand new `Id.ulid()`, same rule `Identity.sheet_id/2` applies
-  to `:sheets`.
+  to `:sheets`. `extensions` (default: `info.json`'s, see moduledoc) is
+  the extension → languages map; tests pass their own.
   """
-  @spec generate(String.t(), t()) :: t()
-  def generate(dir, old_rows \\ []) do
+  @spec generate(String.t(), t(), %{String.t() => [String.t()]} | nil) :: t()
+  def generate(dir, old_rows \\ [], extensions \\ nil) do
+    extensions = extensions || XipeTotec.Info.load()["extensions"] || %{}
     id_by_path = Map.new(old_rows, &{&1["path"], &1["id"]})
     elixir_build_tool = if File.exists?(Path.join(dir, "mix.exs")), do: "mix"
 
@@ -77,7 +77,7 @@ defmodule XipeTotec.SurfaceTable do
     |> Enum.map(&Path.relative_to(&1, dir))
     |> Enum.sort()
     |> Enum.map(fn path ->
-      language = language_for(path)
+      language = language_for(path, extensions)
 
       %{
         "id" => Map.get(id_by_path, path) || Id.ulid(),
@@ -90,9 +90,12 @@ defmodule XipeTotec.SurfaceTable do
     end)
   end
 
-  defp language_for(path) do
+  defp language_for(path, extensions) do
     ext = path |> Path.extname() |> String.trim_leading(".")
-    Map.get(@extension_language, ext)
+    case Map.get(extensions, ext) do
+      [language] -> language
+      _ -> nil
+    end
   end
 
   @doc "Loads `path`'s rows (`[]` if the file doesn't exist yet -- no `surface_table` has ever been generated for this project)."

@@ -10,13 +10,14 @@ Xipe Totecは対象プロジェクトのREPLへ人間が手で式を打ち込ん
 
 `XipeTotec.Repl.Evaluator`(`lib/repl/evaluator.exs`)は`Core.plan_recalc/3`のPlanを1セッションに流し込み`Core.apply_results/3`まで畳み込む、この汎用実行層の一番外側のオーケストレータ(2026-09-18)。`:launch_module`/`:eval_template_module`/`:scan_module`/`:field_drip_module`の4オプションで算出プログラム側の4モジュールを受け取る(既定はElixir実装)──「呼び出し元が具体的なモジュールを渡す、内部で言語判定しない」という`Parser.step/5`と同じ流儀。新しい言語を足しても`Evaluator`自体は無改造で、この4つを差し替えて渡すだけでよい(まだ「どのノードがどの言語のプロジェクトに属するか見て自動選択する」機構は無い ── 今のところ言語アダプタが1つしか無いため)。
 
-## 多言語判定層（`tables/`/`info.json`）との関係（2026-09-23、実装途中）
+## 多言語判定層（`tables/`/`info.json`）との関係（2026-09-24、実装途中）
 
 このガイド本体（算出プログラムの書き方）とは別レイヤーで、**対象プロジェクトがどの言語/ビルドツールを使っているかを判定する層**が、`~/my_app/tezcatl`セッションでのco-designにより作られ始めている（`Old.md` §24〜§26）。新しい言語を足す作業は、最終的にこの層とも接続することになるので、現状を知っておくこと:
 
-- **`XipeTotec.Info`（`lib/info.exs`）**: xipe_totec自身の`info.json`（対象プロジェクト側ではない）を読み書きする。`xipe reflesh -l`は`lib/repl/eval/field_drip/*.exs`を**単にファイルとして列挙するだけ**で`languages`欄を更新する ── 新しい言語の`field_drip`ファイルを置けば、それだけで`xipe reflesh -l`の一覧に載る（動く保証にはならない、あくまで「存在する」という記録）
-- **`XipeTotec.SurfaceTable`（`lib/surface_table.exs`）**: 対象プロジェクトのファイルツリーを走査し、`language`/`repl`/`build_tool`を判定するテーブル。**今のところElixir＋`mix`の分だけ実データが入る**（`@extension_language`という拡張子→言語のハードコードと、`mix.exs`の有無の直接チェック）。この2つは`Project.find_sheets/1`・`Runner.launch_opts_for/2`から実際に参照されており（§26）、あなたが新しい言語を足しても**この判定には自動では乗らない**
-- **まだ`FieldDrip`のbehaviourに存在しないcallback（計画のみ）**: 拡張子の自己申告（`extensions/0`のような形、§24.5・§25.4で計画中）と、ビルドツールの検出方法の自己申告（マーカーファイル→起動レシピの優先順位表、§25.4で計画中。stack/cabal等の複数候補やNix対応もここに含まれる想定）。**どちらもまだ実装されていない**（あわせて、起動完了の検出を固定の`XT_READY`マーカーへ移す計画もある〈§25.3〉。これは`Launch`相当のモジュールの`ready_pattern`に関わる） ── 新しい言語を足す段階でこれらが実装済みになっていれば、field_dripモジュール（またはそれに相当する新設ファイル）にそこで宣言することになる。まだの場合は、`SurfaceTable`側（`@extension_language`や`elixir_build_tool/1`相当の判定）に直接手を入れる必要があるかもしれない。最新の実装状況は`README.md`の「いまどこまで動くか」、残作業は`課題.md`の「多言語対応」節を確認すること
+- **`XipeTotec.Repl.Language`（`lib/repl/language.exs`、2026-09-24、`Old.md` §34）**: 言語ごとの自己申告。`lib/repl/language/<name>.exs`に1言語1モジュールを置き、ファイル名が言語名になる（`elixir.exs`→`"elixir"`）。いま申告するのは`extensions/0`（拡張子の一覧）だけ。**新しい言語を足すときは、4つの算出プログラムに加えてこのファイルも書く**
+- **`XipeTotec.Info`（`lib/info.exs`）**: xipe_totec自身の`info.json`（対象プロジェクト側ではない）を読み書きする。`xipe refresh -l`が`lib/repl/language/*.exs`を読み込んで`extensions/0`を呼び、`languages`（言語名）と`extensions`（拡張子→申告した言語のリスト）を書く。**ファイルを置いただけでは効かず、`xipe refresh -l`を叩いて初めて登録される**（P4）
+- **`XipeTotec.SurfaceTable`（`lib/surface_table.exs`）**: 対象プロジェクトのファイルツリーを走査し、`language`/`repl`/`build_tool`を判定するテーブル。`language`は`info.json`の`extensions`から引く。1言語だけが申告した拡張子はその言語、どの言語も申告していないか**2つ以上の言語が申告した拡張子は`nil`**（P9、判定できないものは判定できないと示す）。`repl`/`build_tool`は今のところElixir＋`mix`の分だけ（`mix.exs`の有無の直接チェック）
+- **まだ申告に無いもの（計画のみ）**: ビルドツールの検出方法（マーカーファイル→起動レシピの優先順位表、§25.4。stack/cabal等の複数候補やNix対応もここに含まれる想定）と、`embody`の有無（§30）。どちらも実装されたら`Repl.Language`のcallbackとして足す。あわせて、起動完了の検出を固定の`XT_READY`マーカーへ移す計画もある（§25.3。`Launch`相当のモジュールの`ready_pattern`に関わる）。最新の実装状況は`README.md`の「いまどこまで動くか」、残作業は`課題.md`の「多言語対応」節を確認すること
 
 ## ディレクトリ構成
 
@@ -26,6 +27,9 @@ lib/repl/
   sender.exs              (XipeTotec.Repl.Sender)               -- 汎用: 送信behaviour
   sender_direct.exs        (XipeTotec.Repl.Sender.Direct)        -- 実行: plain pipe実装
   session.exs              (XipeTotec.Repl.Session)              -- 汎用: 起動完了待ち・離脱
+  language.exs             (XipeTotec.Repl.Language)             -- behaviour定義のみ（言語ごとの自己申告）
+  language/
+    elixir.exs               (XipeTotec.Repl.Language.Elixir)      -- 算出: Elixirの拡張子
   eval_template.exs        (XipeTotec.Repl.EvalTemplate)         -- 算出: Elixir用の呼び出し式組み立て
                                                                      + 安全装置 + repr/compare判定
                                                                      + マーカー印字(丸ごと)

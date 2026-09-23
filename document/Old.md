@@ -1381,3 +1381,28 @@ cruxの問い「プロジェクトを決める → テーブルを作る → コ
 - **`Runner`の`"eval"`**: 評価の後、頼まれたidのうち結果が無いものを`"not_run": [%{"id", "reason"}]`として結果に足す。`Evaluator`・`plan_recalc/3`の戻り値の形は変えていない（`drop_unresolvable/2`で外れた行は、従来どおり`{:skipped, ref}`として結果に入るので`not_run`には出ない）
 - **CLI**: `eval call <id>  not run  <理由>`の行を出す
 - テスト: `core_test.exs`に5件、`runner_test.exs`に1件。実機で、未分類の行と`writes`の行がそれぞれの理由付きで出ること、`effect/set`後は評価されることを確認。`./test/run.sh`全32ファイル・291件、0 failures
+
+## 34. 拡張子の自己申告化（§27④）と`xipe reflesh`→`xipe refresh`の改名（2026-09-24、`~/my_app/xipe_totec`セッション）
+
+`SurfaceTable`に直書きされていた拡張子→言語の対応表（`@extension_language`、§24.5）を、言語ごとの自己申告に置き換えた。
+
+### 34.1 決定（crux）
+
+1. **申告の置き場所は、新しい「言語の説明」モジュール**（`field_drip`には持たせない）: 言語ごとに1つずつあるモジュールは`field_drip`と`eval_template`だが、どちらも役割が拡張子と関係ない。また、言語単位の申告は拡張子だけで終わらない（ビルドツール判定の優先順位表〈§25.4〉、`embody`の有無〈§30〉）。§24.5の当初予定（`field_drip`に`extensions/0`）はここで変更した
+2. **集めるのは`xipe refresh -l`のとき**（実行のたびには聞かない）: 集めた結果は`info.json`に書き、`SurfaceTable`はそれを読むだけにする。モジュールを置いただけでは効かず、登録して初めて使う（P4、`info.json`の既存の考え方どおり）
+3. **2つ以上の言語が申告した拡張子は`language: nil`**（`refresh`時にエラーにはしない）: 判定できないものは判定できないと示す（P9）。そのうえで、利用者が行ごとに言語を決めて書き込む surface table 更新コマンドを別途作る（単純な表への書き込みで依存が無いので追加は簡単、crux）。`課題.md`へ載せた
+
+あわせて、`xipe reflesh`は`refresh`のタイポだったので改名した（crux）。旧綴りの別名は残していない。本書の§24・§26等の本文は当時の綴りのまま残してある。
+
+### 34.2 実装
+
+- **`XipeTotec.Repl.Language`（`lib/repl/language.exs`、新規）**: behaviour。いまは`@callback extensions() :: [String.t()]`だけ。1言語1モジュールを`lib/repl/language/<name>.exs`に置き、ファイル名が言語名
+- **`XipeTotec.Repl.Language.Elixir`（`lib/repl/language/elixir.exs`、新規）**: `extensions/0`が`["ex", "exs"]`
+- **`Info.refresh_languages/2`**: `lib/repl/eval/field_drip/*.exs`の列挙をやめ、`lib/repl/language/*.exs`を読み込んで`extensions/0`を呼ぶ。`info.json`に`languages`（言語名）と`extensions`（拡張子→申告した言語のソート済みリスト。衝突をデータとして残すためリストにした）を書く。言語一覧の出どころも`field_drip/`から`language/`に変わった
+- **`SurfaceTable.generate/3`**: `@extension_language`を削除し、`info.json`の`extensions`を引く（テスト用に第3引数で渡せる）。リストの要素が1つならその言語、0個か2個以上なら`nil`
+- **`main.exs`**: `reflesh`→`refresh`。`-l`の出力に拡張子も出す
+- **`info.json`**: `xipe refresh -a`を実行し、`"extensions": {"ex": ["elixir"], "exs": ["elixir"]}`が入った状態でコミットする。これが無いと、新しく取り出した直後にスキャンが何も見つけない（`info.json`はリポジトリに含めている）
+
+### 34.3 テスト
+
+`info_test.exs`（空の雛形に`extensions`、実物の`language/`の読み込み、一時ディレクトリに`c`と`cpp`を置いた`.h`の衝突）、`surface_table_test.exs`（対応表を明示的に渡す形に変更、衝突で`nil`、登録ゼロで全行`nil`）。`./test/run.sh`全32ファイル・294件、0 failures。スキャン系のテスト（`project_test`・`dispatch_test`の`scan/run`等）は実物の`info.json`を読んで通っている。

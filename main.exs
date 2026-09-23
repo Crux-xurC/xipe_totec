@@ -43,7 +43,7 @@ defmodule XipeTotec.CLI do
       ["eval" | rest] -> eval(rest)
       ["do" | rest] -> do_cmd(rest)
       ["dialogue", "depends" | rest] -> dialogue_depends(rest)
-      ["reflesh" | rest] -> reflesh(rest)
+      ["refresh" | rest] -> refresh(rest)
       [cmd | _] -> unknown(cmd)
     end
   end
@@ -95,8 +95,8 @@ defmodule XipeTotec.CLI do
                                 everything deeper) and run everything from there up through
                                 <call_id> for real. At a prompt, answer "y <literal>" (target-
                                 language source text) or "n"; declining every step does nothing.
-      xipe reflesh -l|-r|-a     re-scan xipe_totec's own adapter modules and update ./info.json:
-                                -l (--languages) lib/repl/eval/field_drip/*.exs, -r (--repls)
+      xipe refresh -l|-r|-a     re-scan xipe_totec's own adapter modules and update ./info.json:
+                                -l (--languages) lib/repl/language/*.exs (names + extensions), -r (--repls)
                                 lib/repl/eval/scan/<transport>/*.exs, -a (--all) both. A file being
                                 present is not proof it works (§24) -- this only records what's
                                 there, run it after adding/removing an adapter module yourself.
@@ -284,12 +284,12 @@ defmodule XipeTotec.CLI do
     end
   end
 
-  # `xipe reflesh -l|-r|-a` (Old.md §24): a deliberate registration
+  # `xipe refresh -l|-r|-a` (Old.md §24): a deliberate registration
   # step, not something every command silently re-derives -- see
   # `XipeTotec.Info`'s own moduledoc for why. Flags are independent
   # (`-a` is just `-l` + `-r` together, not a distinct third code path) so
   # a future `-l`-only or `-r`-only re-run never clobbers the other half.
-  defp reflesh(args) do
+  defp refresh(args) do
     {opts, _positional, _invalid} =
       OptionParser.parse(args, strict: [languages: :boolean, repls: :boolean, all: :boolean], aliases: [l: :languages, r: :repls, a: :all])
 
@@ -297,7 +297,7 @@ defmodule XipeTotec.CLI do
     do_repls = opts[:repls] || opts[:all] || false
 
     if not do_languages and not do_repls do
-      usage_error("xipe reflesh: usage: xipe reflesh -l|--languages | -r|--repls | -a|--all (at least one)")
+      usage_error("xipe refresh: usage: xipe refresh -l|--languages | -r|--repls | -a|--all (at least one)")
     end
 
     info = Info.load()
@@ -305,8 +305,8 @@ defmodule XipeTotec.CLI do
     info = if do_repls, do: Info.refresh_repls(info), else: info
     Info.save(info)
 
-    if do_languages, do: IO.puts("xipe reflesh: languages = #{inspect(info["languages"])}")
-    if do_repls, do: IO.puts("xipe reflesh: repls = #{inspect(info["repls"])}")
+    if do_languages, do: IO.puts("xipe refresh: languages = #{inspect(info["languages"])}  extensions = #{inspect(info["extensions"])}")
+    if do_repls, do: IO.puts("xipe refresh: repls = #{inspect(info["repls"])}")
   end
 
   defp usage_error(message) do

@@ -1,1 +1,1 @@
-{"languages":["elixir"],"project":null,"repls":[{"repl":"iex","transport":"direct"}]}
+{"extensions":{"ex":["elixir"],"exs":["elixir"]},"languages":["elixir"],"project":null,"repls":[{"repl":"iex","transport":"direct"}]}
