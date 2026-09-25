@@ -18,22 +18,26 @@
       beamPackages = pkgs.beam.packages.erlang_27;
 
       # WS server stack for spec §16's WebSocket entry (§16 サーバーインター
-      # フェース) -- cowlib/ranch/cowboy, no `gun` (WS client; that's
-      # tezcatl's /xipe relay's job, dialing out to us, not the reverse).
+      # フェース) -- cowlib/ranch/cowboy -- plus `gun`, the WS client
+      # Scanner.Lsp's Lsp.Transport.Relay dials tezcatl's /lsp with.
       # `erlexec` (2026-09-22, Old.md §23) is for a different spawn
       # need: `Repl.Sender.Direct` uses it to launch the target project's
       # REPL in its own process group, so a hang/interrupt on that REPL
       # can be signaled group-wide without touching xipe_totec's own
       # process or leaving grandchildren orphaned.
       relayPkgs = import ./nix/relay-packages.nix { inherit pkgs beamPackages; };
-      relayDeps = [ relayPkgs.cowlib relayPkgs.ranch relayPkgs.cowboy relayPkgs.erlexec ];
+      relayDeps = [ relayPkgs.cowlib relayPkgs.ranch relayPkgs.cowboy relayPkgs.gun relayPkgs.erlexec ];
     in
     {
       devShells.${system}.default = pkgs.mkShell {
         buildInputs = [
           beamPackages.elixir
           beamPackages.erlang
-        ] ++ relayDeps;
+        ]
+        ++ (import ./nix/dev-tools.nix {
+          inherit pkgs beamPackages;
+        })
+        ++ relayDeps;
 
         shellHook = ''
           export XIPE_TOTEC_DIR="$PWD"

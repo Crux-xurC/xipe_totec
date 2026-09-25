@@ -5,7 +5,7 @@ Code.require_file(Path.expand("../lib/workspace.exs", __DIR__))
 defmodule WorkspaceTest do
   use ExUnit.Case
 
-  alias XipeTotec.{Info, ProjectRegistry, Workspace}
+  alias XipeTotec.{Info, ProjectRegistry, Session, Workspace}
 
   setup do
     base = Path.join(System.tmp_dir!(), "xipe_totec_workspace_test_#{System.unique_integer([:positive])}")
@@ -38,6 +38,24 @@ defmodule WorkspaceTest do
     assert {:error, message} = Workspace.resolve(a, roots)
     assert message =~ "not a registered project"
     assert ProjectRegistry.find(a, roots.registry) == nil
+  end
+
+  test "resolve/2 with no <dir>: a running session's project beats the selected one; an explicit <dir> beats both",
+       %{roots: roots, proj_a: a, proj_b: b} do
+    roots = Map.put(roots, :session, Path.join(Path.dirname(roots.info), "tables/session.json"))
+    {selected, _} = Workspace.choose(a, roots)
+    {served, _} = Workspace.choose(b, roots)
+    Workspace.choose(a, roots)
+
+    Session.write(%{"project" => served.id, "port" => 4200, "root" => b}, roots.session)
+    assert {:ok, %{id: id}} = Workspace.resolve(nil, roots)
+    assert id == served.id
+    assert {:ok, %{id: explicit}} = Workspace.resolve(a, roots)
+    assert explicit == selected.id
+
+    # the session gone (its record removed, or its process dead) -> back to the selection
+    Session.clear(roots.session)
+    assert {:ok, %{id: ^explicit}} = Workspace.resolve(nil, roots)
   end
 
   test "choose/2 registers a new project, saves its surface table, and selects it", %{roots: roots, proj_a: a} do

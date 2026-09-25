@@ -95,4 +95,23 @@ defmodule ScannerTest do
 
     assert [%{node: ^f_id, ref: ^g_id}] = Book.all(book, :links)
   end
+
+  test "a nested module is named the way Elixir names it, and its calls are linked" do
+    source = """
+    defmodule XipeScanOuter do
+      def add(a, b), do: a + b
+
+      defmodule Inner do
+        def twice(x), do: XipeScanOuter.add(x, x)
+      end
+    end
+    """
+
+    {book, ids} = Scanner.scan(Book.new(), "s1", source)
+
+    assert Map.has_key?(ids, {"XipeScanOuter.Inner", "twice", 1})
+    assert [%{node: from, ref: to}] = Book.all(book, :links)
+    assert from == ids[{"XipeScanOuter.Inner", "twice", 1}]
+    assert to == ids[{"XipeScanOuter", "add", 2}]
+  end
 end

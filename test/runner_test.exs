@@ -1,4 +1,6 @@
 ExUnit.start()
+# see test/run.sh
+System.put_env("XIPE_TOTEC_LSP", "off")
 
 Code.require_file(Path.expand("../lib/runner.exs", __DIR__))
 

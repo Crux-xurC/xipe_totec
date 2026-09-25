@@ -1,6 +1,7 @@
 Code.require_file("project_registry.exs", __DIR__)
 Code.require_file("surface_table.exs", __DIR__)
 Code.require_file("info.exs", __DIR__)
+Code.require_file("session.exs", __DIR__)
 
 defmodule XipeTotec.Workspace do
   @moduledoc """
@@ -26,20 +27,39 @@ defmodule XipeTotec.Workspace do
   other command goes through: an explicit `<dir>` must already be
   registered (no silent auto-registration from `scan`/`eval` -- choosing a
   project is its own deliberate step, same spirit as `xipe refresh`), and
-  no `<dir>` means the selected project.
+  no `<dir>` means the running `xipe start` session's project if there is
+  one (`XipeTotec.Session`), else the selected project -- an explicit
+  `<dir>` beats a session, and a session beats the stored selection.
 
   `roots` (the last argument everywhere) is `%{registry: ..., info: ...}`,
   defaulting to xipe_totec's own `tables/project/` and `info.json`, so
   tests can point both at a temp directory.
   """
 
-  alias XipeTotec.{Info, ProjectRegistry, SurfaceTable}
+  alias XipeTotec.{Info, ProjectRegistry, Session, SurfaceTable}
 
   @type project :: %{id: String.t(), path: String.t(), dir: Path.t(), store_file: Path.t(), table_file: Path.t()}
-  @type roots :: %{registry: Path.t(), info: Path.t()}
+  @type roots :: %{required(:registry) => Path.t(), required(:info) => Path.t(), optional(:session) => Path.t()}
 
   @spec default_roots() :: roots()
-  def default_roots, do: %{registry: Path.expand("../tables/project", __DIR__), info: Path.expand("../info.json", __DIR__)}
+  def default_roots,
+    do: %{
+      registry: Path.expand("../tables/project", __DIR__),
+      info: Path.expand("../info.json", __DIR__),
+      session: Session.default_path()
+    }
+
+  @doc """
+  The live `xipe start` session's record, or `:none` -- also `:none` when
+  `roots` has no `:session` path (tests that don't care about sessions).
+  """
+  @spec session(roots()) :: {:ok, Session.record()} | :none
+  def session(roots \\ default_roots()) do
+    case Map.get(roots, :session) do
+      nil -> :none
+      path -> Session.read(path)
+    end
+  end
 
   @doc "The full `project` map for a registered `id`, or `nil`."
   @spec project(String.t(), roots()) :: project() | nil
@@ -99,6 +119,26 @@ defmodule XipeTotec.Workspace do
   def resolve(dir, roots \\ default_roots())
 
   def resolve(nil, roots) do
+    case session(roots) do
+      {:ok, %{"project" => id}} ->
+        case project(id, roots) do
+          nil -> {:error, "the running session's project #{id} is not registered under #{roots.registry}"}
+          project -> {:ok, project}
+        end
+
+      :none ->
+        resolve_selected(roots)
+    end
+  end
+
+  def resolve(dir, roots) do
+    case ProjectRegistry.find(dir, roots.registry) do
+      nil -> {:error, "#{Path.expand(dir)} is not a registered project -- run `xipe choice project #{dir}` first"}
+      id -> {:ok, project(id, roots)}
+    end
+  end
+
+  defp resolve_selected(roots) do
     case Info.load(roots.info)["project"] do
       nil ->
         {:error, "no project selected -- run `xipe choice project <path>` first"}
@@ -108,13 +148,6 @@ defmodule XipeTotec.Workspace do
           nil -> {:error, "selected project #{id} is not registered under #{roots.registry} -- run `xipe choice project <path>` again"}
           project -> {:ok, project}
         end
-    end
-  end
-
-  def resolve(dir, roots) do
-    case ProjectRegistry.find(dir, roots.registry) do
-      nil -> {:error, "#{Path.expand(dir)} is not a registered project -- run `xipe choice project #{dir}` first"}
-      id -> {:ok, project(id, roots)}
     end
   end
 end

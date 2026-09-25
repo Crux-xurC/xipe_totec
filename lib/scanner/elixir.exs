@@ -97,7 +97,7 @@ defmodule XipeTotec.Scanner.Elixir do
 
   @behaviour XipeTotec.Scanner
 
-  alias XipeTotec.{Book, Id}
+  alias XipeTotec.Book
   alias XipeTotec.Scanner.Elixir.Tracer
 
   @doc """
@@ -132,52 +132,8 @@ defmodule XipeTotec.Scanner.Elixir do
     do: scan_defs(book, sheet_id, Code.string_to_quoted!(source, columns: true))
 
   def scan_defs(book, sheet_id, quoted) do
-    {book, node_ids} =
-      Enum.reduce(extract_defs(quoted), {book, %{}}, fn def, {book, node_ids} ->
-        key = {def.module, def.name, def.arity}
-        id = Book.find_node_by_natural_key(book, def.module, def.name, def.arity) || Id.ulid()
-        prior = Book.get(book, :nodes, id) || %{}
-
-        row = %{
-          sheet: sheet_id,
-          module: def.module,
-          name: def.name,
-          anykey: def.arity,
-          span: def.span,
-          body_hash: def.body_hash,
-          status: "live",
-          effect: prior[:effect] || "unknown",
-          effect_source: prior[:effect_source]
-        }
-
-        {Book.put(book, :nodes, id, row), Map.put(node_ids, key, id)}
-      end)
-
-    # a function that used to live in this sheet but no longer appears
-    # (deleted, renamed past what §7.3's minimal rule can follow) drops out
-    # of the book entirely -- persist_scan/3 turns that into a tombstone row
-    kept = MapSet.new(Map.values(node_ids))
-
-    removed_ids =
-      for {id, row} <- book.nodes, row.sheet == sheet_id, not MapSet.member?(kept, id), do: id
-
-    book = Enum.reduce(removed_ids, book, &Book.delete(&2, :nodes, &1))
-
-    # its own outgoing/incoming links go with it -- `scan_links/3` only
-    # cleans up links for nodes still present in `node_ids`, so a removed
-    # node's edges would otherwise survive as dangling rows
-    removed_set = MapSet.new(removed_ids)
-
-    book =
-      Enum.reduce(book.links, book, fn {id, row}, book ->
-        if MapSet.member?(removed_set, row.node) or MapSet.member?(removed_set, row.ref) do
-          Book.delete(book, :links, id)
-        else
-          book
-        end
-      end)
-
-    {book, node_ids}
+    defs = for def <- extract_defs(quoted), do: %{def | anykey: def.arity} |> Map.delete(:arity)
+    XipeTotec.Scanner.put_defs(book, sheet_id, defs)
   end
 
   @doc """
@@ -213,7 +169,12 @@ defmodule XipeTotec.Scanner.Elixir do
 
   def scan_links_report(book, node_ids, quoted) do
     {edges, failures} = extract_edges(quoted)
-    links = resolve_links(book, node_ids, edges)
+
+    links =
+      for %{caller: caller, callee: callee} <- edges,
+          node = XipeTotec.Scanner.node_for(book, node_ids, caller),
+          ref = XipeTotec.Scanner.node_for(book, node_ids, callee),
+          do: %{node: node, ref: ref}
 
     # `node_ids` spans every scanned file (cross-file callees resolve
     # through it), so the stale sweep is narrowed to this file's own
@@ -227,37 +188,31 @@ defmodule XipeTotec.Scanner.Elixir do
           MapSet.member?(own_modules, module) and not MapSet.member?(failed_modules, module),
           do: id
 
-    fresh = Map.new(links, &{Book.link_id(&1.node, &1.role, &1.ref, &1[:clause]), &1})
-    book = Enum.reduce(fresh, book, fn {id, link}, book -> Book.put(book, :links, id, link) end)
-    book = stale_link_ids(book, own_ids, fresh) |> Enum.reduce(book, &Book.delete(&2, :links, &1))
-    {book, failures}
-  end
-
-  # links whose `node` is one of this file's nodes but were not just
-  # re-emitted (`fresh` -- i.e. the edge disappeared from the source) get dropped
-  defp stale_link_ids(book, node_ids, fresh) do
-    node_set = MapSet.new(node_ids)
-
-    for {id, row} <- book.links,
-        MapSet.member?(node_set, row.node),
-        not Map.has_key?(fresh, id),
-        do: id
+    {XipeTotec.Scanner.put_links(book, links, own_ids), failures}
   end
 
   # --- node extraction (pure AST walk, no compilation) ---
 
   defp extract_defs(quoted) do
-    {_, defs} = Macro.prewalk(quoted, [], fn node, acc -> walk_defmodule(node, acc) end)
-    defs
+    for {module, body} <- modules_in(quoted, nil), def <- extract_def_clauses(body, module), do: def
   end
 
-  defp walk_defmodule({:defmodule, _, [{:__aliases__, _, alias_parts}, [do: body]]} = node, acc) do
-    module = Enum.map_join(alias_parts, ".", &to_string/1)
-    defs = for d <- extract_def_clauses(body, module), do: d
-    {node, acc ++ defs}
+  # `{full module name, body}` for every `defmodule` at the top of `ast` or
+  # directly inside another module's body -- a nested one named the way
+  # Elixir names it (`defmodule Inner` inside `Calc` is `Calc.Inner`, which
+  # is also what the compiler tracer and elixir-ls report). One whose name
+  # isn't a plain alias (`__MODULE__.X`, ...) is skipped.
+  defp modules_in({:defmodule, _, [{:__aliases__, _, parts}, [do: body]]}, parent) do
+    if Enum.all?(parts, &is_atom/1) do
+      module = Enum.join(List.wrap(parent) ++ Enum.map(parts, &Atom.to_string/1), ".")
+      [{module, body} | modules_in(body, module)]
+    else
+      []
+    end
   end
 
-  defp walk_defmodule(node, acc), do: {node, acc}
+  defp modules_in({:__block__, _, stmts}, parent), do: Enum.flat_map(stmts, &modules_in(&1, parent))
+  defp modules_in(_ast, _parent), do: []
 
   defp extract_def_clauses(body, module) do
     body
@@ -265,7 +220,7 @@ defmodule XipeTotec.Scanner.Elixir do
     |> Enum.flat_map(fn
       {kind, meta, [{name, _, args} | _]} when kind in [:def, :defp] and is_atom(name) ->
         arity = if is_list(args), do: length(args), else: 0
-        [%{module: module, name: to_string(name), arity: arity, span: span_of(meta), body_hash: body_hash({kind, name, arity, args})}]
+        [%{module: module, name: to_string(name), arity: arity, anykey: nil, span: span_of(meta), body_hash: body_hash({kind, name, arity, args})}]
 
       _ ->
         []
@@ -335,15 +290,7 @@ defmodule XipeTotec.Scanner.Elixir do
     end
   end
 
-  defp module_names(form) do
-    {_, names} =
-      Macro.prewalk(form, [], fn
-        {:defmodule, _, [{:__aliases__, _, parts} | _]} = node, acc -> {node, [Enum.map_join(parts, ".", &to_string/1) | acc]}
-        node, acc -> {node, acc}
-      end)
-
-    Enum.reverse(names)
-  end
+  defp module_names(form), do: form |> modules_in(nil) |> Enum.map(&elem(&1, 0))
 
   @doc """
   Every top-level `defmodule` form in `quoted`, everything else dropped --
@@ -360,15 +307,4 @@ defmodule XipeTotec.Scanner.Elixir do
 
   defp defmodule?({:defmodule, _, _}), do: true
   defp defmodule?(_), do: false
-
-  defp resolve_links(book, node_ids, edges) do
-    for %{caller: {cmod, cname, carity}, callee: {gmod, gname, garity}} <- edges,
-        node = Map.get(node_ids, {cmod, cname, carity}) ||
-                 Book.find_node_by_natural_key(book, cmod, cname, carity),
-        ref = Map.get(node_ids, {gmod, gname, garity}) ||
-                Book.find_node_by_natural_key(book, gmod, gname, garity),
-        node != nil and ref != nil do
-      %{node: node, role: "to", ref: ref, clause: nil, guard: nil}
-    end
-  end
 end

@@ -30,8 +30,12 @@ defmodule XipeTotec.Repl.Language do
   @doc "File extensions (without the dot) whose files are written in this language."
   @callback extensions() :: [String.t()]
 
-  @doc "The `XipeTotec.Scanner` implementation that reads this language's files."
-  @callback scanner() :: module()
+  @doc """
+  The `XipeTotec.Scanner` implementation that reads this language's files,
+  or several in priority order (spec §11.3) -- `Project.scan_dir/3` uses the
+  first whose `begin/3` accepts.
+  """
+  @callback scanner() :: module() | [module()]
 
   @doc "This language's REPL adapter -- see `document/repl-adapter-guide.md`."
   @callback adapter() :: adapter()

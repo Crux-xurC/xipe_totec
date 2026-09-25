@@ -6,6 +6,7 @@ Code.require_file("../eval/field_drip/elixir.exs", __DIR__)
 Code.require_file("../source_sanitize.exs", __DIR__)
 Code.require_file("../../project.exs", __DIR__)
 Code.require_file("../../scanner/elixir.exs", __DIR__)
+Code.require_file("../../scanner/lsp/elixir.exs", __DIR__)
 
 defmodule XipeTotec.Repl.Language.Elixir do
   @moduledoc "Elixir's `Repl.Language` self-declaration. REPL: `iex`."
@@ -17,8 +18,10 @@ defmodule XipeTotec.Repl.Language.Elixir do
   @impl true
   def extensions, do: ["ex", "exs"]
 
+  # elixir-ls through tezcatl's /lsp first; Elixir's own parser when no
+  # language server is reachable (spec §11.3)
   @impl true
-  def scanner, do: XipeTotec.Scanner.Elixir
+  def scanner, do: [XipeTotec.Scanner.Lsp.Elixir, XipeTotec.Scanner.Elixir]
 
   @impl true
   def adapter do

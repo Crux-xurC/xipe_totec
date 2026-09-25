@@ -1,4 +1,6 @@
 ExUnit.start()
+# see test/run.sh
+System.put_env("XIPE_TOTEC_LSP", "off")
 
 Code.require_file(Path.expand("../lib/dispatch.exs", __DIR__))
 
@@ -24,7 +26,20 @@ defmodule DispatchTest do
 
     test "scans ctx.root and reports counts", %{dir: dir} do
       assert {:ok, book, result} = Dispatch.handle(Book.new(), "scan/run", %{}, %{root: dir})
-      assert result == %{"paths" => ["lib/a.ex"], "sheets" => 1, "nodes" => 1, "links" => 0, "link_failures" => []}
+      assert result == %{
+               "paths" => ["lib/a.ex"],
+               "sheets" => 1,
+               "nodes" => 1,
+               "links" => 0,
+               "link_failures" => [],
+               # which scanner read the files, and why the preferred one didn't (spec §11.2)
+               "scanners" => %{
+                 "elixir" => %{
+                   "scanner" => "XipeTotec.Scanner.Elixir",
+                   "skipped" => [%{"scanner" => "XipeTotec.Scanner.Lsp.Elixir", "reason" => "LSP scanning is off (XIPE_TOTEC_LSP=off)"}]
+                 }
+               }
+             }
       assert map_size(book.nodes) == 1
     end
   end

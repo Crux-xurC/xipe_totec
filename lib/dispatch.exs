@@ -52,7 +52,8 @@ defmodule XipeTotec.Dispatch do
 
   def handle(book, "scan/run", _params, ctx) do
     root = Map.fetch!(ctx, :root)
-    {new_book, paths, link_failures} = Project.scan_dir(book, root)
+    report = Project.scan_dir_report(book, root)
+    %{book: new_book, paths: paths, link_failures: link_failures} = report
 
     {:ok, new_book,
      %{
@@ -61,7 +62,8 @@ defmodule XipeTotec.Dispatch do
        "nodes" => map_size(new_book.nodes),
        "links" => map_size(new_book.links),
        "link_failures" =>
-         Enum.map(link_failures, &%{"path" => &1.path, "module" => &1.module, "reason" => &1.reason})
+         Enum.map(link_failures, &%{"path" => &1.path, "module" => &1.module, "reason" => &1.reason}),
+       "scanners" => report.scanners
      }}
   end
 

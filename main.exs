@@ -18,15 +18,17 @@ Code.require_file("lib/dialogue/depends.exs", __DIR__)
 Code.require_file("lib/info.exs", __DIR__)
 Code.require_file("lib/workspace.exs", __DIR__)
 Code.require_file("lib/command_line.exs", __DIR__)
+Code.require_file("lib/session.exs", __DIR__)
 
 defmodule XipeTotec.CLI do
   @moduledoc false
 
-  alias XipeTotec.{Book, CommandLine, Core, Info, InOut, Runner, Store, Workspace}
+  alias XipeTotec.{Book, CommandLine, Core, Info, InOut, Runner, Session, Store, Workspace}
   alias XipeTotec.Serve.Project, as: ServeProject
 
   @default_serve_port 4200
   @all_tables [:sheets, :nodes, :calls, :links, :runs, :providers]
+  @read_only_methods ~w(card/get card/search graph/neighbors graph/export cell/resolve row/depends)
 
   def main(args) do
     case args do
@@ -39,7 +41,9 @@ defmodule XipeTotec.CLI do
       ["scan"] -> scan(nil)
       ["show", dir] -> show(dir)
       ["show"] -> show(nil)
-      ["serve" | rest] -> serve(rest)
+      ["start" | rest] -> start(rest)
+      # spec §15's name for the same server; kept as an alias of `start`
+      ["serve" | rest] -> start(rest)
       ["eval" | rest] -> eval(rest)
       ["do" | rest] -> do_cmd(rest)
       ["dialogue", "depends" | rest] -> dialogue_depends(rest)
@@ -64,9 +68,18 @@ defmodule XipeTotec.CLI do
                                 it to tables/project/<id>_<name>/table
       xipe scan [<dir>]        scan the project's .ex/.exs files and update its book
       xipe show [<dir>]        print a summary of the project's book
-      xipe serve [<dir>] [--port N]
-                                §16.1 WebSocket (localhost) entry over the project's book
-                                (default port #{@default_serve_port}, or $XIPE_TOTEC_PORT)
+      xipe start [<dir>] [--port N] [--lsp <url>] [--fs-root <dir>]
+                                run the §16.1 WebSocket (localhost) server over the project's book
+                                (default port #{@default_serve_port}, or $XIPE_TOTEC_PORT) and record it
+                                as the running session (tables/session.json): while it runs, every
+                                other command without a <dir> acts on its project instead of the
+                                selected one. An unregistered <dir> is registered (the selection is
+                                left alone). --lsp is tezcatl's /lsp relay URL and --fs-root the
+                                directory tezcatl's paths are relative to; both are optional
+                                ($XIPE_TOTEC_LSP_RELAY / $XIPE_TOTEC_LSP_FS_ROOT, else derived from
+                                the TEZCATL_RELAY_PORT / TEZCATL_FS_ROOT a tezcatl-spawned xipe
+                                inherits) -- tezcatl itself passes only --port
+      xipe serve ...           same as xipe start (spec §15's name)
       xipe eval [<dir>] [id...] [--mix] [--include-writes]
                                 launch <dir>'s REPL and (re)evaluate the given calc-row ids
                                 (default: every call in the book); persists results back
@@ -159,12 +172,50 @@ defmodule XipeTotec.CLI do
     end
   end
 
-  defp serve(args) do
-    {opts, positional, _invalid} = OptionParser.parse(args, strict: [port: :integer])
-    project = project!(List.first(positional))
+  defp start(args) do
+    {opts, positional, _invalid} =
+      OptionParser.parse(args, strict: [port: :integer, lsp: :string, fs_root: :string])
+
+    case Workspace.session() do
+      {:ok, running} ->
+        usage_error(
+          "xipe start: a session is already running (pid #{running["os_pid"]}, port #{running["port"]}, #{running["root"]})"
+        )
+
+      :none ->
+        :ok
+    end
+
+    # Starting on a <dir> is itself the deliberate "use this project" step,
+    # so an unregistered one is registered here (same as `xipe choice
+    # project`, surface table included) -- tezcatl starts xipe on a project
+    # root it may never have been pointed at before. The stored selection
+    # is left alone: the session outranks it only while it runs.
+    project =
+      case positional do
+        [] ->
+          project!(nil)
+
+        [dir | _] ->
+          unless File.dir?(dir), do: usage_error("xipe start: #{dir} is not a directory")
+          {project, _rows} = Workspace.generate_table(dir)
+          project
+      end
+
     root = project.path
     store_file = project.store_file
     port = opts[:port] || String.to_integer(System.get_env("XIPE_TOTEC_PORT") || Integer.to_string(@default_serve_port))
+
+    # tezcatl passes only --port: the rest comes from the environment a
+    # tezcatl-spawned xipe inherits (TEZCATL_RELAY_PORT/TEZCATL_FS_ROOT,
+    # tezcatl's own settings). The relay URL is a guess outside tezcatl --
+    # harmless, a scanner that can't reach it falls through to the next
+    # provider (spec §11.3).
+    lsp =
+      opts[:lsp] || System.get_env("XIPE_TOTEC_LSP_RELAY") ||
+        "ws://127.0.0.1:#{System.get_env("TEZCATL_RELAY_PORT") || "4100"}/lsp"
+
+    fs_root = opts[:fs_root] || System.get_env("XIPE_TOTEC_LSP_FS_ROOT") || System.get_env("TEZCATL_FS_ROOT")
 
     {:ok, _} = Application.ensure_all_started(:cowboy)
     {:ok, _} = ServeProject.start_link(%{root: root, store_file: store_file})
@@ -177,16 +228,42 @@ defmodule XipeTotec.CLI do
            %{env: %{dispatch: dispatch}}
          ) do
       {:ok, _} ->
-        IO.puts("xipe serve: ws://127.0.0.1:#{port}/  root=#{root}  store=#{store_file}")
+        # written only once the port is actually listening; removed on a
+        # normal shutdown (SIGTERM -- how tezcatl stops it). A kill -9 or
+        # Ctrl-C leaves the file behind, which Session.read/1 then ignores
+        # because the pid is gone.
+        Session.write(%{"port" => port, "project" => project.id, "root" => root, "lsp" => lsp, "fs_root" => fs_root})
+        System.trap_signal(:sigterm, fn -> Session.clear() end)
+
+        IO.puts("xipe start: ws://127.0.0.1:#{port}/  root=#{root}  store=#{store_file}")
+        if lsp, do: IO.puts("xipe start: lsp relay #{lsp}  fs_root=#{fs_root || "-"}")
         Process.sleep(:infinity)
 
       {:error, :eaddrinuse} ->
-        IO.puts(:stderr, "xipe serve: 127.0.0.1:#{port} は使用中です (--port か $XIPE_TOTEC_PORT で変更可)")
+        IO.puts(:stderr, "xipe start: 127.0.0.1:#{port} は使用中です (--port か $XIPE_TOTEC_PORT で変更可)")
         System.halt(1)
 
       {:error, reason} ->
-        IO.puts(:stderr, "xipe serve: リスナ起動に失敗: #{inspect(reason)}")
+        IO.puts(:stderr, "xipe start: リスナ起動に失敗: #{inspect(reason)}")
         System.halt(1)
+    end
+  end
+
+  # Until CLI writes are routed through a running server (課題.md §2), a CLI
+  # command that changes the book of the project a session is serving
+  # writes the same book.jsonl behind the server's back: the server keeps
+  # its in-memory book and never sees the change. Say so rather than stay
+  # silent.
+  defp warn_if_session_project(project) do
+    case Workspace.session() do
+      {:ok, %{"project" => id, "port" => port}} when id == project.id ->
+        IO.puts(
+          :stderr,
+          "xipe: warning: xipe start (port #{port}) is serving this project -- this change goes to book.jsonl directly and the running server won't see it until it restarts"
+        )
+
+      _ ->
+        :ok
     end
   end
 
@@ -245,6 +322,7 @@ defmodule XipeTotec.CLI do
       end
 
     project = project!(dir)
+    warn_if_session_project(project)
     dir = project.path
     old_book = Store.load(project.store_file)
 
@@ -325,6 +403,7 @@ defmodule XipeTotec.CLI do
   # this same way; `do_cmd/1` below is the general form for any number of
   # chained commands.
   defp run_commands(project, commands, evaluator_opts \\ []) do
+    unless Enum.all?(commands, &(&1["method"] in @read_only_methods)), do: warn_if_session_project(project)
     old_book = Store.load(project.store_file)
     {new_book, outcomes} = Runner.run(old_book, project.path, commands, evaluator_opts)
     Store.persist_diff(project.store_file, old_book, new_book, @all_tables)

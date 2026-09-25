@@ -17,6 +17,10 @@ if [ ${#files[@]} -eq 0 ]; then
   exit 1
 fi
 
+# LSP scanning off: a tezcatl /lsp relay running on this machine must not
+# change what the suite sees (Scanner.Lsp's own tests use a fake transport)
+export XIPE_TOTEC_LSP=off
+
 status=0
 for f in "${files[@]}"; do
   echo "=== $f ==="

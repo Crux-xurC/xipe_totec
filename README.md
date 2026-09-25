@@ -102,14 +102,17 @@ P1 の具体形: 副作用の分類（`pure`/`reads`/`writes`）は利用者が 
 `eval_template`/`Eval.Scan`/`field_drip`）、REPL の起動方法（`launch_opts/2`）を申告し、
 `Project`（スキャン）と `Runner`（評価）がそれを使う。REPL は言語ごとに1つに決め打ち
 （Elixir なら `iex`）で、ビルドツールは起動方法だけを変える。いまは Elixir の申告しか
-なく、Scanner の実装も Elixir 専用の `Scanner.Elixir` だけ（言語サーバーを使う共通の
-Scanner は計画中、`document/課題.md` ⑥）。`Scanner`（ソースから定義を抽出）と `Eval.Scan`
+ない。Elixir の Scanner は elixir-ls（`Scanner.Lsp.Elixir`）を優先する。言語サーバーへは
+tezcatl の `/lsp` を先に試し、つながらなければ elixir-ls を自分で起動する（CLI 単体でも
+使える）。どちらも駄目なら自前の `Scanner.Elixir` を使う（仕様 §11.3）。どれで読んだか
+（`via` が `relay`/`stdio`）は `scan/run` の結果の `scanners` に出る。`XIPE_TOTEC_LSP=off` で言語サーバー経由を止められる
+（テストはこれで走る）。`Scanner`（ソースから定義を抽出）と `Eval.Scan`
 （REPL 出力からマーカーを検出）は名前が似ているが別物。
 
 | 層 | モジュール | 役割 |
 |---|---|---|
 | 土台 | `Book` / `Store` / `Core` / `Id` / `Identity` | 現在状態・追記型永続化・純粋な参照グラフと再計算計画・再スキャン時の ID 継続 |
-| スキャン | `Scanner`（behaviour）/ `Scanner.Elixir` / `Project` / `SurfaceTable` | ファイルからカードと link を作る口とその Elixir 実装（AST 抽出、`defmodule` のみコンパイル）、ディレクトリ横断の2パス走査（ファイルごとに言語の Scanner を選ぶ）、ファイルごとの言語判定 |
+| スキャン | `Scanner`（behaviour）/ `Scanner.Lsp`（+ `Scanner.Lsp.Elixir`）/ `Scanner.Elixir` / `Lsp.Transport`（+ `.Relay`・`.Stdio`）/ `Project` / `SurfaceTable` | ファイルからカードと link を作る口と共通の帳簿付け、言語サーバー経由の実装（`documentSymbol`・`callHierarchy`、言語ごとの差は薄い dialect）、Elixir の自前の実装（AST 抽出、`defmodule` のみコンパイル。言語サーバーが無いときの予備）、言語サーバーへのつなぎ方（tezcatl の `/lsp`、無ければ自分で起動）、ディレクトリ横断の2パス走査（言語ごとに Scanner を優先順に試し、どれを使ったかを記録）、ファイルごとの言語判定 |
 | コマンド | `Runner` / `Dispatch` / `Pipeline` / `Address` / `GraphQuery` | コマンド列の実行（`$<n>.<path>` で前の結果を参照）、method の表、住所の解決、呼び出しグラフの BFS と書き出し |
 | 評価 | `Repl.Evaluator` / `Launch` / `Sender(.Direct)` / `Session` / `EvalTemplate` / `SourceSanitize` / `Eval.{Scan,FieldDrip,Parser,Result}` | REPL の起動・完了待ち・式の送信・マーカー受信・ハング時の SIGINT→SIGKILL |
 | 対話 | `InOut` / `Dialogue` / `Dialogue.Depends` | 複数ターンの構造化対話と、依存チェーン交渉 |
@@ -120,7 +123,7 @@ Scanner は計画中、`document/課題.md` ⑥）。`Scanner`（ソースから
 
 ## いまどこまで動くか
 
-2026-09-25 時点。`./test/run.sh` の全32ファイル・316件がすべて通る。これとは別に、
+2026-09-25 時点。`./test/run.sh` の全36ファイル・331件がすべて通る。これとは別に、
 実機の `iex` を起動するテスト（`test/live/`）がある。
 
 **CLI からは、Elixir プロジェクトに対してスキャン → 計算行の作成 → 実評価 → 結果の
@@ -184,15 +187,24 @@ xipe do [--dir <dir>] <method> [key=value...] [-- <method> ...]
                            #        -- eval call_ids=$0.id
 xipe dialogue depends [<dir>] <call_id>
                            # 依存チェーン交渉（"y <値>" か "n" で答える）
-xipe serve [<dir>] [--port N]
-                           # §16.1 WebSocket の入口（既定ポート 4200、$XIPE_TOTEC_PORT でも可）
+xipe start [<dir>] [--port N] [--lsp <url>] [--fs-root <dir>]
+                           # §16.1 WebSocket の入口として常駐し、セッションとして記録する
+                           # （既定ポート 4200、$XIPE_TOTEC_PORT でも可）。xipe serve は別名
+                           # 未登録の <dir> は登録する（選択中のプロジェクトは変えない）
+                           # --lsp/--fs-root は tezcatl の /lsp 中継とファイルルート。省略時は
+                           # tezcatl から引き継いだ TEZCATL_RELAY_PORT/TEZCATL_FS_ROOT から決める
+                           # （tezcatl は --port だけを渡す）
 xipe refresh -l|-r|-a      # xipe_totec 自身の info.json（言語と拡張子・REPL アダプタ一覧）を更新
 
 ./test/run.sh                         # ExUnit 全件（何も起動せず単体で走る）
 elixir test/live/repl_iex_test.exs    # 実機 iex を使うテスト
 ```
 
-`<dir>` を省略すると、選択中のプロジェクトが対象になる。`<dir>` を渡す場合も、
+`<dir>` を省略すると、`xipe start` のセッションが動いていればそのプロジェクト、動いて
+いなければ選択中のプロジェクトが対象になる（明示した `<dir>` ＞ セッション ＞ 選択中）。
+セッションの記録は `tables/session.json` で、正常終了（SIGTERM）で消える。プロセスが
+いなくなった記録は無視する。セッション中にそのプロジェクトを CLI で書き換えると、
+サーバーの Book とずれるので警告が出る（CLI の書き込みをサーバー経由にするのは未実装）。`<dir>` を渡す場合も、
 そのディレクトリは `xipe choice project` で登録済みである必要がある（暗黙には登録しない）。
 
 基本の使い方:

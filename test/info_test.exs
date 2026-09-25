@@ -69,7 +69,8 @@ defmodule InfoTest do
              field_drip: XipeTotec.Repl.Eval.FieldDrip.Elixir
            }
 
-    assert mod.scanner() == XipeTotec.Scanner.Elixir
+    # elixir-ls first, Elixir's own parser when no language server is reachable
+    assert mod.scanner() == [XipeTotec.Scanner.Lsp.Elixir, XipeTotec.Scanner.Elixir]
     assert {[], cleanup} = mod.launch_opts("/nowhere", "mix")
     assert cleanup.() == :ok
   end

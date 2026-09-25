@@ -72,48 +72,108 @@ defmodule XipeTotec.Project do
   @spec scan_dir(XipeTotec.Book.t(), String.t(), keyword()) ::
           {XipeTotec.Book.t(), [String.t()], [%{path: String.t(), module: String.t(), reason: String.t()}]}
   def scan_dir(book, dir, opts \\ []) do
+    report = scan_dir_report(book, dir, opts)
+    {report.book, report.paths, report.link_failures}
+  end
+
+  @doc """
+  `scan_dir/3` plus, per language, which scanner read its files and why the
+  ones declared ahead of it didn't (spec §11.2): `%{book:, paths:,
+  link_failures:, scanners: %{language => %{"scanner" => name, "skipped" =>
+  [%{"scanner" => name, "reason" => text}]}}}`.
+
+  A language's scanners are tried in its declared order (spec §11.3): the
+  first whose `begin/3` accepts reads every file of that language. `opts`
+  also takes `:scanner_opts`, handed to every `begin/3` (with `:files`, the
+  language's paths, added).
+  """
+  @spec scan_dir_report(XipeTotec.Book.t(), String.t(), keyword()) :: map()
+  def scan_dir_report(book, dir, opts \\ []) do
     info = Keyword.get_lazy(opts, :info, &Info.load/0)
     sheets = sheets(dir, info)
     paths = Enum.map(sheets, & &1.path)
+    scanner_opts = Keyword.get(opts, :scanner_opts, [])
 
-    scanners =
+    picked =
       sheets
       |> Enum.map(& &1.language)
       |> Enum.uniq()
-      |> Map.new(&{&1, scanner_for(&1, info, opts)})
+      |> Map.new(fn language ->
+        files = for %{path: path, language: ^language} <- sheets, do: path
+        {language, pick_scanner(scanners_for(language, info, opts), dir, language, Keyword.put(scanner_opts, :files, files))}
+      end)
 
     files =
       for %{path: path, language: language} <- sheets do
-        {scanners[language], %{root: dir, path: path, source: File.read!(Path.join(dir, path))}}
+        %{scanner: scanner, ctx: ctx} = picked[language]
+        {scanner, %{root: dir, path: path, source: File.read!(Path.join(dir, path)), ctx: ctx}}
       end
 
-    {book, node_ids} =
-      Enum.reduce(files, {book, %{}}, fn {scanner, file}, {book, node_ids} ->
-        sheet_id = Identity.sheet_id(book, file.path) || Id.ulid()
-        book = Core.put_sheet(book, sheet_id, %{path: file.path, source_hash: content_hash(file.source)})
-        {book, these_ids} = scanner.scan_defs(book, sheet_id, file)
-        {book, Map.merge(node_ids, these_ids)}
-      end)
+    try do
+      {book, node_ids} =
+        Enum.reduce(files, {book, %{}}, fn {scanner, file}, {book, node_ids} ->
+          sheet_id = Identity.sheet_id(book, file.path) || Id.ulid()
+          book = Core.put_sheet(book, sheet_id, %{path: file.path, source_hash: content_hash(file.source)})
+          {book, these_ids} = scanner.scan_defs(book, sheet_id, file)
+          {book, Map.merge(node_ids, these_ids)}
+        end)
 
-    book = sweep_gone_sheets(book, paths)
+      book = sweep_gone_sheets(book, paths)
 
-    {book, failures} =
-      Enum.reduce(files, {book, []}, fn {scanner, file}, {book, failures} ->
-        {book, these} = scanner.scan_links_report(book, node_ids, file)
-        {book, failures ++ Enum.map(these, &Map.put(&1, :path, file.path))}
-      end)
+      {book, failures} =
+        Enum.reduce(files, {book, []}, fn {scanner, file}, {book, failures} ->
+          {book, these} = scanner.scan_links_report(book, node_ids, file)
+          {book, failures ++ Enum.map(these, &Map.put(&1, :path, file.path))}
+        end)
 
-    {book, paths, failures}
+      scanners =
+        Map.new(picked, fn {language, p} ->
+          entry = %{"scanner" => inspect(p.scanner), "skipped" => p.skipped}
+          entry = if function_exported?(p.scanner, :describe, 1), do: Map.put(entry, "via", p.scanner.describe(p.ctx)), else: entry
+          {language, entry}
+        end)
+
+      %{book: book, paths: paths, link_failures: failures, scanners: scanners}
+    after
+      for {_language, %{scanner: scanner, ctx: ctx}} <- picked, function_exported?(scanner, :finish, 1), do: scanner.finish(ctx)
+    end
   end
 
-  defp scanner_for(language, info, opts) do
+  # The first of `candidates` whose begin/3 accepts (one without begin/3
+  # always does); each refusal is kept as `skipped`. The last candidate is
+  # used even if it refuses -- a language with no working scanner at all
+  # would otherwise silently lose every card on rescan.
+  defp pick_scanner(candidates, dir, language, scanner_opts) do
+    Enum.reduce_while(candidates, [], fn scanner, skipped ->
+      Code.ensure_loaded(scanner)
+
+      result =
+        if function_exported?(scanner, :begin, 3),
+          do: scanner.begin(dir, language, scanner_opts),
+          else: {:ok, nil}
+
+      case result do
+        {:ok, ctx} ->
+          {:halt, %{scanner: scanner, ctx: ctx, skipped: Enum.reverse(skipped)}}
+
+        {:error, reason} ->
+          {:cont, [%{"scanner" => inspect(scanner), "reason" => reason} | skipped]}
+      end
+    end)
+    |> case do
+      %{} = picked -> picked
+      skipped -> raise "no scanner for #{language} could start: #{inspect(Enum.reverse(skipped))}"
+    end
+  end
+
+  defp scanners_for(language, info, opts) do
     {:ok, mod} =
       case Keyword.fetch(opts, :language_dir) do
         {:ok, dir} -> Info.language_module(language, info, dir)
         :error -> Info.language_module(language, info)
       end
 
-    mod.scanner()
+    List.wrap(mod.scanner())
   end
 
   # A sheet whose file is no longer among `paths` (deleted, renamed, or now

@@ -6,12 +6,12 @@
 # copying is safe as long as the version matches -- both of those pin the
 # identical nixpkgs revision and erlang_27 that this flake.nix does).
 #
-# Still smaller than tezcatl's file: xipe_totec is the *server* being
-# connected to for §16 (relay's /xipe connects out to it), so it needs
-# cowboy itself but not `gun` (a WS *client* lib -- that's the relay's job).
-# `erlexec` moved from "not needed" to "needed" once `xipe eval` started
-# spawning real OS processes of its own (§10) -- a different spawn need
-# than §16's WS server, not a contradiction of the note above.
+# xipe_totec is the *server* being connected to for §16 (relay's /xipe
+# connects out to it), so it needs cowboy itself. `erlexec` came in once
+# `xipe eval` started spawning real OS processes of its own (§10), and
+# `gun` (a WS *client*) once the LSP-backed scanner started connecting out
+# to tezcatl's /lsp relay (Lsp.Transport.Relay, 2026-09-25) -- now the
+# same set as tezcatl's own file.
 { pkgs, beamPackages }:
 
 rec {
@@ -47,6 +47,18 @@ rec {
       sha256 = "sha256-inq+bRgzcs6yHKonCb7JKKsrcuGKORGqF3Fjm++CZR4=";
     };
     beamDeps = [ cowlib ranch ];
+  };
+
+  gun = beamPackages.buildRebar3 rec {
+    pname = "gun";
+    version = "2.1.0";
+    name = pname;
+    src = pkgs.fetchHex {
+      pkg = pname;
+      version = version;
+      sha256 = "sha256-Uvx/wka/w7AOAa6hwoVMcKNmNIV0q1DFff55bSSgEB0=";
+    };
+    beamDeps = [ cowlib ];
   };
 
   erlexec = beamPackages.buildRebar3 rec {
