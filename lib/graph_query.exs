@@ -1,5 +1,6 @@
 Code.require_file("book.exs", __DIR__)
 Code.require_file("address.exs", __DIR__)
+Code.require_file("core.exs", __DIR__)
 
 defmodule XipeTotec.GraphQuery do
   @moduledoc """
@@ -169,6 +170,6 @@ defmodule XipeTotec.GraphQuery do
     "#   iex> #{node_row.name}(#{args})\n#   #{result}"
   end
 
-  defp label(row), do: "#{row.module}.#{row.name}/#{row.arity}"
+  defp label(row), do: XipeTotec.Core.node_label(row)
   defp escape(text), do: String.replace(text, "\"", "\\\"")
 end

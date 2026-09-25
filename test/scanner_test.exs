@@ -2,12 +2,13 @@ ExUnit.start()
 
 Code.require_file(Path.expand("../lib/book.exs", __DIR__))
 Code.require_file(Path.expand("../lib/id.exs", __DIR__))
-Code.require_file(Path.expand("../lib/scanner.exs", __DIR__))
+Code.require_file(Path.expand("../lib/scanner/elixir.exs", __DIR__))
 
 defmodule ScannerTest do
   use ExUnit.Case
 
-  alias XipeTotec.{Book, Scanner}
+  alias XipeTotec.Book
+  alias XipeTotec.Scanner.Elixir, as: Scanner
 
   @source """
   defmodule XipeScanFixture do
@@ -25,8 +26,8 @@ defmodule ScannerTest do
     {book, _node_ids} = Scanner.scan(Book.new(), "s1", @source)
     nodes = Book.all(book, :nodes) |> Enum.sort_by(& &1.name)
 
-    assert [%{name: "f", arity: 1, module: "XipeScanFixture"}, %{name: "g", arity: 1}] =
-             Enum.map(nodes, &Map.take(&1, [:name, :arity, :module]))
+    assert [%{name: "f", anykey: 1, module: "XipeScanFixture"}, %{name: "g", anykey: 1}] =
+             Enum.map(nodes, &Map.take(&1, [:name, :anykey, :module]))
   end
 
   test "scan/3 records a link for an intra-file call to a known node" do

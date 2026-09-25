@@ -105,12 +105,25 @@ defmodule XipeTotec.Core do
     )
   end
 
+  @doc """
+  A node's display label: `"Module.name/anykey"` -- `"Calc.add/2"` for
+  Elixir, whose scanner puts the arity in `anykey` -- or just
+  `"Module.name"` when the node has no `anykey`.
+  """
+  @spec node_label(map()) :: String.t()
+  def node_label(%{module: module, name: name} = node) do
+    case node[:anykey] do
+      nil -> "#{module}.#{name}"
+      key -> "#{module}.#{name}/#{key}"
+    end
+  end
+
   @doc "Short display label for a call, \"Module.name/arity\" -- same format `GraphQuery`'s own node-label helper uses, reused here for the dependency-chain negotiation's `;; wN <label>` lines. `nil` if the call or its node no longer exists."
   @spec call_label(Book.t(), String.t()) :: String.t() | nil
   def call_label(book, call_id) do
     with call when not is_nil(call) <- Book.get(book, :calls, call_id),
          node when not is_nil(node) <- Book.get(book, :nodes, call.node) do
-      "#{node.module}.#{node.name}/#{node.arity}"
+      node_label(node)
     else
       nil -> nil
     end
@@ -541,7 +554,7 @@ defmodule XipeTotec.Core do
       node_id: call.node,
       module: node.module,
       name: node.name,
-      arity: node.arity,
+      anykey: node.anykey,
       args: args,
       inputs: Enum.uniq(inputs),
       bind_as: if(node.effect != "pure", do: binding_name(id)),

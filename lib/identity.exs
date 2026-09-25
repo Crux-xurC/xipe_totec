@@ -10,7 +10,7 @@ defmodule XipeTotec.Identity do
   and every existing calc row would immediately become ref_error, which is
   why this can't wait for the fuller version.
 
-  `XipeTotec.Scanner.scan_defs/3` already applies this rule inline via
+  `XipeTotec.Scanner.Elixir.scan_defs/3` already applies this rule inline via
   `Book.find_node_by_natural_key/4`; this module exists so the *policy* has
   one obvious, citable home, separate from the AST-walking mechanics.
   """
@@ -21,5 +21,5 @@ defmodule XipeTotec.Identity do
   def sheet_id(book, path), do: Book.find_sheet_by_path(book, path)
 
   @spec node_id(Book.t(), String.t(), String.t(), non_neg_integer()) :: String.t() | nil
-  def node_id(book, module, name, arity), do: Book.find_node_by_natural_key(book, module, name, arity)
+  def node_id(book, module, name, anykey), do: Book.find_node_by_natural_key(book, module, name, anykey)
 end

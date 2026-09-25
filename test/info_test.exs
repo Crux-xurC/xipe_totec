@@ -46,6 +46,34 @@ defmodule InfoTest do
     assert refreshed["extensions"] == %{"c" => ["c"], "cpp" => ["cpp"], "h" => ["c", "cpp"]}
   end
 
+  test "language_module/3 resolves only a registered language to its declaring module" do
+    dir = Path.join(System.tmp_dir!(), "xipe_totec_info_langmod_#{System.unique_integer([:positive])}")
+    File.mkdir_p!(dir)
+    on_exit(fn -> File.rm_rf!(dir) end)
+    suffix = System.unique_integer([:positive])
+    File.write!(Path.join(dir, "toy.exs"), "defmodule InfoTestLangToy#{suffix} do\n  def extensions, do: [\"toy\"]\nend\n")
+
+    assert {:ok, mod} = Info.language_module("toy", %{"languages" => ["toy"]}, dir)
+    assert mod.extensions() == ["toy"]
+    # present under dir but never registered (xipe refresh -l) -- P4
+    assert Info.language_module("toy", %{"languages" => []}, dir) == {:error, :not_registered}
+  end
+
+  test "Elixir's declaration supplies its scanner, the iex adapter and mix-mode's empty launch_opts" do
+    assert {:ok, mod} = Info.language_module("elixir", %{"languages" => ["elixir"]})
+
+    assert mod.adapter() == %{
+             launch: XipeTotec.Repl.Launch,
+             eval_template: XipeTotec.Repl.EvalTemplate,
+             scan: XipeTotec.Repl.Eval.Scan.Direct.Iex,
+             field_drip: XipeTotec.Repl.Eval.FieldDrip.Elixir
+           }
+
+    assert mod.scanner() == XipeTotec.Scanner.Elixir
+    assert {[], cleanup} = mod.launch_opts("/nowhere", "mix")
+    assert cleanup.() == :ok
+  end
+
   test "refresh_repls/1 lists lib/repl/eval/scan/<transport>/*.exs as transport+repl pairs, leaving other keys untouched" do
     info = %{"languages" => ["placeholder"], "repls" => [], "project" => nil}
     refreshed = Info.refresh_repls(info)

@@ -96,17 +96,20 @@ P1 の具体形: 副作用の分類（`pure`/`reads`/`writes`）は利用者が 
    tezcatl の `/xipe`（設計済み・未実装）
 ```
 
-言語によって処理が分かれるように作ってあるのは、`Repl.Evaluator` に渡す4モジュール
-（`launch`/`eval_template`/`Eval.Scan`/`field_drip`）の選択だけで、いまは Elixir
-実装しかない。これとは別に、`Scanner`・`Project`・`SurfaceTable`・
-`Runner.launch_opts_for/2` は分岐の仕組みを持たず、Elixir を前提に書かれている
-（`document/動作原理.md` §11）。`Scanner`（ソースから定義を抽出）と `Eval.Scan`
+スキャンと評価は言語で選ばれる。surface table が示す言語（`info.json` に登録済みの
+もの）の `Repl.Language` モジュールが、ファイルを読む Scanner（`scanner/0`、
+`XipeTotec.Scanner` の実装）、`Repl.Evaluator` に渡す4モジュール（`launch`/
+`eval_template`/`Eval.Scan`/`field_drip`）、REPL の起動方法（`launch_opts/2`）を申告し、
+`Project`（スキャン）と `Runner`（評価）がそれを使う。REPL は言語ごとに1つに決め打ち
+（Elixir なら `iex`）で、ビルドツールは起動方法だけを変える。いまは Elixir の申告しか
+なく、Scanner の実装も Elixir 専用の `Scanner.Elixir` だけ（言語サーバーを使う共通の
+Scanner は計画中、`document/課題.md` ⑥）。`Scanner`（ソースから定義を抽出）と `Eval.Scan`
 （REPL 出力からマーカーを検出）は名前が似ているが別物。
 
 | 層 | モジュール | 役割 |
 |---|---|---|
 | 土台 | `Book` / `Store` / `Core` / `Id` / `Identity` | 現在状態・追記型永続化・純粋な参照グラフと再計算計画・再スキャン時の ID 継続 |
-| スキャン | `Scanner` / `Project` / `SurfaceTable` | AST 抽出と link 抽出（`defmodule` のみコンパイル）、ディレクトリ横断の2パス走査、ファイルごとの言語判定 |
+| スキャン | `Scanner`（behaviour）/ `Scanner.Elixir` / `Project` / `SurfaceTable` | ファイルからカードと link を作る口とその Elixir 実装（AST 抽出、`defmodule` のみコンパイル）、ディレクトリ横断の2パス走査（ファイルごとに言語の Scanner を選ぶ）、ファイルごとの言語判定 |
 | コマンド | `Runner` / `Dispatch` / `Pipeline` / `Address` / `GraphQuery` | コマンド列の実行（`$<n>.<path>` で前の結果を参照）、method の表、住所の解決、呼び出しグラフの BFS と書き出し |
 | 評価 | `Repl.Evaluator` / `Launch` / `Sender(.Direct)` / `Session` / `EvalTemplate` / `SourceSanitize` / `Eval.{Scan,FieldDrip,Parser,Result}` | REPL の起動・完了待ち・式の送信・マーカー受信・ハング時の SIGINT→SIGKILL |
 | 対話 | `InOut` / `Dialogue` / `Dialogue.Depends` | 複数ターンの構造化対話と、依存チェーン交渉 |
@@ -117,7 +120,7 @@ P1 の具体形: 副作用の分類（`pure`/`reads`/`writes`）は利用者が 
 
 ## いまどこまで動くか
 
-2026-09-24 時点。`./test/run.sh` の全32ファイル・294件がすべて通る。これとは別に、
+2026-09-25 時点。`./test/run.sh` の全32ファイル・316件がすべて通る。これとは別に、
 実機の `iex` を起動するテスト（`test/live/`）がある。
 
 **CLI からは、Elixir プロジェクトに対してスキャン → 計算行の作成 → 実評価 → 結果の
@@ -133,17 +136,19 @@ P1 の具体形: 副作用の分類（`pure`/`reads`/`writes`）は利用者が 
 - `xipe dialogue depends` で、上流の依存チェーンの深い段から順に「ここに値を手で
   入れて、そこから上を評価するか」を対話で決められる
 
-**`xipe serve`（WebSocket）経由では、まだ評価できない。** Book の操作とクエリ、
-変更通知（`notify/*`）までは動く。
+`xipe serve`（WebSocket）経由でも評価できる。`eval`／`eval/run` はすぐに `pass_id` を
+返し、評価は別プロセスで走る（評価中もほかの要求に応答する）。終わると
+`notify/rowChanged` と `notify/passCompleted`（独自追加）が届く。評価回は1プロジェクトに
+つき1つずつ、来た順に実行する。
 
 §16.3 の method の状態:
 
 | 区分 | method | 状態 |
 |---|---|---|
 | Tier 1 | `scan/run`・`row/add`・`row/remove`・`effect/set`・`card/get`・`card/search`・`graph/neighbors`・`graph/export`・`cell/resolve` | 実装済み |
-| 独自追加 | `row/depends`（上流依存チェーン）・`row/set-result`（値の手入力） | 実装済み（仕様 v0.4 には無い） |
-| CLI 専用 | `eval`（`xipe eval`／`xipe do ... eval`） | 実装済み（同期実行） |
-| Pipeline 経由 | `row/update`・`eval/run` | `pipelines.json` に登録済みで、段（`"edit"`/`"eval"`）の中身は空スタブ |
+| 独自追加 | `row/depends`（上流依存チェーン）・`row/set-result`（値の手入力）・`notify/passCompleted`（評価回の完了通知） | 実装済み（仕様 v0.4 には無い） |
+| 評価 | `eval`・`eval/run` | 実装済み。CLI（`xipe eval`／`xipe do ... eval`）は同期実行、`xipe serve` では2つとも非同期（`pass_id` を返す）。CLI の `xipe do ... eval/run` だけは今も `Pipeline` の空スタブに行く |
+| Pipeline 経由 | `row/update` | `pipelines.json` に登録済みで、段（`"edit"`）の中身は空スタブ |
 | Tier 3 | `cell/complete` | 未実装 |
 | — | `edit/propose`・`edit/apply` | 撤回（参照一覧＋エディタ委譲へ方針転換）。`row/update` の `"edit"` 段とは別物 |
 | Tier 4〜5 | `provider/recheck`・`trace/*` | 未実装（trace は凍結） |
@@ -212,7 +217,7 @@ Mix プロジェクトではない（`mix.exs` なし）。tezcatl と同じ規�
 
 `xipe do` の値は、`[...]` で囲むと常にリストになる（`[]` は空、`[10]` は1要素、
 `[1,2]` は2要素）。囲まずにカンマを含む値（`args=1,2`）もリストになり、それ以外は
-文字列のまま渡る。`row/add` は、ノードが存在し、引数の数がノードの arity と合うときだけ
+文字列のまま渡る。`row/add` は、ノードが存在し、引数の数がノードの arity（`anykey` が整数のとき）と合うときだけ
 行を作る。
 
 ---
@@ -238,6 +243,7 @@ Mix プロジェクトではない（`mix.exs` なし）。tezcatl と同じ規�
 | 提供元 | 構文解析・名前解決の結果を供給するもの（言語サーバー／基本動作） |
 | セッション | REPL アダプタが起動した REPL の1回の実行。世代番号を持つ |
 | 墓標 | 消失した対象を即削除せず保持する状態 |
+| anykey | ノードの照合キー（モジュール・関数名・anykey）の3つ目。同じモジュールの同名の関数を区別するために、言語の Scanner が入れる値。Elixir では arity（`add/2` と `add/3` は別の関数）。名前だけで一意な言語では空でよい。整数なら引数の数としても使われる（`row/add` の確認、`Calc.add/2` の表示）。住所では `arity` も別名として使える |
 | surface_table | 対象プロジェクトのファイルツリーを、パス・深さ・言語・REPL・ビルドツールの行にした表 |
 | エラー値 | 評価できなかったセルが持つ値。参照を通じて下流に伝わる |
 

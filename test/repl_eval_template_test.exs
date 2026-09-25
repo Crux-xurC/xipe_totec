@@ -11,7 +11,7 @@ defmodule ReplEvalTemplateTest do
   alias XipeTotec.{Book, Core}
   alias XipeTotec.Repl.EvalTemplate
 
-  defp pure_node(name), do: %{module: "M", name: name, arity: 1, effect: "pure", effect_source: "user"}
+  defp pure_node(name), do: %{module: "M", name: name, anykey: 1, effect: "pure", effect_source: "user"}
 
   defp entry_for(book, id, targets) do
     plan = Core.plan_recalc(book, "pass1", call_ids: targets)
@@ -182,6 +182,30 @@ defmodule ReplEvalTemplateTest do
       assert {:ok, _quoted} = Code.string_to_quoted(code)
       # the marker text itself keeps the raw call_id (just a string, no identifier constraint)
       assert code =~ "XT_BEGIN_c-1.x"
+    end
+
+    # Runs the built text in this process the way the session would, with
+    # `session` as the session's existing bindings.
+    defp run_built(entry, session \\ []) do
+      ExUnit.CaptureIO.capture_io(fn -> Code.eval_string(EvalTemplate.build(entry), session) end)
+    end
+
+    defp raw_entry(args),
+      do: %{call_id: "c1", module: "Kernel", name: "abs", args: args, inputs: [], limits: %{timeout: 2_000, max_heap_words: 50_000_000}}
+
+    test "a compile-time error in the arguments comes back as a crash marker instead of failing the whole statement" do
+      # both of these parse, so only compiling them can tell -- before the
+      # fix the session rejected the whole statement and the entry waited
+      # out the deadline as session_hung
+      assert run_built(raw_entry(["undefined_fn(1)"])) =~
+               ~s(XT_ERROR_c1 crash {:compile_error, "undefined function undefined_fn/1)
+
+      assert run_built(raw_entry(["x"])) =~ ~s(XT_ERROR_c1 crash {:compile_error, "undefined variable \\"x\\")
+    end
+
+    test "reference variables are taken from the session's bindings" do
+      out = run_built(raw_entry(["xt_up"]), xt_up: -5, xt_other: 1)
+      assert out =~ "XT_BEGIN_c1\nrepr=exact\ntype=integer\ncompare=none\ndisplay=5\nXT_END_c1"
     end
   end
 end

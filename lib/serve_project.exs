@@ -4,6 +4,8 @@ Code.require_file("dispatch.exs", __DIR__)
 Code.require_file("pipeline.exs", __DIR__)
 Code.require_file("protocol.exs", __DIR__)
 Code.require_file("in_out.exs", __DIR__)
+Code.require_file("core.exs", __DIR__)
+Code.require_file("runner.exs", __DIR__)
 
 defmodule XipeTotec.Serve.Project do
   @moduledoc """
@@ -30,13 +32,37 @@ defmodule XipeTotec.Serve.Project do
   under its own module name (no `{root, ...}` registry key needed the way
   tezcatl's `LspRegistry` has one, since a second project just means a
   second OS process on a second port).
+
+  ## Evaluation runs off this process
+
+  `"eval"` and `"eval/run"` (the same operation here) never evaluate
+  inside a `handle_call`: a pass can take as long as its REPL boot plus
+  every entry's timeout, and holding this GenServer for that long blocked
+  every other request from every session and, past `GenServer.call`'s 5s,
+  crashed the caller. Instead the request is answered at once with a
+  `pass_id` (`"status"` `"started"` or `"queued"`), the pass runs in a
+  separate process via `Runner.run/4` over a snapshot of the book, and on
+  completion its results are folded into the book *as it is then* (not
+  the snapshot -- other requests may have changed it meanwhile; a result
+  for a row removed during the pass is dropped), persisted, and broadcast
+  as the usual `notify/rowChanged` plus one `notify/passCompleted`
+  (`pass_id`, `ok`, and the wire-form `result` or `error`) -- this
+  server's own addition, the spec has no pass-level notify. One pass runs
+  at a time; later requests queue in arrival order.
   """
 
   use GenServer
 
-  alias XipeTotec.{Dispatch, InOut, Pipeline, Protocol, Store}
+  alias XipeTotec.{Core, Dispatch, InOut, Pipeline, Protocol, Runner, Store}
 
-  @type opts :: %{optional(:programs) => InOut.programs(), root: String.t(), store_file: Path.t()}
+  @type opts :: %{
+          optional(:programs) => InOut.programs(),
+          optional(:eval_opts) => keyword(),
+          root: String.t(),
+          store_file: Path.t()
+        }
+
+  @eval_methods ["eval", "eval/run"]
 
   @spec start_link(opts) :: GenServer.on_start()
   def start_link(opts), do: GenServer.start_link(__MODULE__, opts, name: __MODULE__)
@@ -85,7 +111,20 @@ defmodule XipeTotec.Serve.Project do
     # start_link/1 only so tests can inject a toy one (test/serve_project_test.exs);
     # a real deployment never needs to pass it.
     programs = Map.get(opts, :programs, InOut.programs())
-    {:ok, %{book: Store.load(store_file), root: root, store_file: store_file, sessions: %{}, programs: programs}}
+
+    # `:eval_opts` goes to `Runner.run/4` for every pass (tests inject a
+    # fake `:sender` here; a real deployment passes nothing).
+    {:ok,
+     %{
+       book: Store.load(store_file),
+       root: root,
+       store_file: store_file,
+       sessions: %{},
+       programs: programs,
+       eval_opts: Map.get(opts, :eval_opts, []),
+       running: nil,
+       queue: :queue.new()
+     }}
   end
 
   @impl true
@@ -96,6 +135,11 @@ defmodule XipeTotec.Serve.Project do
       mon = Process.monitor(session_pid)
       {:reply, :ok, put_in(state.sessions[session_pid], mon)}
     end
+  end
+
+  def handle_call({:request, method, params}, _from, state) when method in @eval_methods do
+    {reply, state} = enqueue_pass(params, state)
+    {:reply, {:ok, reply}, state}
   end
 
   def handle_call({:request, method, params}, _from, state) do
@@ -129,6 +173,12 @@ defmodule XipeTotec.Serve.Project do
     end
   end
 
+  def handle_call({:request_dialogue, dialogue, method, params, _opts}, _from, state) when method in @eval_methods do
+    {reply, state} = enqueue_pass(params, state)
+    outcome = %{hold: false, via_repl: true, text: nil, ok?: true, result: reply, error: nil}
+    {:reply, {dialogue, outcome}, state}
+  end
+
   def handle_call({:request_dialogue, dialogue, method, params, opts}, _from, state) do
     {new_dialogue, new_book, outcome} =
       InOut.handle(dialogue, state.book, state.root, %{"method" => method, "params" => params}, opts, state.programs)
@@ -152,6 +202,43 @@ defmodule XipeTotec.Serve.Project do
   end
 
   @impl true
+  def handle_info({:pass_done, pass_id, outcome}, %{running: %{pass_id: pass_id, ref: ref}} = state) do
+    Process.demonitor(ref, [:flush])
+
+    state =
+      if outcome.ok? do
+        results = Enum.filter(outcome.result["results"], &Map.has_key?(state.book.calls, &1.call_id))
+        ctx = Keyword.get(state.eval_opts, :ctx, %{commit: nil, commit_at: nil, dirty: nil})
+        new_book = Core.apply_results(state.book, ctx, results)
+        Store.persist_diff(state.store_file, state.book, new_book, [:calls])
+        broadcast_changes(state.book, new_book, state.sessions)
+
+        push(state.sessions, "notify/passCompleted", %{
+          "pass_id" => pass_id,
+          "ok" => true,
+          "result" => Protocol.wire_result(%{outcome.result | "results" => results})
+        })
+
+        %{state | book: new_book}
+      else
+        push(state.sessions, "notify/passCompleted", %{"pass_id" => pass_id, "ok" => false, "error" => outcome.error})
+        state
+      end
+
+    {:noreply, start_next_pass(%{state | running: nil})}
+  end
+
+  # the pass process died without reporting (a crash inside Runner/Evaluator)
+  def handle_info({:DOWN, ref, :process, _pid, reason}, %{running: %{ref: ref, pass_id: pass_id}} = state) do
+    push(state.sessions, "notify/passCompleted", %{
+      "pass_id" => pass_id,
+      "ok" => false,
+      "error" => %{"code" => "eval_failed", "message" => inspect(reason)}
+    })
+
+    {:noreply, start_next_pass(%{state | running: nil})}
+  end
+
   def handle_info({:DOWN, mon, :process, session_pid, _reason}, state) do
     if Map.get(state.sessions, session_pid) == mon do
       {:noreply, drop_session(session_pid, state)}
@@ -163,6 +250,34 @@ defmodule XipeTotec.Serve.Project do
   def handle_info(_other, state), do: {:noreply, state}
 
   defp drop_session(session_pid, state), do: %{state | sessions: Map.delete(state.sessions, session_pid)}
+
+  defp enqueue_pass(params, state) do
+    pass_id = XipeTotec.Id.ulid()
+    status = if state.running, do: "queued", else: "started"
+    state = start_next_pass(%{state | queue: :queue.in({pass_id, params}, state.queue)})
+    {%{"pass_id" => pass_id, "status" => status}, state}
+  end
+
+  defp start_next_pass(%{running: nil} = state) do
+    case :queue.out(state.queue) do
+      {{:value, {pass_id, params}}, rest} ->
+        server = self()
+        %{book: book, root: root, eval_opts: eval_opts} = state
+
+        {pid, ref} =
+          spawn_monitor(fn ->
+            {_book, [outcome]} = Runner.run(book, root, [%{"method" => "eval", "params" => params}], eval_opts)
+            send(server, {:pass_done, pass_id, outcome})
+          end)
+
+        %{state | queue: rest, running: %{pass_id: pass_id, pid: pid, ref: ref}}
+
+      {:empty, _} ->
+        state
+    end
+  end
+
+  defp start_next_pass(state), do: state
 
   # notify/rowChanged and notify/nodeChanged only -- the spec has no
   # "removed" notify method, so a tombstoned id (row/remove, or a rescan

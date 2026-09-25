@@ -13,9 +13,9 @@ defmodule AddressTest do
       Book.new()
       |> Book.put(:sheets, "s1", %{path: "lib/shop/price.ex"})
       |> Book.put(:sheets, "s2", %{path: "lib/shop/tax.ex"})
-      |> Book.put(:nodes, "n1", %{sheet: "s1", module: "Shop.Price", name: "add_tax", arity: 2})
-      |> Book.put(:nodes, "n2", %{sheet: "s1", module: "Shop.Price", name: "add_tax", arity: 1})
-      |> Book.put(:nodes, "n3", %{sheet: "s2", module: "Shop.Tax", name: "add_tax", arity: 2})
+      |> Book.put(:nodes, "n1", %{sheet: "s1", module: "Shop.Price", name: "add_tax", anykey: 2})
+      |> Book.put(:nodes, "n2", %{sheet: "s1", module: "Shop.Price", name: "add_tax", anykey: 1})
+      |> Book.put(:nodes, "n3", %{sheet: "s2", module: "Shop.Tax", name: "add_tax", anykey: 2})
       |> Book.put(:calls, "c1", %{node: "n1", args: ["100"]})
 
     {:ok, book: book}
@@ -45,6 +45,14 @@ defmodule AddressTest do
 
   test "a non-numeric arity string matches nothing rather than raising", %{book: book} do
     assert Address.resolve(book, %{"arity" => "two"}) == {:ok, []}
+  end
+
+  test "anykey is the column arity aliases, and matches a string anykey as-is", %{book: book} do
+    assert Address.resolve(book, %{"module" => "Shop.Price", "anykey" => "1"}) ==
+             Address.resolve(book, %{"module" => "Shop.Price", "arity" => 1})
+
+    book = Book.put(book, :nodes, "n9", %{sheet: "s9", module: "Hs.Main", name: "go", anykey: "main"})
+    assert {:ok, [{:nodes, "n9", _}]} = Address.resolve(book, %{"anykey" => "main"})
   end
 
   test "row bypasses node/file filtering and looks the call up directly", %{book: book} do

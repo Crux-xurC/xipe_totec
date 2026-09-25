@@ -15,9 +15,9 @@ defmodule XipeTotec.SurfaceTable do
   rows, and only the one build tool this codebase already knew how to
   detect** (§26's co-design, following on from §25.5's placeholder
   version): `build_tool` is `"mix"` when `mix.exs` exists at `dir`'s
-  root, `nil` otherwise (the exact check `Runner.launch_opts_for/2` used
-  to make inline -- moved here, not duplicated, `launch_opts_for/2` now
-  reads it off these rows instead); `repl` is always `"iex"` for Elixir,
+  root, `nil` otherwise (the exact check `Runner` used to make inline --
+  moved here, not duplicated; `Runner` now reads it off these rows and
+  hands it to the language's `Repl.Language.launch_opts/2`); `repl` is always `"iex"` for Elixir,
   since Elixir has exactly one REPL regardless of build tool. Every
   *other* language, and every other build tool (Haskell's `stack.yaml`/
   `*.cabal`, a project's own `flake.nix`/`shell.nix` needing a `nix

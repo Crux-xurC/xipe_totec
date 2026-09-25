@@ -35,9 +35,9 @@ defmodule InOutTest do
   # (Dispatch, Old.md §32), so every book a row/add reaches carries these.
   defp book do
     Book.new()
-    |> XipeTotec.Core.put_node("N", %{module: "M", name: "n", arity: 1})
-    |> XipeTotec.Core.put_node("N0", %{module: "M", name: "n0", arity: 0})
-    |> XipeTotec.Core.put_node("Toy.f/1", %{module: "Toy", name: "f", arity: 1})
+    |> XipeTotec.Core.put_node("N", %{module: "M", name: "n", anykey: 1})
+    |> XipeTotec.Core.put_node("N0", %{module: "M", name: "n0", anykey: 0})
+    |> XipeTotec.Core.put_node("Toy.f/1", %{module: "Toy", name: "f", anykey: 1})
   end
 
   test "an ordinary command with no dialogue held passes straight through, tagged 01" do

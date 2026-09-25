@@ -28,7 +28,9 @@ defmodule XipeTotec.Address do
   @type address :: %{optional(String.t()) => String.t() | integer()}
   @type match :: {Book.table(), String.t(), Book.row()}
 
-  @known_columns ~w(file module name arity row)
+  # `arity` (spec §6.1's own column name, and what tezcatl sends) is kept
+  # as an alias of `anykey`, the node column it now matches
+  @known_columns ~w(file module name anykey arity row)
 
   @doc """
   Resolve `address` against `book`. `{:ok, matches}` -- empty means no
@@ -67,7 +69,7 @@ defmodule XipeTotec.Address do
       {"file", path} -> sheet_path(book, row.sheet) == path
       {"module", v} -> row.module == v
       {"name", v} -> row.name == v
-      {"arity", v} -> arity_eq?(row.arity, v)
+      {col, v} when col in ["anykey", "arity"] -> anykey_eq?(row.anykey, v)
       {"row", _} -> true
     end)
   end
@@ -79,12 +81,14 @@ defmodule XipeTotec.Address do
     end
   end
 
-  defp arity_eq?(row_arity, v) when is_integer(v), do: row_arity == v
+  defp anykey_eq?(row_key, v) when is_integer(v), do: row_key == v
 
-  defp arity_eq?(row_arity, v) when is_binary(v) do
+  defp anykey_eq?(row_key, v) when is_binary(v) do
+    # a CLI/URL value is always a string: "2" matches Elixir's integer
+    # anykey 2, and any string matches a string anykey as-is
     case Integer.parse(v) do
-      {n, ""} -> row_arity == n
-      _ -> false
+      {n, ""} -> row_key == n or row_key == v
+      _ -> row_key == v
     end
   end
 end

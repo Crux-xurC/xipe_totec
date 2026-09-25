@@ -77,7 +77,7 @@ defmodule XipeTotec.Serve.Socket do
 
         body =
           if outcome.ok? do
-            Protocol.encode_response(id, {:ok, outcome.result || %{}}, envelope)
+            Protocol.encode_response(id, {:ok, Protocol.wire_result(outcome.result) || %{}}, envelope)
           else
             Protocol.encode_response(id, {:error, outcome.error}, envelope)
           end

@@ -137,7 +137,7 @@ defmodule XipeTotec.CLI do
     end
 
     for {id, row} <- book.nodes do
-      IO.puts("node  #{id}  #{row.module}.#{row.name}/#{row.arity}  effect=#{row.effect}")
+      IO.puts("node  #{id}  #{Core.node_label(row)}  effect=#{row.effect}")
     end
 
     for {_id, row} <- book.links do
@@ -212,8 +212,9 @@ defmodule XipeTotec.CLI do
     if target_ids == [] do
       IO.puts("xipe eval: nothing to evaluate (book has no calls -- add some with `xipe do row/add ...` first)")
     else
-      # --mix forces Runner's own scripts-vs-mix auto-detection
-      # (launch_opts_for/2) off in favor of the mix-mode default;
+      # --mix forces Runner's own scripts-vs-mix auto-detection (the
+      # language's Repl.Language.launch_opts/2) off in favor of the
+      # mix-mode default;
       # otherwise leave :launch_opts unset and let Runner decide from
       # the project's surface table.
       evaluator_opts = if opts[:mix], do: [launch_opts: []], else: []

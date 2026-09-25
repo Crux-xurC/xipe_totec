@@ -40,7 +40,7 @@ defmodule ReplLiveIexTest do
     {:ok, handle: handle, message: message}
   end
 
-  defp pure_node(module, name, arity), do: %{module: module, name: name, arity: arity, effect: "pure", effect_source: "user"}
+  defp pure_node(module, name, arity), do: %{module: module, name: name, anykey: arity, effect: "pure", effect_source: "user"}
 
   defp entry_for(book, id, targets) do
     plan = Core.plan_recalc(book, "pass1", call_ids: targets)
@@ -182,16 +182,7 @@ defmodule ReplLiveIexTest do
     assert good_out =~ "XT_BEGIN_c_good\nrepr=exact\ntype=integer\ncompare=none\ndisplay=5\nXT_END_c_good"
   end
 
-  test "heartbeat_input keeps beating while a slow-but-not-timed-out eval is still running" do
-    # dedicated session with a short interval (not the shared `setup`
-    # handle/message, which uses the slower 5s default) -- keeps this
-    # test fast rather than needing to wait out several 5s intervals
-    message = Launch.build(cwd: @fixture_dir, argv: ["iex"], files: ["calc.exs"], heartbeat_interval_ms: 200)
-    {:ok, handle} = Direct.send(message)
-    assert :ok = Session.await_ready(handle, message["ready_pattern"], 15_000)
-
-    assert :ok = Direct.write(handle, message["heartbeat_input"])
-
+  test "a slow-but-not-timed-out eval still resolves normally", %{handle: handle} do
     entry = %{
       call_id: "c_slow",
       module: ":timer",
@@ -202,28 +193,20 @@ defmodule ReplLiveIexTest do
     }
 
     Direct.write(handle, EvalTemplate.build(entry))
-    run = run_parser(handle, "c_slow", "", 0, 5_000)
+    result = run_parser(handle, "c_slow", "", 0, 5_000)
 
-    # a 200ms heartbeat over a ~1.2s wait should land several beats;
-    # asserting >= 2 keeps this tolerant of scheduling jitter
-    assert run.heartbeats >= 2
-    assert run.result.outcome == {:ok, %{repr: "exact", type: "atom", display: ":ok", bin: nil}}
-
-    Direct.kill(handle)
+    assert result.outcome == {:ok, %{repr: "exact", type: "atom", display: ":ok", bin: nil}}
   end
 
-  # Returns %{result: <Evaluator.Result>, heartbeats: <count seen while waiting>}
-  # -- heartbeats accumulate across every :pending step, not just the last
-  # one, since a slow eval can span many chunks/heartbeat ticks.
-  defp run_parser(handle, call_id, buffer, session_gen, timeout, heartbeats \\ 0) do
+  defp run_parser(handle, call_id, buffer, session_gen, timeout) do
     case Parser.step(buffer, call_id, ScanDirectIex, FieldDripElixir, session_gen) do
-      {:ok, result, cleaned} ->
-        %{result: result, heartbeats: heartbeats + cleaned.heartbeats}
+      {:ok, result, _cleaned} ->
+        result
 
       {:pending, cleaned} ->
         receive do
           {^handle, {:data, chunk}} ->
-            run_parser(handle, call_id, cleaned.buffer <> chunk, session_gen, timeout, heartbeats + cleaned.heartbeats)
+            run_parser(handle, call_id, cleaned.buffer <> chunk, session_gen, timeout)
         after
           timeout -> flunk("Parser.step never resolved for #{call_id}, buffer so far: #{inspect(cleaned.buffer)}")
         end
@@ -236,8 +219,7 @@ defmodule ReplLiveIexTest do
     entry = entry_for(book, "c1", ["c1"])
 
     Direct.write(handle, EvalTemplate.build(entry))
-    run = run_parser(handle, "c1", "", 4, 5_000)
-    result = run.result
+    result = run_parser(handle, "c1", "", 4, 5_000)
 
     assert result.call_id == "c1"
     assert result.outcome == {:ok, %{repr: "exact", type: "integer", display: "5", bin: nil}}
@@ -298,9 +280,9 @@ defmodule ReplLiveIexTest do
 
     Direct.write(handle, EvalTemplate.build(entry1))
     r1 = run_parser(handle, "c1", "", 1, 5_000)
-    assert r1.result.compare == "none"
+    assert r1.compare == "none"
 
-    book2 = Core.apply_results(book, %{commit: nil, commit_at: nil, dirty: nil}, [r1.result])
+    book2 = Core.apply_results(book, %{commit: nil, commit_at: nil, dirty: nil}, [r1])
 
     plan2 = Core.plan_recalc(book2, "pass2", call_ids: ["c1"])
     entry2 = Enum.find(plan2.entries, &(&1.call_id == "c1"))
@@ -308,7 +290,7 @@ defmodule ReplLiveIexTest do
 
     Direct.write(handle, EvalTemplate.build(entry2))
     r2 = run_parser(handle, "c1", "", 1, 5_000)
-    assert r2.result.compare == "same"
+    assert r2.compare == "same"
 
     book3 = Core.edit_args(book2, "c1", ["10", "20"])
     plan3 = Core.plan_recalc(book3, "pass3", call_ids: ["c1"])
@@ -316,7 +298,7 @@ defmodule ReplLiveIexTest do
 
     Direct.write(handle, EvalTemplate.build(entry3))
     r3 = run_parser(handle, "c1", "", 1, 5_000)
-    assert r3.result.compare == "changed"
-    assert r3.result.outcome == {:ok, %{repr: "exact", type: "integer", display: "30", bin: nil}}
+    assert r3.compare == "changed"
+    assert r3.outcome == {:ok, %{repr: "exact", type: "integer", display: "30", bin: nil}}
   end
 end

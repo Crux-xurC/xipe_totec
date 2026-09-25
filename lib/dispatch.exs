@@ -52,14 +52,16 @@ defmodule XipeTotec.Dispatch do
 
   def handle(book, "scan/run", _params, ctx) do
     root = Map.fetch!(ctx, :root)
-    {new_book, paths} = Project.scan_dir(book, root)
+    {new_book, paths, link_failures} = Project.scan_dir(book, root)
 
     {:ok, new_book,
      %{
        "paths" => paths,
        "sheets" => map_size(new_book.sheets),
        "nodes" => map_size(new_book.nodes),
-       "links" => map_size(new_book.links)
+       "links" => map_size(new_book.links),
+       "link_failures" =>
+         Enum.map(link_failures, &%{"path" => &1.path, "module" => &1.module, "reason" => &1.reason})
      }}
   end
 
@@ -79,9 +81,13 @@ defmodule XipeTotec.Dispatch do
       node == nil ->
         {:error, book, not_found("node", node_id)}
 
-      length(args) != node.arity ->
+      # only an integer anykey is an argument count (Scanner.Elixir's arity);
+      # another scanner's anykey says nothing about how many args to expect
+      is_integer(node[:anykey]) and length(args) != node.anykey ->
         {:error, book,
-         invalid_params("row/add: #{node.module}.#{node.name}/#{node.arity} takes #{node.arity} arg(s), got #{length(args)}: #{inspect(args)}")}
+         invalid_params(
+           "row/add: #{Core.node_label(node)} takes #{node.anykey} arg(s), got #{length(args)}: #{inspect(args)}"
+         )}
 
       true ->
         id = Id.ulid()

@@ -27,7 +27,7 @@ defmodule BookTest do
   test "find_node_by_natural_key/4 matches on (module, name, arity)" do
     book =
       Book.new()
-      |> Book.put(:nodes, "n1", %{module: "Shop.Price", name: "add_tax", arity: 2})
+      |> Book.put(:nodes, "n1", %{module: "Shop.Price", name: "add_tax", anykey: 2})
 
     assert Book.find_node_by_natural_key(book, "Shop.Price", "add_tax", 2) == "n1"
     assert Book.find_node_by_natural_key(book, "Shop.Price", "add_tax", 1) == nil

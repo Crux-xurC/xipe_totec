@@ -37,7 +37,7 @@ defmodule RunnerTest do
   alias XipeTotec.Runner
   alias RunnerTest.EchoSender
 
-  defp pure_node(name), do: %{module: "M", name: name, arity: 1, effect: "pure", effect_source: "user"}
+  defp pure_node(name), do: %{module: "M", name: name, anykey: 1, effect: "pure", effect_source: "user"}
 
   test "a single Dispatch command runs and folds into the book" do
     book = Book.new() |> Core.put_node("n1", pure_node("f"))
@@ -102,7 +102,7 @@ defmodule RunnerTest do
     book =
       Book.new()
       |> Core.put_node("n1", pure_node("f"))
-      |> Core.put_node("n2", %{pure_node("g") | arity: 2})
+      |> Core.put_node("n2", %{pure_node("g") | anykey: 2})
       |> Core.add_call("c1", %{node: "n1", args: ["1"]})
 
     commands = [
@@ -154,7 +154,7 @@ defmodule RunnerTest do
   test "an \"eval\" command excludes a writes-effect row by default (filter_by_effect/3's own default)" do
     book =
       Book.new()
-      |> Core.put_node("n1", %{module: "M", name: "f", arity: 1, effect: "writes", effect_source: "user"})
+      |> Core.put_node("n1", %{module: "M", name: "f", anykey: 1, effect: "writes", effect_source: "user"})
       |> Core.add_call("c1", %{node: "n1", args: ["1"]})
 
     commands = [%{"method" => "eval", "params" => %{"call_ids" => ["c1"]}}]
@@ -168,7 +168,7 @@ defmodule RunnerTest do
   test "an eval over an unclassified node reports it under not_run instead of silently doing nothing (Old.md §33)" do
     book =
       Book.new()
-      |> Core.put_node("n1", %{module: "M", name: "f", arity: 1, effect: "unknown", effect_source: nil})
+      |> Core.put_node("n1", %{module: "M", name: "f", anykey: 1, effect: "unknown", effect_source: nil})
       |> Core.add_call("c1", %{node: "n1", args: ["1"]})
 
     commands = [%{"method" => "eval", "params" => %{"call_ids" => ["c1"]}}]
@@ -183,7 +183,7 @@ defmodule RunnerTest do
   test "\"include_writes\" => true in an \"eval\" command's params opts a writes-effect row in (Old.md §16.2/§16.4, previously unwired)" do
     book =
       Book.new()
-      |> Core.put_node("n1", %{module: "M", name: "f", arity: 1, effect: "writes", effect_source: "user"})
+      |> Core.put_node("n1", %{module: "M", name: "f", anykey: 1, effect: "writes", effect_source: "user"})
       |> Core.add_call("c1", %{node: "n1", args: ["1"]})
 
     commands = [%{"method" => "eval", "params" => %{"call_ids" => ["c1"], "include_writes" => true}}]
@@ -197,7 +197,7 @@ defmodule RunnerTest do
   test "\"include_writes\" also accepts the plain string \"true\" that `xipe do`'s generic key=value parsing produces" do
     book =
       Book.new()
-      |> Core.put_node("n1", %{module: "M", name: "f", arity: 1, effect: "writes", effect_source: "user"})
+      |> Core.put_node("n1", %{module: "M", name: "f", anykey: 1, effect: "writes", effect_source: "user"})
       |> Core.add_call("c1", %{node: "n1", args: ["1"]})
 
     commands = [%{"method" => "eval", "params" => %{"call_ids" => ["c1"], "include_writes" => "true"}}]
@@ -305,6 +305,32 @@ defmodule RunnerTest do
     # default argv (["iex", "-S", "mix"]) is what actually shows up here.
     assert message["argv"] == ["iex", "-S", "mix"]
     assert message["files"] == []
+  end
+
+  test "an eval under a root with no file of a registered language is refused, not run with a guessed REPL" do
+    dir = Path.join(System.tmp_dir!(), "xipe_totec_runner_nolang_test_#{System.unique_integer([:positive])}")
+    File.mkdir_p!(dir)
+    on_exit(fn -> File.rm_rf!(dir) end)
+    File.write!(Path.join(dir, "Main.hs"), "main = pure ()\n")
+
+    book = Book.new() |> Core.put_node("n1", pure_node("f")) |> Core.add_call("c1", %{node: "n1", args: ["1"]})
+    commands = [%{"method" => "eval", "params" => %{"call_ids" => ["c1"]}}]
+
+    {^book, [outcome]} = Runner.run(book, dir, commands, sender: RecordingSender)
+
+    refute outcome.ok?
+    assert outcome.error["code"] == "no_language"
+    assert Process.get(:recorded_launch_message) == nil
+  end
+
+  test "an explicit :language must be registered in info.json" do
+    book = Book.new() |> Core.put_node("n1", pure_node("f")) |> Core.add_call("c1", %{node: "n1", args: ["1"]})
+    commands = [%{"method" => "eval", "params" => %{"call_ids" => ["c1"]}}]
+
+    {^book, [outcome]} = Runner.run(book, ".", commands, sender: EchoSender, launch_opts: [], language: "haskell")
+
+    refute outcome.ok?
+    assert outcome.error["code"] == "language_not_registered"
   end
 
   test "eval/run and row/update route through Pipeline, not Dispatch's own @not_implemented" do

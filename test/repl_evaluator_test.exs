@@ -165,7 +165,7 @@ defmodule ReplEvaluatorTest do
   alias XipeTotec.Repl.Evaluator
   alias ReplEvaluatorTest.{EchoSender, RefusingSender, SilentSender}
 
-  defp pure_node(name), do: %{module: "M", name: name, arity: 1, effect: "pure", effect_source: "user"}
+  defp pure_node(name), do: %{module: "M", name: name, anykey: 1, effect: "pure", effect_source: "user"}
 
   test "an empty plan short-circuits without ever calling the sender" do
     book = Book.new()

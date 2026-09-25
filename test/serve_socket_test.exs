@@ -35,8 +35,8 @@ defmodule ServeSocketTest do
     # Old.md §32): seed the store before the project loads it.
     nodes =
       XipeTotec.Book.new()
-      |> XipeTotec.Core.put_node("n0", %{sheet: "s0", module: "M", name: "f0", arity: 0})
-      |> XipeTotec.Core.put_node("n1", %{sheet: "s0", module: "M", name: "f1", arity: 1})
+      |> XipeTotec.Core.put_node("n0", %{sheet: "s0", module: "M", name: "f0", anykey: 0})
+      |> XipeTotec.Core.put_node("n1", %{sheet: "s0", module: "M", name: "f1", anykey: 1})
 
     XipeTotec.Store.persist_diff(store_file, XipeTotec.Book.new(), nodes, [:nodes])
 

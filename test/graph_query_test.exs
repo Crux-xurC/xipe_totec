@@ -11,10 +11,10 @@ defmodule GraphQueryTest do
   setup do
     book =
       Book.new()
-      |> Book.put(:nodes, "n1", %{module: "M", name: "a", arity: 0})
-      |> Book.put(:nodes, "n2", %{module: "M", name: "b", arity: 0})
-      |> Book.put(:nodes, "n3", %{module: "M", name: "c", arity: 0})
-      |> Book.put(:nodes, "n4", %{module: "M", name: "unrelated", arity: 0})
+      |> Book.put(:nodes, "n1", %{module: "M", name: "a", anykey: 0})
+      |> Book.put(:nodes, "n2", %{module: "M", name: "b", anykey: 0})
+      |> Book.put(:nodes, "n3", %{module: "M", name: "c", anykey: 0})
+      |> Book.put(:nodes, "n4", %{module: "M", name: "unrelated", anykey: 0})
       |> Book.put(:links, "l1", %{node: "n1", role: "to", ref: "n2", clause: nil, guard: nil})
       |> Book.put(:links, "l2", %{node: "n2", role: "to", ref: "n3", clause: nil, guard: nil})
       |> Book.put(:calls, "c1", %{node: "n1", args: ["1"], result: "2"})

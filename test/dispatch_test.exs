@@ -24,14 +24,14 @@ defmodule DispatchTest do
 
     test "scans ctx.root and reports counts", %{dir: dir} do
       assert {:ok, book, result} = Dispatch.handle(Book.new(), "scan/run", %{}, %{root: dir})
-      assert result == %{"paths" => ["lib/a.ex"], "sheets" => 1, "nodes" => 1, "links" => 0}
+      assert result == %{"paths" => ["lib/a.ex"], "sheets" => 1, "nodes" => 1, "links" => 0, "link_failures" => []}
       assert map_size(book.nodes) == 1
     end
   end
 
   describe "row/add" do
     test "mints an id and returns the stored row" do
-      book = Book.new() |> Core.put_node("n1", %{module: "M", name: "f", arity: 1})
+      book = Book.new() |> Core.put_node("n1", %{module: "M", name: "f", anykey: 1})
       assert {:ok, new_book, %{"id" => id, "row" => row}} =
                Dispatch.handle(book, "row/add", %{"node" => "n1", "args" => ["1"]}, %{})
 
@@ -56,7 +56,7 @@ defmodule DispatchTest do
     end
 
     test "rejects args that don't match the node's arity, naming the function (Old.md §32)" do
-      book = Book.new() |> Core.put_node("n1", %{module: "M", name: "f", arity: 1})
+      book = Book.new() |> Core.put_node("n1", %{module: "M", name: "f", anykey: 1})
 
       assert {:error, ^book, %{"code" => "invalid_params", "message" => message}} =
                Dispatch.handle(book, "row/add", %{"node" => "n1", "args" => ["3", ""]}, %{})
@@ -65,8 +65,13 @@ defmodule DispatchTest do
       assert message =~ "got 2"
     end
 
+    test "doesn't count args against a non-integer anykey (another scanner's key, not an arity)" do
+      book = Book.new() |> Core.put_node("n1", %{module: "M", name: "f", anykey: nil})
+      assert {:ok, _book, %{"row" => %{args: ["1", "2", "3"]}}} = Dispatch.handle(book, "row/add", %{"node" => "n1", "args" => ["1", "2", "3"]}, %{})
+    end
+
     test "accepts a 0-arity node with an empty args list" do
-      book = Book.new() |> Core.put_node("n0", %{module: "M", name: "g", arity: 0})
+      book = Book.new() |> Core.put_node("n0", %{module: "M", name: "g", anykey: 0})
       assert {:ok, _book, %{"row" => %{args: []}}} = Dispatch.handle(book, "row/add", %{"node" => "n0", "args" => []}, %{})
     end
 
@@ -91,7 +96,7 @@ defmodule DispatchTest do
 
   describe "effect/set" do
     test "sets a valid effect on an existing node" do
-      book = Book.new() |> Core.put_node("n1", %{module: "M", name: "f", arity: 1})
+      book = Book.new() |> Core.put_node("n1", %{module: "M", name: "f", anykey: 1})
 
       assert {:ok, new_book, %{"id" => "n1", "effect" => "pure"}} =
                Dispatch.handle(book, "effect/set", %{"id" => "n1", "effect" => "pure"}, %{})
@@ -100,7 +105,7 @@ defmodule DispatchTest do
     end
 
     test "rejects an invalid effect value without crashing" do
-      book = Book.new() |> Core.put_node("n1", %{module: "M", name: "f", arity: 1})
+      book = Book.new() |> Core.put_node("n1", %{module: "M", name: "f", anykey: 1})
 
       assert {:error, ^book, %{"code" => "invalid_params"}} =
                Dispatch.handle(book, "effect/set", %{"id" => "n1", "effect" => "nonsense"}, %{})
@@ -119,7 +124,7 @@ defmodule DispatchTest do
       book =
         Book.new()
         |> Core.put_sheet("s1", %{path: "lib/shop/price.ex"})
-        |> Core.put_node("n1", %{sheet: "s1", module: "Shop.Price", name: "add_tax", arity: 2})
+        |> Core.put_node("n1", %{sheet: "s1", module: "Shop.Price", name: "add_tax", anykey: 2})
         |> Core.add_call("c1", %{node: "n1", args: ["100"]})
 
       {:ok, book: book}
@@ -164,8 +169,8 @@ defmodule DispatchTest do
     setup do
       book =
         Book.new()
-        |> Core.put_node("n1", %{module: "M", name: "a", arity: 0})
-        |> Core.put_node("n2", %{module: "M", name: "b", arity: 0})
+        |> Core.put_node("n1", %{module: "M", name: "a", anykey: 0})
+        |> Core.put_node("n2", %{module: "M", name: "b", anykey: 0})
         |> Book.put(:links, "l1", %{node: "n1", role: "to", ref: "n2", clause: nil, guard: nil})
 
       {:ok, book: book}
@@ -212,7 +217,7 @@ defmodule DispatchTest do
     setup do
       book =
         Book.new()
-        |> Core.put_node("n1", %{module: "M", name: "f", arity: 1})
+        |> Core.put_node("n1", %{module: "M", name: "f", anykey: 1})
         |> Core.add_call("c1", %{node: "n1", args: ["1"]})
         |> Book.put(:calls, "c1", %{node: "n1", args: ["1"], result: "2", repr: "integer", state: "ok"})
 

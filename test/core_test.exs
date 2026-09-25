@@ -8,7 +8,7 @@ defmodule CoreTest do
 
   alias XipeTotec.{Book, Core}
 
-  defp pure_node(name), do: %{module: "M", name: name, arity: 1, effect: "pure", effect_source: "user"}
+  defp pure_node(name), do: %{module: "M", name: name, anykey: 1, effect: "pure", effect_source: "user"}
 
   describe "refs_in_args/1" do
     test "extracts every ⟦id⟧ token, de-duplicated" do
@@ -147,8 +147,8 @@ defmodule CoreTest do
       book =
         Book.new()
         |> Core.put_node("n_pure", pure_node("f"))
-        |> Core.put_node("n_writes", %{module: "M", name: "g", arity: 1, effect: "writes", effect_source: "user"})
-        |> Core.put_node("n_unset", %{module: "M", name: "h", arity: 1, effect: "unknown", effect_source: nil})
+        |> Core.put_node("n_writes", %{module: "M", name: "g", anykey: 1, effect: "writes", effect_source: "user"})
+        |> Core.put_node("n_unset", %{module: "M", name: "h", anykey: 1, effect: "unknown", effect_source: nil})
         |> Core.add_call("c_pure", %{node: "n_pure", args: []})
         |> Core.add_call("c_writes", %{node: "n_writes", args: []})
         |> Core.add_call("c_unset", %{node: "n_unset", args: []})
@@ -172,7 +172,7 @@ defmodule CoreTest do
   describe "exclusion_reason/3 (Old.md §33: why plan_recalc/3 leaves a call out)" do
     defp excl_book(effect, source) do
       Book.new()
-      |> Core.put_node("n1", %{module: "M", name: "f", arity: 1, effect: effect, effect_source: source})
+      |> Core.put_node("n1", %{module: "M", name: "f", anykey: 1, effect: effect, effect_source: source})
       |> Core.add_call("c1", %{node: "n1", args: ["1"]})
     end
 
@@ -234,7 +234,7 @@ defmodule CoreTest do
     test "a plan-external exact-repr reference is embedded as literal text", %{book: book} do
       plan = Core.plan_recalc(book, "pass1", call_ids: ["c2"])
 
-      assert [%{call_id: "c2", module: "M", name: "g", arity: 1, args: ["1 + 1"], inputs: []}] =
+      assert [%{call_id: "c2", module: "M", name: "g", anykey: 1, args: ["1 + 1"], inputs: []}] =
                plan.entries
     end
 
@@ -276,7 +276,7 @@ defmodule CoreTest do
          %{book: book} do
       book =
         book
-        |> Core.put_node("n3", %{module: "M", name: "h", arity: 0, effect: "writes", effect_source: "user"})
+        |> Core.put_node("n3", %{module: "M", name: "h", anykey: 0, effect: "writes", effect_source: "user"})
         |> Core.add_call("c5", %{node: "n3", args: [], result: "#PID<0.2.0>", repr: "unsupported", session: 3})
         |> Core.add_call("c6", %{node: "n2", args: ["⟦c5⟧"]})
 
@@ -337,7 +337,7 @@ defmodule CoreTest do
       # shape as a plain :binding).
       book =
         Book.new()
-        |> Core.put_node("n1", %{module: "M", name: "base", arity: 0, effect: "unknown", effect_source: nil})
+        |> Core.put_node("n1", %{module: "M", name: "base", anykey: 0, effect: "unknown", effect_source: nil})
         |> Core.put_node("n2", pure_node("mid"))
         |> Core.put_node("n3", pure_node("top"))
         |> Core.add_call("c_base", %{node: "n1", args: []})
@@ -456,6 +456,11 @@ defmodule CoreTest do
         |> Core.add_call("c1", %{node: "n1", args: []})
 
       assert Core.call_label(book, "c1") == "M.f/1"
+    end
+
+    test "leaves the /anykey suffix off a node without one" do
+      assert Core.node_label(%{module: "Hs.Main", name: "go", anykey: nil}) == "Hs.Main.go"
+      assert Core.node_label(%{module: "M", name: "f", anykey: 2}) == "M.f/2"
     end
 
     test "nil for an unknown call id" do

@@ -4,7 +4,7 @@ Code.require_file("project.exs", __DIR__)
 Code.require_file("surface_table.exs", __DIR__)
 Code.require_file("pipeline.exs", __DIR__)
 Code.require_file("repl/evaluator.exs", __DIR__)
-Code.require_file("repl/source_sanitize.exs", __DIR__)
+Code.require_file("info.exs", __DIR__)
 
 defmodule XipeTotec.Runner do
   @moduledoc """
@@ -18,7 +18,7 @@ defmodule XipeTotec.Runner do
   the same list without needing a translation layer. `run/4` is this
   module's one entry point; everything else here is private.
 
-Three kinds of command, dispatched by method name:
+  Three kinds of command, dispatched by method name:
 
     * every method `Dispatch` already knows (`"row/add"`, `"effect/set"`,
       `"scan/run"`, `"cell/resolve"`, `"graph/neighbors"`, ...) is handed
@@ -57,8 +57,8 @@ Three kinds of command, dispatched by method name:
   that failed (no result) resolves to `nil`.
   """
 
-  alias XipeTotec.{Book, Core, Dispatch, Pipeline, Project, SurfaceTable}
-  alias XipeTotec.Repl.{Evaluator, SourceSanitize}
+  alias XipeTotec.{Book, Core, Dispatch, Info, Pipeline, SurfaceTable}
+  alias XipeTotec.Repl.Evaluator
 
   @type command :: %{String.t() => term()}
   @type outcome :: %{method: String.t(), ok?: boolean(), result: map() | nil, error: map() | nil}
@@ -70,7 +70,8 @@ Three kinds of command, dispatched by method name:
   `Dispatch.handle/4` as `ctx.root` (needed by `"scan/run"`) and to
   `Evaluator.run_pass/3` as `:cwd`. `opts` are extra `Evaluator.run_pass/3`
   options (`:launch_opts`, `:ctx`, `:sender`, ...), used only for `"eval"`
-  commands.
+  commands, plus `:language` (a registered language name) to skip
+  detecting it from `root`'s surface table.
 
   Does not halt on a failing command -- every command in the list runs
   (a reference into a failed command's result just resolves to `nil`,
@@ -97,7 +98,6 @@ Three kinds of command, dispatched by method name:
     # -- without this, `xipe do ... -- eval` silently evaluates nothing
     # instead of the whole book (2026-09-19 review finding).
     call_ids = if given_ids == [], do: Map.keys(book.calls), else: given_ids
-    {launch_opts, cleanup} = launch_opts_for(root, opts)
 
     # "include_writes" (Old.md §16.2/§16.4, 2026-09-21): Core.plan_recalc/3
     # (via Repl.Evaluator.run_pass/3, both already wired -- see the moduledoc
@@ -109,29 +109,13 @@ Three kinds of command, dispatched by method name:
     # generic key=value parsing never coerces to boolean).
     include_writes = params |> Map.get("include_writes", false) |> truthy?()
 
-    eval_opts =
-      opts
-      |> Keyword.put(:launch_opts, launch_opts)
-      |> Keyword.merge(cwd: root, call_ids: call_ids, include_writes: include_writes)
+    case repl_opts(root, opts) do
+      {:ok, repl_opts, cleanup} ->
+        eval_opts = Keyword.merge(repl_opts, cwd: root, call_ids: call_ids, include_writes: include_writes)
+        run_eval(book, call_ids, include_writes, eval_opts, cleanup)
 
-    result = Evaluator.run_pass(book, XipeTotec.Id.ulid(), eval_opts)
-    cleanup.()
-
-    case result do
-      {:ok, new_book, results} ->
-        # Requested ids the plan never reached the REPL with, and why
-        # (Old.md §33) -- Core.plan_recalc/3 drops them silently.
-        evaluated = MapSet.new(results, & &1.call_id)
-
-        not_run =
-          for id <- call_ids, id not in evaluated do
-            %{"id" => id, "reason" => Core.exclusion_reason(book, id, include_writes: include_writes) || "not scheduled"}
-          end
-
-        {new_book, %{method: "eval", ok?: true, result: %{"results" => results, "not_run" => not_run}, error: nil}}
-
-      {:error, reason} ->
-        {book, %{method: "eval", ok?: false, result: nil, error: %{"code" => "eval_failed", "message" => inspect(reason)}}}
+      {:error, error} ->
+        {book, %{method: "eval", ok?: false, result: nil, error: error}}
     end
   end
 
@@ -156,58 +140,105 @@ Three kinds of command, dispatched by method name:
     end
   end
 
-  # An "eval" command with no explicit `:launch_opts` in `opts` (found via a
-  # real crash, 2026-09-18: `xipe do eval ...` had no equivalent of the old
-  # dedicated `eval` subcommand's `--mix`-or-scripts-mode default, so it
-  # fell through to `Repl.Launch.build/1`'s bare `iex -S mix` default and
-  # tried to boot that in a `mix.exs`-less directory -- an instant boot
-  # failure, not a hang) gets one inferred from `root` itself: mix-mode
-  # (empty `launch_opts`, `Launch`'s own `["iex", "-S", "mix"]` default) if
-  # `SurfaceTable.generate/2` found `build_tool: "mix"` for `root`,
-  # scripts-mode (`argv: ["iex"]` + every `.ex`/`.exs` file
-  # `Project.find_sheets/1` finds, loaded via `-r`) otherwise -- crux's own
-  # real projects (tezcatl included) are all the latter. §26's co-design:
-  # this used to check `File.exists?(Path.join(root, "mix.exs"))` directly;
-  # that check now lives once, in `SurfaceTable.generate/2` itself, and
-  # this reads the result off the same rows instead of re-deriving it (a
-  # non-Elixir/non-mix `build_tool` stays undetected, §25.2/§25.4's
-  # priority-table design is still future work -- this only moved the one
-  # check that already existed, it didn't add new detection). A caller
-  # that already knows better (the CLI's `--mix` override, or a future
-  # tezcatl caller with its own opinion) passes `:launch_opts` itself, and
-  # neither this inference nor the sanitize step below runs.
-  #
-  # Returns `{launch_opts, cleanup}` -- scripts-mode's file list is never
-  # the *original* project files (review finding, 2026-09-18): `-r`ing them
-  # directly would reopen Fix F's hazard one layer up (`-r` runs a script's
-  # whole top-level, not just its `defmodule` forms -- a project whose root
-  # has an entry-point script, xipe_totec's/tezcatl's own `main.exs`
-  # included, would launch that script's side effects just from booting the
-  # eval session). `SourceSanitize.sanitize/2` writes defmodule-only copies
-  # to a temp dir instead; `cleanup` removes that temp dir once the caller
-  # is done with the session (a no-op for the mix-mode / caller-supplied
-  # cases, which never create one).
-  defp launch_opts_for(root, opts) do
-    if Keyword.has_key?(opts, :launch_opts) do
-      {Keyword.fetch!(opts, :launch_opts), fn -> :ok end}
-    else
-      if elixir_build_tool(root) == "mix" do
-        {[], fn -> :ok end}
-      else
-        {tmp_dir, files} = SourceSanitize.sanitize(root, Project.find_sheets(root))
-        {[argv: ["iex"], files: files], fn -> File.rm_rf!(tmp_dir) end}
-      end
+  defp run_eval(book, call_ids, include_writes, eval_opts, cleanup) do
+    result = Evaluator.run_pass(book, XipeTotec.Id.ulid(), eval_opts)
+    cleanup.()
+
+    case result do
+      {:ok, new_book, results} ->
+        # Requested ids the plan never reached the REPL with, and why
+        # (Old.md §33) -- Core.plan_recalc/3 drops them silently.
+        evaluated = MapSet.new(results, & &1.call_id)
+
+        not_run =
+          for id <- call_ids, id not in evaluated do
+            %{"id" => id, "reason" => Core.exclusion_reason(book, id, include_writes: include_writes) || "not scheduled"}
+          end
+
+        {new_book, %{method: "eval", ok?: true, result: %{"results" => results, "not_run" => not_run}, error: nil}}
+
+      {:error, reason} ->
+        {book, %{method: "eval", ok?: false, result: nil, error: %{"code" => "eval_failed", "message" => inspect(reason)}}}
     end
   end
 
-  # The first elixir row's `build_tool` (every row shares the same value,
-  # §25.5/§26 -- it's a project-level fact denormalized per row, not a
-  # per-file one). `nil` for a project with no elixir rows at all, same as
-  # an empty `SurfaceTable.generate/2` result.
-  defp elixir_build_tool(root) do
-    root
-    |> SurfaceTable.generate()
-    |> Enum.find_value(&(&1["language"] == "elixir" && &1["build_tool"]))
+  # The REPL side of an "eval" pass, picked by language (§26's table
+  # reference, finished 2026-09-25): the language `root`'s surface table
+  # names (or `opts[:language]`) must be registered in info.json, and its
+  # `Repl.Language` module supplies both the four adapter modules and how
+  # to boot the REPL for the build tool the surface table found. Adapter
+  # modules or `:launch_opts` a caller already put in `opts` win (the CLI's
+  # `--mix` passes `launch_opts: []`; tests pass a fake `:sender` the same
+  # way). Returns `{:ok, opts, cleanup}` -- `cleanup` removes whatever the
+  # boot needed (scripts-mode's sanitized temp dir) once the pass is over.
+  #
+  # One pass is one REPL session, so it has to be one language: a project
+  # whose surface table names more than one registered language is refused
+  # rather than guessed at.
+  defp repl_opts(root, opts) do
+    rows = SurfaceTable.generate(root)
+
+    with {:ok, name} <- pass_language(rows, root, opts),
+         {:ok, mod} <- language_module(name) do
+      build_tool = Enum.find_value(rows, &(&1["language"] == name && &1["build_tool"]))
+
+      {launch_opts, cleanup} =
+        if Keyword.has_key?(opts, :launch_opts),
+          do: {Keyword.fetch!(opts, :launch_opts), fn -> :ok end},
+          else: mod.launch_opts(root, build_tool)
+
+      adapter = mod.adapter()
+
+      opts =
+        opts
+        |> Keyword.delete(:language)
+        |> Keyword.put(:launch_opts, launch_opts)
+        |> Keyword.put_new(:launch_module, adapter.launch)
+        |> Keyword.put_new(:eval_template_module, adapter.eval_template)
+        |> Keyword.put_new(:scan_module, adapter.scan)
+        |> Keyword.put_new(:field_drip_module, adapter.field_drip)
+
+      {:ok, opts, cleanup}
+    end
+  end
+
+  defp pass_language(rows, root, opts) do
+    registered = Info.load()["languages"] || []
+
+    case Keyword.fetch(opts, :language) do
+      {:ok, name} ->
+        {:ok, name}
+
+      :error ->
+        case rows |> Enum.map(& &1["language"]) |> Enum.filter(&(&1 in registered)) |> Enum.uniq() |> Enum.sort() do
+          [name] ->
+            {:ok, name}
+
+          [] ->
+            {:error,
+             %{
+               "code" => "no_language",
+               "message" => "no file of a registered language (#{Enum.join(registered, ", ")}) under #{root}"
+             }}
+
+          names ->
+            {:error,
+             %{
+               "code" => "multiple_languages",
+               "message" => "#{root} has files in #{Enum.join(names, ", ")}; one eval pass runs one language's REPL"
+             }}
+        end
+    end
+  end
+
+  defp language_module(name) do
+    case Info.language_module(name) do
+      {:ok, mod} ->
+        {:ok, mod}
+
+      {:error, :not_registered} ->
+        {:error, %{"code" => "language_not_registered", "message" => "#{name} is not registered (xipe refresh -l)"}}
+    end
   end
 
   defp truthy?(true), do: true

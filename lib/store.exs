@@ -58,7 +58,7 @@ defmodule XipeTotec.Store do
     with true <- line != "",
          {:ok, %{"type" => type, "id" => id} = decoded} <- JSON.decode(line),
          {:ok, table} <- Map.fetch(@tables, type) do
-      row = decoded |> Map.drop(["type", "id"]) |> atomize_keys()
+      row = decoded |> Map.drop(["type", "id"]) |> atomize_keys() |> upgrade(table)
 
       if row[:deleted] do
         Book.delete(book, table, id)
@@ -122,4 +122,12 @@ defmodule XipeTotec.Store do
 
   defp stringify_keys(map), do: Map.new(map, fn {k, v} -> {to_string(k), v} end)
   defp atomize_keys(map), do: Map.new(map, fn {k, v} -> {String.to_atom(k), v} end)
+
+  # A node row written before the natural key's third column was renamed
+  # `arity` -> `anykey` (2026-09-25) still matches on rescan -- without this
+  # every such node would be re-minted and its calc rows orphaned.
+  defp upgrade(%{arity: arity} = row, :nodes) when not is_map_key(row, :anykey),
+    do: row |> Map.delete(:arity) |> Map.put(:anykey, arity)
+
+  defp upgrade(row, _table), do: row
 end

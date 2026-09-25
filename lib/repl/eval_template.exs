@@ -120,12 +120,40 @@ defmodule XipeTotec.Repl.EvalTemplate do
     suffix = sanitize(call_id)
     bind_var = "xt_#{suffix}"
 
+    # `call_expr` travels as a string literal and is compiled inside the
+    # spawned process (`Code.eval_string`), never spliced into the session's
+    # own top-level text. Spliced in, a compile-time error in the arguments
+    # (an undefined variable or local function -- it parses, so the
+    # `Code.string_to_quoted` check above can't see it) made iex reject the
+    # whole statement before `spawn_monitor` ever ran: no marker was printed,
+    # the entry waited out the absolute deadline as `session_hung`, and every
+    # later entry in the pass was `aborted`. Compiled in the child, the same
+    # error is just an exit reason and takes the ordinary `crash` path.
+    # Only the session bindings the expression actually names (`xt_<id>`
+    # reference variables) are copied into the child.
+    ref_vars = ~r/\bxt_[A-Za-z0-9_]+\b/ |> Regex.scan(call_expr) |> List.flatten() |> Enum.uniq()
+
     """
     xt_parent_#{suffix} = self()
+    xt_binding_#{suffix} = Keyword.take(binding(), [#{Enum.map_join(ref_vars, ", ", &":#{&1}")}])
+    xt_env_#{suffix} = __ENV__
     {xt_pid_#{suffix}, xt_ref_#{suffix}} =
       spawn_monitor(fn ->
         Process.flag(:max_heap_size, #{max_heap_words})
-        xt_val = (#{call_expr})
+
+        xt_val =
+          case Code.with_diagnostics(fn ->
+                 try do
+                   {:ok, elem(Code.eval_string(#{inspect(call_expr)}, xt_binding_#{suffix}, xt_env_#{suffix}), 0)}
+                 rescue
+                   xt_e in [CompileError, SyntaxError, TokenMissingError] -> {:compile_error, xt_e}
+                 end
+               end) do
+            {{:ok, xt_v}, _} -> xt_v
+            {{:compile_error, xt_e}, []} -> exit({:compile_error, Exception.message(xt_e)})
+            {{:compile_error, _}, xt_diags} -> exit({:compile_error, Enum.map_join(xt_diags, "; ", & &1.message)})
+          end
+
         send(xt_parent_#{suffix}, {:xt_result, self(), xt_val})
       end)
 

@@ -1,6 +1,6 @@
 ExUnit.start()
 
-Code.require_file(Path.expand("../lib/scanner.exs", __DIR__))
+Code.require_file(Path.expand("../lib/scanner/elixir.exs", __DIR__))
 Code.require_file(Path.expand("../lib/repl/source_sanitize.exs", __DIR__))
 
 defmodule ReplSourceSanitizeTest do

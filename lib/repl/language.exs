@@ -8,18 +8,40 @@ defmodule XipeTotec.Repl.Language do
   file's basename is the language's name (`elixir.exs` → `"elixir"`),
   the same name `surface_table`'s `language` column carries.
 
-  Nothing reads these modules at runtime. `xipe refresh -l`
-  (`XipeTotec.Info.refresh_languages/1`) loads them once and records
-  what they declare in `info.json` -- a module placed here does nothing
-  until that deliberate registration step (P4), same as the rest of
-  `info.json`.
+  A module placed here does nothing until `xipe refresh -l`
+  (`XipeTotec.Info.refresh_languages/1`) registers it in `info.json`
+  (P4). Once registered, `extensions/0` feeds `SurfaceTable`'s language
+  detection, `Project` reads `scanner/0` at scan time, and `Runner` reads
+  `adapter/0`/`launch_opts/2` at eval time (`XipeTotec.Info.language_module/3`):
+  the language a project's surface table names picks the scanner, the REPL
+  adapter and how to boot it, nothing else does.
 
-  Only `extensions/0` for now. Planned additions, each a per-language
-  fact that would otherwise end up hardcoded somewhere language-neutral:
-  the build-tool priority table (課題 ②, Old.md §25.4) and whether the
-  language needs an `embody` module (Old.md §30).
+  Each language has one REPL, fixed here (Elixir → `iex`, Haskell →
+  GHCi, ...). A build tool changes how that REPL is booted
+  (`launch_opts/2`), never which adapter modules read it.
+
+  Planned additions: the build-tool priority table (課題 ②, Old.md §25.4)
+  and whether the language needs an `embody` module (Old.md §30).
   """
+
+  @typedoc "The four per-REPL modules `Repl.Evaluator.run_pass/3` takes (`:launch_module` etc.)."
+  @type adapter :: %{launch: module(), eval_template: module(), scan: module(), field_drip: module()}
 
   @doc "File extensions (without the dot) whose files are written in this language."
   @callback extensions() :: [String.t()]
+
+  @doc "The `XipeTotec.Scanner` implementation that reads this language's files."
+  @callback scanner() :: module()
+
+  @doc "This language's REPL adapter -- see `document/repl-adapter-guide.md`."
+  @callback adapter() :: adapter()
+
+  @doc """
+  How to boot this language's REPL for the project at `root`, whose
+  surface table names `build_tool` for this language (`nil` when none was
+  detected). Returns `{launch_opts, cleanup}`: `launch_opts` go to the
+  adapter's `launch` module, and `cleanup` (0-arity) runs once the pass is
+  over (e.g. removing a temp dir the boot needed).
+  """
+  @callback launch_opts(root :: String.t(), build_tool :: String.t() | nil) :: {keyword(), (-> any())}
 end

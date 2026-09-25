@@ -1,4 +1,4 @@
-Code.require_file("../scanner.exs", __DIR__)
+Code.require_file("../scanner/elixir.exs", __DIR__)
 
 defmodule XipeTotec.Repl.SourceSanitize do
   @moduledoc """
@@ -36,7 +36,7 @@ defmodule XipeTotec.Repl.SourceSanitize do
     `Runner`'s call site for the cleanup this module leaves to its caller.
   """
 
-  alias XipeTotec.Scanner
+  alias XipeTotec.Scanner.Elixir, as: Scanner
 
   @doc """
   For each of `relative_paths` (relative to `dir`, as `Project.find_sheets/1`

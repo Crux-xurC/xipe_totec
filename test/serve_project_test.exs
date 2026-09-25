@@ -18,6 +18,37 @@ defmodule ServeProjectTest.ToyDialogue do
   end
 end
 
+defmodule ServeProjectTest.GatedSender do
+  # Answers each eval write with a canned success -- but only after the test
+  # process (registered in :persistent_term) replies :go to a {:gate, pid},
+  # so a test can hold a pass mid-evaluation and act while it's running.
+  @behaviour XipeTotec.Repl.Sender
+
+  def send(message) do
+    handle = self()
+    Kernel.send(handle, {handle, {:data, message["ready_pattern"] <> "\n"}})
+    {:ok, handle}
+  end
+
+  def write(handle, text) do
+    case Regex.run(~r/XT_BEGIN_([^"\s]+)/, text) do
+      [_, call_id] ->
+        Kernel.send(:persistent_term.get({__MODULE__, :test}), {:gate, self(), call_id})
+        receive do: (:go -> :ok)
+        body = "XT_BEGIN_#{call_id}\nrepr=exact\ntype=integer\ncompare=none\ndisplay=1\nXT_END_#{call_id}\n"
+        Kernel.send(handle, {handle, {:data, body}})
+
+      nil ->
+        if text == "System.halt()\n", do: Kernel.send(handle, {handle, {:data, "XT_EXIT 0\n"}})
+    end
+
+    :ok
+  end
+
+  def kill(_handle), do: :ok
+  def interrupt(_handle), do: :ok
+end
+
 defmodule ServeProjectTest do
   use ExUnit.Case
 
@@ -36,16 +67,30 @@ defmodule ServeProjectTest do
     # Old.md §32): seed the store before the project loads it.
     nodes =
       XipeTotec.Book.new()
-      |> XipeTotec.Core.put_node("n0", %{sheet: "s0", module: "M", name: "f0", arity: 0})
-      |> XipeTotec.Core.put_node("n1", %{sheet: "s0", module: "M", name: "f1", arity: 1})
+      |> XipeTotec.Core.put_node("n0", %{sheet: "s0", module: "M", name: "f0", anykey: 0})
+      |> XipeTotec.Core.put_node("n1", %{sheet: "s0", module: "M", name: "f1", anykey: 1})
 
     unless context[:empty_book], do: XipeTotec.Store.persist_diff(store_file, XipeTotec.Book.new(), nodes, [:nodes])
 
     opts = %{root: dir, store_file: store_file}
     opts = if programs = context[:programs], do: Map.put(opts, :programs, programs), else: opts
 
+    opts =
+      if context[:gated_eval] do
+        :persistent_term.put({ServeProjectTest.GatedSender, :test}, self())
+        Map.put(opts, :eval_opts, sender: ServeProjectTest.GatedSender, launch_opts: [], language: "elixir")
+      else
+        opts
+      end
+
     {:ok, pid} = Project.start_link(opts)
-    on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
+    on_exit(fn ->
+      if Process.alive?(pid), do: GenServer.stop(pid)
+      # unique_integer restarts with every VM, so a dir left behind would be
+      # reused -- stale book.jsonl and all -- by a later run in the same
+      # TMPDIR (a long-lived `nix develop` shell)
+      File.rm_rf!(dir)
+    end)
 
     {:ok, dir: dir, store_file: store_file}
   end
@@ -115,15 +160,85 @@ defmodule ServeProjectTest do
     refute_receive {:xipe_out, _more}, 50
   end
 
-  test "eval/run and row/update route through Pipeline, not Dispatch's own @not_implemented" do
+  test "row/update routes through Pipeline, not Dispatch's own @not_implemented" do
     # same proof as RunnerTest's equivalent case: Dispatch's own
     # @not_implemented has no concept of "stages", so a message naming a
     # stage can only have come from Pipeline
-    assert {:error, %{"code" => "not_implemented", "message" => eval_run_message}} = Project.request("eval/run", %{})
-    assert eval_run_message =~ "\"eval\""
-
     assert {:error, %{"code" => "not_implemented", "message" => row_update_message}} = Project.request("row/update", %{})
     assert row_update_message =~ "\"edit\""
+  end
+
+  defp pure_call(args) do
+    {:ok, _} = Project.request("effect/set", %{"id" => "n1", "effect" => "pure"})
+    {:ok, %{"id" => call_id}} = Project.request("row/add", %{"node" => "n1", "args" => args})
+    call_id
+  end
+
+  defp next_notify(method) do
+    receive do
+      {:xipe_out, text} ->
+        case XipeTotec.Protocol.decode(text) do
+          {:ok, {:notify, ^method, params}} -> params
+          _ -> next_notify(method)
+        end
+    after
+      2_000 -> flunk("no #{method}")
+    end
+  end
+
+  @tag :gated_eval
+  test "eval answers with a pass_id at once and the server keeps serving requests while the pass runs",
+       %{store_file: store_file} do
+    call_id = pure_call(["1"])
+    :ok = Project.attach(self())
+
+    assert {:ok, %{"pass_id" => pass_id, "status" => "started"}} = Project.request("eval", %{"call_ids" => [call_id]})
+
+    # the pass is now held inside the REPL round trip ...
+    assert_receive {:gate, pass_pid, ^call_id}, 2_000
+    # ... and other requests are still answered meanwhile
+    assert {:ok, %{"matches" => [_]}} = Project.request("card/get", %{"module" => "M", "name" => "f1"})
+
+    send(pass_pid, :go)
+
+    assert %{"id" => ^call_id, "row" => %{"result" => "1", "eval_count" => 1}} = next_notify("notify/rowChanged")
+
+    assert %{"pass_id" => ^pass_id, "ok" => true, "result" => %{"results" => [%{"outcome" => %{"status" => "ok"}}]}} =
+             next_notify("notify/passCompleted")
+
+    assert XipeTotec.Store.load(store_file).calls[call_id].result == "1"
+  end
+
+  @tag :gated_eval
+  test "a second eval while one is running is queued and runs after it, in order" do
+    call_id = pure_call(["1"])
+    :ok = Project.attach(self())
+
+    assert {:ok, %{"pass_id" => first, "status" => "started"}} = Project.request("eval", %{"call_ids" => [call_id]})
+    assert {:ok, %{"pass_id" => second, "status" => "queued"}} = Project.request("eval/run", %{"call_ids" => [call_id]})
+
+    assert_receive {:gate, pid1, ^call_id}, 2_000
+    send(pid1, :go)
+    assert %{"pass_id" => ^first} = next_notify("notify/passCompleted")
+
+    assert_receive {:gate, pid2, ^call_id}, 2_000
+    send(pid2, :go)
+    assert %{"pass_id" => ^second, "ok" => true} = next_notify("notify/passCompleted")
+  end
+
+  @tag :gated_eval
+  test "a result for a row removed while its pass was running is dropped, not folded back in",
+       %{store_file: store_file} do
+    call_id = pure_call(["1"])
+    :ok = Project.attach(self())
+
+    {:ok, %{"pass_id" => pass_id}} = Project.request("eval", %{"call_ids" => [call_id]})
+    assert_receive {:gate, pass_pid, ^call_id}, 2_000
+    {:ok, _} = Project.request("row/remove", %{"id" => call_id})
+    send(pass_pid, :go)
+
+    assert %{"pass_id" => ^pass_id, "ok" => true, "result" => %{"results" => []}} = next_notify("notify/passCompleted")
+    refute Map.has_key?(XipeTotec.Store.load(store_file).calls, call_id)
   end
 
   test "request_dialogue/5 with no programs registered still routes an ordinary command straight through, tagged 01",

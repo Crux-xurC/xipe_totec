@@ -57,4 +57,40 @@ defmodule ProtocolTest do
     text = Protocol.encode_request(9, "provider/symbols", %{"path" => "lib/a.ex"})
     assert Protocol.decode(text) == {:ok, {:request, 9, "provider/symbols", %{"path" => "lib/a.ex"}}}
   end
+
+  test "wire_result: an eval result's Elixir-term outcomes become JSON-encodable status maps" do
+    call = fn id, outcome -> %{call_id: id, outcome: outcome, compare: "none", evaluated_at: nil, session_gen: 1} end
+
+    result = %{
+      "results" => [
+        call.("c1", {:ok, %{repr: "exact", type: "integer", display: "5", bin: nil}}),
+        call.("c2", {:error, "boom"}),
+        call.("c3", {:error, {:compile_error, "undefined variable"}}),
+        call.("c4", :timeout),
+        call.("c5", {:skipped, "c0"}),
+        call.("c6", {:lost, "xt_c0"}),
+        call.("c7", :aborted)
+      ],
+      "not_run" => []
+    }
+
+    wire = result |> Protocol.wire_result() |> JSON.encode!() |> JSON.decode!()
+
+    assert Enum.map(wire["results"], & &1["outcome"]) == [
+             %{"status" => "ok", "repr" => "exact", "type" => "integer", "display" => "5", "bin" => nil},
+             %{"status" => "crash", "reason" => "boom"},
+             %{"status" => "crash", "reason" => ~s({:compile_error, "undefined variable"})},
+             %{"status" => "timeout"},
+             %{"status" => "skipped", "upstream" => "c0"},
+             %{"status" => "lost", "ref" => "xt_c0"},
+             %{"status" => "aborted"}
+           ]
+
+    assert hd(wire["results"])["call_id"] == "c1"
+  end
+
+  test "wire_result: any other result passes through unchanged" do
+    assert Protocol.wire_result(%{"id" => "x"}) == %{"id" => "x"}
+    assert Protocol.wire_result(nil) == nil
+  end
 end

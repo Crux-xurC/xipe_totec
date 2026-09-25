@@ -55,19 +55,24 @@ defmodule StoreTest do
     assert Map.keys(book.sheets) == ["s1"]
   end
 
+  test "load/1 reads a node row written before arity was renamed anykey as anykey", %{path: path} do
+    File.write!(path, ~s({"type":"node","id":"n1","module":"M","name":"f","arity":2}\n))
+    assert Store.load(path).nodes["n1"] == %{module: "M", name: "f", anykey: 2}
+  end
+
   test "persist_diff/4 appends only what changed, tombstones drops, and respects the requested table scope", %{
     path: path
   } do
     old_book =
       Book.new()
-      |> Book.put(:nodes, "n1", %{module: "M", name: "f", arity: 1, effect: "unknown"})
+      |> Book.put(:nodes, "n1", %{module: "M", name: "f", anykey: 1, effect: "unknown"})
       |> Book.put(:calls, "c1", %{node: "n1", args: []})
       |> Book.put(:calls, "c2", %{node: "n1", args: ["1"]})
 
     new_book =
       old_book
       # both tables change; only :calls is in the persist_diff scope below
-      |> Book.put(:nodes, "n1", %{module: "M", name: "f", arity: 1, effect: "pure"})
+      |> Book.put(:nodes, "n1", %{module: "M", name: "f", anykey: 1, effect: "pure"})
       |> Book.put(:calls, "c2", %{node: "n1", args: ["2"]})
       |> Book.put(:calls, "c3", %{node: "n1", args: []})
       |> Book.delete(:calls, "c1")

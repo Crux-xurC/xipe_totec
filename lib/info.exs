@@ -97,20 +97,37 @@ defmodule XipeTotec.Info do
   @spec refresh_repls(t()) :: t()
   def refresh_repls(info) when is_map(info), do: Map.put(info, "repls", list_repls())
 
-  # `{name, extensions}` per `<name>.exs` under `dir`: require the file and
-  # ask whichever module it defines that exports extensions/0.
+  @doc """
+  The `Repl.Language` module declaring language `name`, for use at run
+  time (`Runner` picks a pass's REPL adapter from it). Only a language
+  `xipe refresh -l` has registered in `info["languages"]` resolves --
+  the same P4 registration gate as everything else in `info.json`; a
+  module merely present under `dir` is `{:error, :not_registered}`.
+  """
+  @spec language_module(String.t(), t(), Path.t()) :: {:ok, module()} | {:error, :not_registered}
+  def language_module(name, info \\ load(), dir \\ @language_dir) do
+    if name in (info["languages"] || []),
+      do: {:ok, load_language_module(dir, name <> ".exs")},
+      else: {:error, :not_registered}
+  end
+
+  # `{name, extensions}` per `<name>.exs` under `dir`.
   defp list_languages(dir) do
     dir
     |> File.ls!()
     |> Enum.filter(&String.ends_with?(&1, ".exs"))
     |> Enum.sort()
-    |> Enum.map(fn file ->
-      modules = dir |> Path.join(file) |> Code.require_file() |> List.wrap() |> Enum.map(&elem(&1, 0))
-      modules = if modules == [], do: loaded_modules_from(Path.join(dir, file)), else: modules
-      mod = Enum.find(modules, &function_exported?(&1, :extensions, 0))
-      unless mod, do: raise(ArgumentError, "#{file}: no module exporting extensions/0 (see XipeTotec.Repl.Language)")
-      {Path.basename(file, ".exs"), mod.extensions()}
-    end)
+    |> Enum.map(fn file -> {Path.basename(file, ".exs"), load_language_module(dir, file).extensions()} end)
+  end
+
+  # Require `file` and return whichever module it defines that exports
+  # extensions/0 (every `Repl.Language` does).
+  defp load_language_module(dir, file) do
+    modules = dir |> Path.join(file) |> Code.require_file() |> List.wrap() |> Enum.map(&elem(&1, 0))
+    modules = if modules == [], do: loaded_modules_from(Path.join(dir, file)), else: modules
+    mod = Enum.find(modules, &function_exported?(&1, :extensions, 0))
+    unless mod, do: raise(ArgumentError, "#{file}: no module exporting extensions/0 (see XipeTotec.Repl.Language)")
+    mod
   end
 
   # Code.require_file/1 returns nil for a file already required in this VM

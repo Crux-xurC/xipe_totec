@@ -50,11 +50,17 @@ defmodule XipeTotec.Book do
     Enum.find_value(book.sheets, fn {id, row} -> if row.path == path, do: id end)
   end
 
-  @doc "The node id matching (module, name, arity), if any (§7.3 minimal identity rule)."
+  @doc """
+  The node id matching (module, name, anykey), if any (§7.3 minimal identity
+  rule). `anykey` is whatever the node's scanner put there to tell apart
+  same-named functions in one module -- the arity for `Scanner.Elixir`
+  (`add/2` and `add/3` are different functions), possibly `nil` for a
+  language where the name alone is unique.
+  """
   @spec find_node_by_natural_key(t, String.t(), String.t(), non_neg_integer()) :: String.t() | nil
-  def find_node_by_natural_key(book, module, name, arity) do
+  def find_node_by_natural_key(book, module, name, anykey) do
     Enum.find_value(book.nodes, fn {id, row} ->
-      if row.module == module and row.name == name and row.arity == arity, do: id
+      if row.module == module and row.name == name and row.anykey == anykey, do: id
     end)
   end
 
