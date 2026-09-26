@@ -495,5 +495,13 @@ defmodule CoreTest do
         assert row.state == "eval_error"
       end
     end
+
+    test "an :error reason that is already text is stored as-is, anything else inspected", %{book: book, ctx: ctx} do
+      for {reason, stored} <- [{"{:badarith, []}", "{:badarith, []}"}, {"session_hung", "session_hung"}, {:boom, ":boom"}] do
+        result = %{call_id: "c1", outcome: {:error, reason}, compare: "skipped", evaluated_at: nil, session_gen: 1}
+        row = Core.apply_results(book, ctx, [result]) |> Book.get(:calls, "c1")
+        assert row.error == stored
+      end
+    end
   end
 end

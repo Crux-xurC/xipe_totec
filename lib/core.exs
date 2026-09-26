@@ -615,8 +615,11 @@ defmodule XipeTotec.Core do
           })
         )
 
+      # reason is already text from Result.error/3 / Evaluator ("session_hung");
+      # inspect only what isn't, or the stored error gains a layer of quotes
       {:error, reason} ->
-        Book.put(book, :calls, id, Map.merge(row, Map.merge(bump, %{state: "eval_error", error: inspect(reason)})))
+        error = if is_binary(reason), do: reason, else: inspect(reason)
+        Book.put(book, :calls, id, Map.merge(row, Map.merge(bump, %{state: "eval_error", error: error})))
 
       :timeout ->
         Book.put(book, :calls, id, Map.merge(row, Map.merge(bump, %{state: "eval_error", error: "timeout"})))
