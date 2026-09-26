@@ -32,6 +32,36 @@ defmodule RunnerTest.EchoSender do
   def interrupt(_handle), do: :ok
 end
 
+# 2026-09-26 (Old.md §39): a second, made-up language for a mixed-language
+# project -- it reuses Elixir's adapter (EchoSender answers in its format)
+defmodule RunnerTest.ToyLanguage do
+  def extensions, do: ["toy"]
+  def repl, do: "toy"
+  def build_tools, do: []
+  def scanner, do: XipeTotec.Scanner.Elixir
+  def adapter do
+    %{
+      launch: XipeTotec.Repl.Launch,
+      eval_template: XipeTotec.Repl.EvalTemplate,
+      scan: XipeTotec.Repl.Eval.Scan.Direct.Iex,
+      field_drip: XipeTotec.Repl.Eval.FieldDrip.Elixir
+    }
+  end
+  def launch_opts(_root, _build_tool, _files), do: {[argv: ["toy-repl"]], fn -> :ok end}
+end
+
+# refuses to launch the toy language's REPL, echoes for any other
+defmodule RunnerTest.ToyRefusingSender do
+  @behaviour XipeTotec.Repl.Sender
+  alias RunnerTest.EchoSender
+
+  def send(%{"argv" => ["toy-repl" | _]}), do: {:error, :refused}
+  def send(message), do: EchoSender.send(message)
+  def write(handle, text), do: EchoSender.write(handle, text)
+  def kill(handle), do: EchoSender.kill(handle)
+  def interrupt(handle), do: EchoSender.interrupt(handle)
+end
+
 defmodule RunnerTest do
   use ExUnit.Case, async: true
 
@@ -398,5 +428,75 @@ defmodule RunnerTest do
     assert Book.get(new_book, :calls, "c1").args == ["9"]
     assert Book.get(new_book, :calls, "c1").eval_count == 1
     assert Book.get(new_book, :calls, "c2").eval_count == 0
+  end
+
+  describe "a mixed-language project (Old.md §39)" do
+    setup do
+      dir = Path.join(System.tmp_dir!(), "xipe_totec_runner_mixed_#{System.unique_integer([:positive])}")
+      File.mkdir_p!(Path.join(dir, "lib"))
+      File.write!(Path.join(dir, "lib/a.ex"), "defmodule M do\n  def f(x), do: x\nend\n")
+      File.write!(Path.join(dir, "lib/b.toy"), "g x = x\n")
+      on_exit(fn -> File.rm_rf!(dir) end)
+
+      info = %{
+        "languages" => ["elixir", "toy"],
+        "extensions" => %{"ex" => ["elixir"], "exs" => ["elixir"], "toy" => ["toy"]},
+        "language_repls" => %{"elixir" => "iex", "toy" => "toy"},
+        "build_tools" => %{"elixir" => [], "toy" => []}
+      }
+
+      book =
+        Book.new()
+        |> Core.put_sheet("s1", %{path: "lib/a.ex"})
+        |> Core.put_sheet("s2", %{path: "lib/b.toy"})
+        |> Core.put_node("ne", Map.put(pure_node("f"), :sheet, "s1"))
+        |> Core.put_node("nt", %{pure_node("g") | module: "T"} |> Map.put(:sheet, "s2"))
+        |> Core.add_call("c1", %{node: "ne", args: ["1"]})
+        |> Core.add_call("c2", %{node: "nt", args: ["2"]})
+        # toy row referencing an Elixir row: across languages
+        |> Core.add_call("c3", %{node: "nt", args: ["⟦c1⟧"]})
+        # Elixir row referencing an Elixir row: handed over within its REPL
+        |> Core.add_call("c4", %{node: "ne", args: ["⟦c1⟧"]})
+
+      {:ok, dir: dir, book: book, opts: [info: info, language_modules: %{"toy" => RunnerTest.ToyLanguage}]}
+    end
+
+    test "each language's rows are evaluated in its own REPL; a reference across languages is not run", %{dir: dir, book: book, opts: opts} do
+      command = %{"method" => "eval", "params" => %{}}
+      {new_book, [outcome]} = Runner.run(book, dir, [command], opts ++ [sender: EchoSender, launch_opts: []])
+
+      assert outcome.ok?
+      assert outcome.result["results"] |> Enum.map(& &1.call_id) |> Enum.sort() == ["c1", "c2", "c4"]
+      assert [%{"id" => "c3", "reason" => reason}] = outcome.result["not_run"]
+      assert reason =~ "⟦c1⟧ is a elixir row"
+      # one pass, whichever REPL a row went through
+      assert outcome.result["results"] |> Enum.map(& &1.session_gen) |> Enum.uniq() |> length() == 1
+
+      assert Book.get(new_book, :calls, "c1").eval_count == 1
+      assert Book.get(new_book, :calls, "c2").eval_count == 1
+      assert Book.get(new_book, :calls, "c3").eval_count == 0
+    end
+
+    test "a language whose REPL can't start leaves its rows not run; the other language's still evaluate",
+         %{dir: dir, book: book, opts: opts} do
+      command = %{"method" => "eval", "params" => %{"call_ids" => ["c1", "c2"]}}
+      {new_book, [outcome]} = Runner.run(book, dir, [command], opts ++ [sender: RunnerTest.ToyRefusingSender])
+
+      assert outcome.ok?
+      assert Enum.map(outcome.result["results"], & &1.call_id) == ["c1"]
+      assert [%{"id" => "c2", "reason" => reason}] = outcome.result["not_run"]
+      assert reason =~ "the toy REPL"
+      assert Book.get(new_book, :calls, "c2").eval_count == 0
+    end
+
+    test "only one language requested: the other language's REPL is never started", %{dir: dir, book: book, opts: opts} do
+      command = %{"method" => "eval", "params" => %{"call_ids" => ["c1"]}}
+      # ToyRefusingSender would refuse the toy REPL -- it isn't asked for
+      {_book, [outcome]} = Runner.run(book, dir, [command], opts ++ [sender: RunnerTest.ToyRefusingSender])
+
+      assert outcome.ok?
+      assert Enum.map(outcome.result["results"], & &1.call_id) == ["c1"]
+      assert outcome.result["not_run"] == []
+    end
   end
 end

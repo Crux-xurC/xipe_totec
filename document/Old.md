@@ -1491,3 +1491,66 @@ cruxとのco-design。REPLの仕様を詰める中で、仕様書 v0.4 の「REP
 ### 37.3 下流の問い合わせ関数の削除
 
 §36で評価対象の決定に使わなくなった`Core.affected_set/3`・`dep_hash_affected_nodes/2`・`calls_for_nodes/2`を削除した（crux）。「ある行の下流」「ある関数を呼んでいる関数」のような問い合わせは、後で追加する予定のデータベースやsurface tableを検索するコマンド（単純なSQLの応用）で表せるため、専用の関数として持っておく理由が無い。`bfs/3`は`upstream_chain/2`（`row/depends`・`dialogue depends`）が使うので残した。関係するテスト5件を削除。
+
+## 38. OCaml版`embody` ── トップレベル自身の仕組み（`Toploop`）で評価と表示を借りる固定モジュール、Haskell/OCaml共通の実行手順（2026-09-26、`~/my_app/tezcatl`セッション、設計と実機検証のみ、実装なし）
+
+§30（Haskellの`embody`）の考え方をOCamlにも当てはめる相談の中で決めた。着手順はHaskell → OCamlに決定（crux、`next_step.md` §2.4）。REPLは素のものを使う（Haskellは`stack`/`cabal`を経ても中身はGHCi、OCamlは`utop`ではなく素の`ocaml`、crux）。
+
+### 38.1 提案（crux）と、成立する形
+
+cruxの提案は「OCamlでも`embody`のアイデアを元に、指定したモジュールに依存してそのトップレベルを読み、値と共に返す`embody.ml`を用意する」。成立するのは、**対象への依存を`embody.ml`のコンパイル時ではなく、トップレベルが実行時に解決する**形。`embody.ml`は対象を知らない固定のコードで、受け取った式のテキストを、トップレベル自身のパーサ・型検査・表示（`Toploop.execute_phrase`）で評価し、トップレベルが出す表示を文字列として捕まえる。対象のモジュール名・関数名は、xipeが送るテキストにだけ現れる（§30.3の「どの関数を包むかはREPLへ送る1行が決める」と同じ）。コンパイル時に依存させる形は、対象ごとに作り直しが要り型の知識も要るので、§30.2と同じ理由で成立しない。
+
+### 38.2 実機検証（OCaml 5.5.0、`nix shell nixpkgs#ocaml`の素の`ocaml`）
+
+`embody.ml`（`#directory "+compiler-libs"`の後に`#use`）の中身は、式のテキストを`!Toploop.parse_toplevel_phrase`で読み、`Toploop.execute_phrase true ppf`で評価し、`ppf`を`Buffer`に向けて表示を受け取るだけ。対象は`#mod_use "target.ml"`で読み込んだ。
+
+| 送った式 | 受け取った表示 |
+|---|---|
+| `let xt_1 = Target.area (Target.Rect { w = 3; h = 4 })` | `val xt_1 : float = 12.` |
+| `let xt_2 = Target.shapes 3`（ヴァリアントとレコードのリスト） | `val xt_2 : Target.shape list = [Target.Circle 0.; Target.Rect {Target.w = 1; h = 2}; Target.Circle 2.]` |
+| 循環するリスト | `val xt_3 : int list = [1; 2; <cycle>]` |
+| 関数を返す | `val xt_4 : int -> int = <fun>` |
+| 無限の遅延シーケンス | `val xt_5 : int Seq.node = Seq.Cons (0, <fun>)`（有限で返る） |
+| 型が合わない式 | 失敗（`Typecore.Error`。人が読める文言にするには`Location.report_exception`などが要る） |
+| 実行時の例外 | 失敗（`Exception: Failure "hd".`） |
+| `let xt_8 = (xt_2 = Target.shapes 3)` | `val xt_8 : bool = true`（前の束縛を次の式から参照でき、構造の`=`で比較できる） |
+
+分かったこと:
+
+- **型が値と一緒に取れる**（`result_type`列がそのまま埋まる）
+- **表示は必ず有限**（深さと長さの上限、循環は`<cycle>`、関数は`<fun>`）。Haskellのように`show`の出力を途中で切る工夫が要らない
+- **往復検査の見込み**: 表示がほぼそのままOCamlの式として読める（コンストラクタも修飾付き）。表示を再評価して`=`で比べれば、多くの値は`repr=exact`にできそう。`<fun>`・`<cycle>`・`<abstr>`を含むものは`unsupported`（未実装・未検証）
+- **トップレベルの束縛は次の式から見える**: 同じ評価の中の`⟦id⟧`参照（`xt_<id>`）はこのまま使える
+- **`#mod_use`はトップレベルの`let () = …`を実行した**（`SourceSanitize`相当が要る）
+- 未確認: 1件ごとの時間・メモリの上限、`dune ocaml top`経由のdune管理プロジェクトで同じように動くか
+
+### 38.3 Haskell/OCaml共通の実行手順（crux、2026-09-26）
+
+xipe_totecから見た手順は両言語で同じ。関数Aを見たいときはAの計算行を作って評価し、依存の深さのある評価（`embody` → A → …）は計算行を`⟦id⟧`でつないで並べて指定する（§36）。
+
+- `embody`は、その言語のアダプタ（`EvalTemplate`相当）が評価する呼び出しを**毎回自動で包む**。利用者は行ごとに指定しない（Elixir版がどの行も安全装置で包むのと同じ位置づけ）
+- 連鎖の各段は依存の順に1行ずつ`embody`で包まれて評価され、どの段も記録される。前の段の結果は同じ評価の中では変数で渡るので、表示では読み戻せない値も連鎖の途中を通せる。評価をまたいで使えるのは`exact`の値だけ
+- Aの引数に入れ子の式（`M.b (M.c 1)`）を直接書くこともでき、その場合に記録されるのはAだけ（利用者が書いた式なので§36の「勝手な評価」にはあたらない）
+- 言語による違いは、アダプタが送る1行と`embody`の中身（scripts-modeの読み込み、上限の取り方、往復検査、型の取得）に収まる。表は`next_step.md` §2.5
+
+### 38.4 関連: 言語が混ざるプロジェクト
+
+`.exs`が`.ml`に依存する構成（Aepyornis: Elixirの`lib/`がduneでビルドしたOCamlの実行ファイルをPortで呼ぶ）は、スキャンは動くが、評価は`Runner`の`multiple_languages`（1回の評価は1つの言語、仮の制限）で拒否される。評価を言語ごとに分ける変更、言語をまたぐ`⟦id⟧`参照の扱い、境界規則（仕様§13）が要る。`next_step.md` §2.6。
+
+## 39. 仮の制限（1回の評価は1つの言語）を外す ── 行の言語ごとにREPLを分けて並行評価（2026-09-26、`~/my_app/tezcatl`セッション）
+
+言語が混ざるプロジェクト（Aepyornis: Elixirの`lib/`がduneでビルドしたOCamlの実行ファイルをPortで呼ぶ）を扱う相談の中で決めた（crux「Elixirだし並行して起動する動きは得意なはず。外す準備をしましょう」）。
+
+### 39.1 以前の動きと、確かめたこと
+
+- `Runner`は評価で使う言語を、**指定された行ではなく、プロジェクト全体のsurface tableに登録済みの言語が何種類あるか**で決めていた（`pass_language`）。言語が2つあるだけで、OCamlの行だけを指定しても`multiple_languages`で拒否された。OCamlの部分を別プロジェクトとして登録すれば評価できた
+- 値は各言語のREPLの表示テキストのまま保存し、`⟦id⟧`はそのテキストを貼るだけ。xipe_totecが言語どうしで自動で変換している箇所は無い（cruxの方針「値の書き方はxipe_totecの上でも言語に合わせる」と一致）。そのため言語をまたぐ参照は、そのままでは構文エラーになる
+
+### 39.2 実装
+
+- **`Runner`の`"eval"`**: 指定された行を、関数 → ファイル（`sheets`の`path`）→ surface tableの`language`とたどって言語ごとに分け（`eval_groups/4`）、言語ごとにREPLを起動して評価する（`run_group/8`）。グループが2つ以上なら`Task`で並行に走らせる。1つなら従来どおり呼び出し元のプロセスで走らせる。結果は最後にまとめてBookへ畳み込む（`Core.apply_results/3`）。評価のidは全グループで共通
+- **言語をまたぐ参照**: 参照先の言語が違う行は評価せず`not_run`に「⟦id⟧ is a <言語> row -- a reference across languages isn't supported yet」を出す。変換は未実装（設計は`next_step.md` §2.6: 計画の時点で変換の段を差し込み、参照先の`result_type`で型ごとの変換モジュールを割り当てる、中立の形を真ん中に置く対応表、登録されていない型はエラー）
+- **今の動線（言語が1つのプロジェクト）を変えない**: 言語が1つなら、行の言語がファイルから決まらなくてもその言語で評価する。エラー（`no_language`・`language_not_registered`・`eval_failed`）も従来と同じ形で返す。言語が2つ以上で、ある言語のREPLだけ起動できないときは、その言語の行を`not_run`（「the <言語> REPL: …」）にし、他の言語の結果は返す。全言語で失敗したら`eval_failed`
+- テスト用の差し替え口`:info`（info.jsonの代わり）・`:language_modules`（言語名 → モジュール）を`Runner`に足した（`Project.scan_dir`の`:info`と同じ扱い）
+- テスト: `runner_test`に3件（Elixirと架空の言語`.toy`が混ざるプロジェクトで、言語ごとの評価・言語をまたぐ参照の`not_run`・同じ言語の中の参照、片方の言語のREPLが起動できないとき、片方の言語だけを指定したとき他方のREPLは起動しない）。`./test/run.sh` 370件、0 failures。`test/live` 12件、0 failures。CLIで言語が1つのプロジェクトの`xipe eval`・`row/update`が従来どおり動くことを確認
+- 文書: How to use §9、動作原理.md、課題.md、`next_step.md` §2.2・§2.6・§3

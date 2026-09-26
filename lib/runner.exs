@@ -80,7 +80,9 @@ defmodule XipeTotec.Runner do
   `Evaluator.run_pass/3` as `:cwd`. `opts` are extra `Evaluator.run_pass/3`
   options (`:launch_opts`, `:ctx`, `:sender`, ...), used only for `"eval"`
   commands, plus `:language` (a registered language name) to skip
-  detecting it from `root`'s surface table, and `:project_dir` (the
+  detecting it from `root`'s surface table (tests: `:info` replaces
+  info.json and `:language_modules` maps a language name to its module),
+  and `:project_dir` (the
   project's `tables/project/<id>_<name>/`): `"scan/run"` and `"eval"` read
   its saved surface table (`SurfaceTable.rows/3`) instead of generating one
   on every call, and start the project's tools in its environment
@@ -123,17 +125,9 @@ defmodule XipeTotec.Runner do
     # generic key=value parsing never coerces to boolean).
     include_writes = params |> Map.get("include_writes", false) |> truthy?()
 
-    case repl_opts(root, opts) do
-      {:ok, repl_opts, cleanup, env_status} ->
-        eval_opts = Keyword.merge(repl_opts, cwd: root, call_ids: call_ids, include_writes: include_writes)
-        {book, outcome} = run_eval(book, call_ids, include_writes, eval_opts, cleanup)
-
-        outcome =
-          if Keyword.get(opts, :project_dir) && outcome.ok?,
-            do: %{outcome | result: Map.put(outcome.result, "env", env_status)},
-            else: outcome
-
-        {book, outcome}
+    case eval_groups(book, root, call_ids, opts) do
+      {:ok, groups, surface_rows, unplaced} ->
+        run_groups(book, root, groups, surface_rows, unplaced, call_ids, include_writes, opts)
 
       {:error, error} ->
         {book, %{method: "eval", ok?: false, result: nil, error: error}}
@@ -169,49 +163,175 @@ defmodule XipeTotec.Runner do
     end
   end
 
-  defp run_eval(book, call_ids, include_writes, eval_opts, cleanup) do
-    result = Evaluator.run_pass(book, XipeTotec.Id.ulid(), eval_opts)
-    cleanup.()
+  # --- "eval": one REPL per language (2026-09-26, Old.md §39) ------------
+  #
+  # A pass evaluates the requested rows grouped by their language -- the
+  # surface-table `language` of the file their function is in. Each group
+  # gets its own REPL (its language's adapter, boot and environment); with
+  # more than one group they run side by side, each in its own process,
+  # since no value crosses between them: a row referencing a row of another
+  # language is left out (`not_run`), because a value's text is written in
+  # its own language and nothing converts it yet. With a single language
+  # (every project before mixed-language support) this is exactly the old
+  # one-REPL pass, run in the calling process.
 
-    case result do
-      {:ok, new_book, results} ->
-        # Requested ids the plan never reached the REPL with, and why
-        # (Old.md §33) -- Core.plan_recalc/3 drops them silently.
-        evaluated = MapSet.new(results, & &1.call_id)
+  # `{:ok, [{language, ids}], surface_rows, unplaced}` -- `unplaced` being
+  # `not_run` entries for rows that can't go into any group
+  defp eval_groups(book, root, call_ids, opts) do
+    project_dir = Keyword.get(opts, :project_dir)
+    info = Keyword.get_lazy(opts, :info, &Info.load/0)
+    rows = SurfaceTable.rows(root, project_dir && Path.join(project_dir, "table"), info)
+    registered = info["languages"] || []
+    languages = rows |> Enum.map(& &1["language"]) |> Enum.filter(&(&1 in registered)) |> Enum.uniq() |> Enum.sort()
 
-        not_run =
-          for id <- call_ids, id not in evaluated do
-            %{"id" => id, "reason" => Core.exclusion_reason(book, id, include_writes: include_writes) || "not scheduled"}
-          end
+    case {Keyword.fetch(opts, :language), languages} do
+      {{:ok, name}, _} ->
+        {:ok, if(call_ids == [], do: [], else: [{name, call_ids}]), rows, []}
 
-        {new_book, %{method: "eval", ok?: true, result: %{"results" => results, "not_run" => not_run}, error: nil}}
+      {:error, []} ->
+        {:error,
+         %{"code" => "no_language", "message" => "no file of a registered language (#{Enum.join(registered, ", ")}) under #{root}"}}
 
-      {:error, reason} ->
-        {book, %{method: "eval", ok?: false, result: nil, error: %{"code" => "eval_failed", "message" => inspect(reason)}}}
+      {:error, languages} ->
+        by_path = for r <- rows, r["language"] in registered, into: %{}, do: {r["path"], r["language"]}
+        # a single-language project: every row is that language, however
+        # its file is recorded
+        fallback = if match?([_], languages), do: hd(languages)
+        language_of = fn id -> row_language(book, id, by_path) || fallback end
+
+        {placed, unplaced} =
+          Enum.reduce(call_ids, {[], []}, fn id, {placed, unplaced} ->
+            case place(book, id, language_of) do
+              {:ok, language} -> {[{language, id} | placed], unplaced}
+              {:not_run, reason} -> {placed, [%{"id" => id, "reason" => reason} | unplaced]}
+            end
+          end)
+
+        # in the order each language first appears among the requested rows
+        placed = Enum.reverse(placed)
+        order = placed |> Enum.map(&elem(&1, 0)) |> Enum.uniq()
+        groups = for language <- order, do: {language, for({^language, id} <- placed, do: id)}
+
+        {:ok, groups, rows, Enum.reverse(unplaced)}
     end
   end
 
-  # The REPL side of an "eval" pass, picked by language (§26's table
-  # reference, finished 2026-09-25): the language `root`'s surface table
-  # names (or `opts[:language]`) must be registered in info.json, and its
-  # `Repl.Language` module supplies both the four adapter modules and how
-  # to boot the REPL for the build tool the surface table found. Adapter
-  # modules or `:launch_opts` a caller already put in `opts` win (the CLI's
-  # `--mix` passes `launch_opts: []`; tests pass a fake `:sender` the same
-  # way). Returns `{:ok, opts, cleanup, env_status}` -- `cleanup` removes
-  # whatever the boot needed (scripts-mode's sanitized temp dir) once the
-  # pass is over; `env_status` is ProjectEnv's for the project's
-  # environment, which the REPL is started in (added to launch_opts' :env).
-  #
-  # One pass is one REPL session, so it has to be one language: a project
-  # whose surface table names more than one registered language is refused
-  # rather than guessed at.
-  defp repl_opts(root, opts) do
-    project_dir = Keyword.get(opts, :project_dir)
-    rows = SurfaceTable.rows(root, project_dir && Path.join(project_dir, "table"))
+  defp place(book, id, language_of) do
+    case language_of.(id) do
+      nil ->
+        {:not_run, Core.exclusion_reason(book, id) || "its language can't be told (no file of a registered language holds its function)"}
 
-    with {:ok, name} <- pass_language(rows, root, opts),
-         {:ok, mod} <- language_module(name) do
+      language ->
+        refs = case Book.get(book, :calls, id) do
+          nil -> []
+          call -> Core.refs_in_args(call.args)
+        end
+
+        case Enum.find_value(refs, fn ref -> (l = language_of.(ref)) && l != language && {ref, l} end) do
+          nil -> {:ok, language}
+          {ref, other} -> {:not_run, "⟦#{ref}⟧ is a #{other} row -- a reference across languages isn't supported yet"}
+        end
+    end
+  end
+
+  # call -> node -> sheet -> path -> the surface table's language
+  defp row_language(book, id, by_path) do
+    with %{node: node_id} <- Book.get(book, :calls, id),
+         %{sheet: sheet_id} <- Book.get(book, :nodes, node_id),
+         %{path: path} <- Book.get(book, :sheets, sheet_id) do
+      Map.get(by_path, path)
+    else
+      _ -> nil
+    end
+  end
+
+  defp run_groups(book, root, groups, rows, unplaced, call_ids, include_writes, opts) do
+    pass_id = XipeTotec.Id.ulid()
+    run = fn {language, ids} -> {language, ids, run_group(book, root, rows, language, ids, include_writes, pass_id, opts)} end
+
+    ran =
+      case groups do
+        [one] -> [run.(one)]
+        _ -> groups |> Enum.map(&Task.async(fn -> run.(&1) end)) |> Task.await_many(:infinity)
+      end
+
+    failed = for {language, ids, {:error, error}} <- ran, do: {language, ids, error}
+    succeeded = for {_language, _ids, {:ok, results, env_status}} <- ran, do: {results, env_status}
+
+    cond do
+      # a single language that failed: the same error as before mixed-language support
+      match?([_], ran) and match?([_], failed) ->
+        [{_, _, error}] = failed
+        {book, %{method: "eval", ok?: false, result: nil, error: error}}
+
+      ran != [] and length(failed) == length(ran) ->
+        message = Enum.map_join(failed, "; ", fn {language, _, error} -> "#{language}: #{error["message"]}" end)
+        {book, %{method: "eval", ok?: false, result: nil, error: %{"code" => "eval_failed", "message" => message}}}
+
+      true ->
+        results = Enum.flat_map(succeeded, &elem(&1, 0))
+        ctx = Keyword.get(opts, :ctx, %{commit: nil, commit_at: nil, dirty: nil})
+        new_book = Core.apply_results(book, ctx, results)
+
+        failed_not_run =
+          for {language, ids, error} <- failed, id <- ids, do: %{"id" => id, "reason" => "the #{language} REPL: #{error["message"]}"}
+
+        # requested ids the plan never reached a REPL with, and why (Old.md §33)
+        accounted = MapSet.new(Enum.map(results, & &1.call_id) ++ Enum.map(unplaced ++ failed_not_run, & &1["id"]))
+
+        not_run =
+          unplaced ++
+            failed_not_run ++
+            for id <- call_ids, id not in accounted do
+              %{"id" => id, "reason" => Core.exclusion_reason(book, id, include_writes: include_writes) || "not scheduled"}
+            end
+
+        result = %{"results" => results, "not_run" => not_run}
+
+        result =
+          case {Keyword.get(opts, :project_dir), succeeded} do
+            {nil, _} -> result
+            {_, [{_, env_status} | _]} -> Map.put(result, "env", env_status)
+            _ -> result
+          end
+
+        {new_book, %{method: "eval", ok?: true, result: result, error: nil}}
+    end
+  end
+
+  # one language's REPL over `ids`: `{:ok, results, env_status}` (results
+  # not yet folded into the book) or `{:error, error}`
+  defp run_group(book, root, rows, language, ids, include_writes, pass_id, opts) do
+    case repl_opts(root, rows, language, opts) do
+      {:ok, repl_opts, cleanup, env_status} ->
+        eval_opts = Keyword.merge(repl_opts, cwd: root, call_ids: ids, include_writes: include_writes)
+        result = Evaluator.run_pass(book, pass_id, eval_opts)
+        cleanup.()
+
+        case result do
+          {:ok, _book, results} -> {:ok, results, env_status}
+          {:error, reason} -> {:error, %{"code" => "eval_failed", "message" => inspect(reason)}}
+        end
+
+      {:error, error} ->
+        {:error, error}
+    end
+  end
+
+  # The REPL side of one language's pass (§26's table reference): the
+  # language must be registered in info.json, and its `Repl.Language`
+  # module supplies both the four adapter modules and how to boot the REPL
+  # for the build tool the surface table found. Adapter modules or
+  # `:launch_opts` a caller already put in `opts` win (the CLI's `--mix`
+  # passes `launch_opts: []`; tests pass a fake `:sender` the same way).
+  # Returns `{:ok, opts, cleanup, env_status}` -- `cleanup` removes whatever
+  # the boot needed (scripts-mode's sanitized temp dir) once the pass is
+  # over; `env_status` is ProjectEnv's for the project's environment, which
+  # the REPL is started in (added to launch_opts' :env).
+  defp repl_opts(root, rows, name, opts) do
+    project_dir = Keyword.get(opts, :project_dir)
+
+    with {:ok, mod} <- language_module(name, opts) do
       build_tool = Enum.find_value(rows, &(&1["language"] == name && &1["build_tool"]))
 
       {launch_opts, cleanup} =
@@ -228,8 +348,7 @@ defmodule XipeTotec.Runner do
 
       opts =
         opts
-        |> Keyword.delete(:language)
-        |> Keyword.delete(:project_dir)
+        |> Keyword.drop([:language, :project_dir, :info, :language_modules])
         |> Keyword.put(:launch_opts, launch_opts)
         |> Keyword.put_new(:launch_module, adapter.launch)
         |> Keyword.put_new(:eval_template_module, adapter.eval_template)
@@ -240,37 +359,18 @@ defmodule XipeTotec.Runner do
     end
   end
 
-  defp pass_language(rows, root, opts) do
-    registered = Info.load()["languages"] || []
-
-    case Keyword.fetch(opts, :language) do
-      {:ok, name} ->
-        {:ok, name}
-
-      :error ->
-        case rows |> Enum.map(& &1["language"]) |> Enum.filter(&(&1 in registered)) |> Enum.uniq() |> Enum.sort() do
-          [name] ->
-            {:ok, name}
-
-          [] ->
-            {:error,
-             %{
-               "code" => "no_language",
-               "message" => "no file of a registered language (#{Enum.join(registered, ", ")}) under #{root}"
-             }}
-
-          names ->
-            {:error,
-             %{
-               "code" => "multiple_languages",
-               "message" => "#{root} has files in #{Enum.join(names, ", ")}; one eval pass runs one language's REPL"
-             }}
-        end
+  # `:language_modules` (tests) maps a language name straight to its module
+  defp language_module(name, opts) do
+    case Map.fetch(Keyword.get(opts, :language_modules, %{}), name) do
+      {:ok, mod} -> {:ok, mod}
+      :error -> registered_language_module(name, opts)
     end
   end
 
-  defp language_module(name) do
-    case Info.language_module(name) do
+  defp registered_language_module(name, opts) do
+    info = Keyword.get_lazy(opts, :info, &Info.load/0)
+
+    case Info.language_module(name, info) do
       {:ok, mod} ->
         {:ok, mod}
 
