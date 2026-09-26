@@ -1,4 +1,5 @@
 Code.require_file("../transport.exs", __DIR__)
+Code.require_file("../../project_env.exs", __DIR__)
 
 defmodule XipeTotec.Lsp.Transport.Stdio do
   @moduledoc """
@@ -19,7 +20,9 @@ defmodule XipeTotec.Lsp.Transport.Stdio do
   warnings there on every start).
 
   `config`: `%{command: [executable | args]}` -- the dialect's
-  `Scanner.Lsp.Dialect.lsp_command/0`, looked up on PATH.
+  `Scanner.Lsp.Dialect.lsp_command/0`, looked up on PATH -- plus an optional
+  `env` (the project's environment, `ProjectEnv`) the server runs in, whose
+  `PATH` the command is looked up on first.
   """
 
   @behaviour XipeTotec.Lsp.Transport
@@ -27,8 +30,10 @@ defmodule XipeTotec.Lsp.Transport.Stdio do
   @shutdown_timeout 5_000
 
   @impl true
-  def connect(root, _language, _file, %{command: [exe | args]}) do
-    case System.find_executable(exe) do
+  def connect(root, _language, _file, %{command: [exe | args]} = config) do
+    env = Map.get(config, :env, %{})
+
+    case XipeTotec.ProjectEnv.find_executable(exe, env) do
       nil ->
         {:error, "#{exe} not found on PATH"}
 
@@ -41,6 +46,7 @@ defmodule XipeTotec.Lsp.Transport.Stdio do
             :exit_status,
             :use_stdio,
             {:cd, root},
+            {:env, Enum.map(env, fn {k, v} -> {String.to_charlist(k), String.to_charlist(v)} end)},
             {:args, ["-c", ~s(exec "$0" "$@" 2>/dev/null), path | args]}
           ])
 

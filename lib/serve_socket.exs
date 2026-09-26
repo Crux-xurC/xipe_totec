@@ -58,7 +58,9 @@ defmodule XipeTotec.Serve.Socket do
   def websocket_handle({:text, frame}, state) do
     case Protocol.decode(frame) do
       {:ok, {:request, id, "initialize", params}} ->
-        {:reply, {:text, Protocol.encode_response(id, {:ok, %{"capabilities" => %{}}})},
+        result = %{"capabilities" => %{}, "project" => Project.info()}
+
+        {:reply, {:text, Protocol.encode_response(id, {:ok, result})},
          %{state | initialized: true, capabilities: params}}
 
       {:ok, {:request, id, _method, _params}} when not state.initialized ->

@@ -11,23 +11,15 @@ defmodule XipeTotec.SurfaceTable do
   deciding which `Scanner`/REPL adapter to run over them, not to replace
   `Scanner` itself.
 
-  `repl`/`build_tool` are filled in **only for `language: "elixir"`
-  rows, and only the one build tool this codebase already knew how to
-  detect** (§26's co-design, following on from §25.5's placeholder
-  version): `build_tool` is `"mix"` when `mix.exs` exists at `dir`'s
-  root, `nil` otherwise (the exact check `Runner` used to make inline --
-  moved here, not duplicated; `Runner` now reads it off these rows and
-  hands it to the language's `Repl.Language.launch_opts/2`); `repl` is always `"iex"` for Elixir,
-  since Elixir has exactly one REPL regardless of build tool. Every
-  *other* language, and every other build tool (Haskell's `stack.yaml`/
-  `*.cabal`, a project's own `flake.nix`/`shell.nix` needing a `nix
-  develop <root> --command <argv>` wrap, §25.2/§25.6) is still
-  undetected -- those rows keep `repl`/`build_tool` as `nil`, same as an
-  unrecognized `language`. This is deliberately the minimal real slice,
-  not the general priority-table design (§25.4: per-language
-  self-declared marker→launch-recipe tables) -- that stays future work;
-  this pass only had one build tool to detect that wasn't already a
-  ~5-line inline check duplicated across two modules.
+  `repl`/`build_tool` come from each language's own declaration
+  (`Repl.Language.repl/0`/`build_tools/0`, recorded in info.json's
+  `language_repls`/`build_tools` by `xipe refresh -l`, Old.md §25.4,
+  2026-09-26): a row's `repl` is its language's REPL, and its `build_tool`
+  the first of its language's build tools with a marker matching at
+  `dir`'s root (`nil` when none does, or for a row with no language). The
+  check runs when the table is generated, not on every use -- a build tool
+  added later is picked up by `xipe table generate`. Rows of different
+  languages in one project can carry different build tools.
 
   `language` comes from `info.json`'s `extensions` map (extension → the
   languages declaring it), which `xipe refresh -l` builds from each
@@ -61,14 +53,17 @@ defmodule XipeTotec.SurfaceTable do
   result or `load/1`'s output) is consulted only to reuse an existing
   row's `id` for the same `path` -- a path with no match in `old_rows`
   gets a brand new `Id.ulid()`, same rule `Identity.sheet_id/2` applies
-  to `:sheets`. `extensions` (default: `info.json`'s, see moduledoc) is
-  the extension → languages map; tests pass their own.
+  to `:sheets`. `info` (default: xipe_totec's info.json) supplies
+  `extensions`, `language_repls` and `build_tools` (see moduledoc); tests
+  pass their own.
   """
-  @spec generate(String.t(), t(), %{String.t() => [String.t()]} | nil) :: t()
-  def generate(dir, old_rows \\ [], extensions \\ nil) do
-    extensions = extensions || XipeTotec.Info.load()["extensions"] || %{}
+  @spec generate(String.t(), t(), map() | nil) :: t()
+  def generate(dir, old_rows \\ [], info \\ nil) do
+    info = info || XipeTotec.Info.load()
+    extensions = info["extensions"] || %{}
+    repls = info["language_repls"] || %{}
     id_by_path = Map.new(old_rows, &{&1["path"], &1["id"]})
-    elixir_build_tool = if File.exists?(Path.join(dir, "mix.exs")), do: "mix"
+    build_tools = Map.new(info["build_tools"] || %{}, fn {language, tools} -> {language, detect_build_tool(dir, tools)} end)
 
     dir
     |> Path.join("**/*")
@@ -84,9 +79,17 @@ defmodule XipeTotec.SurfaceTable do
         "path" => path,
         "depth" => path |> Path.split() |> length(),
         "language" => language,
-        "repl" => if(language == "elixir", do: "iex"),
-        "build_tool" => if(language == "elixir", do: elixir_build_tool)
+        "repl" => Map.get(repls, language),
+        "build_tool" => Map.get(build_tools, language)
       }
+    end)
+  end
+
+  # the first declared build tool with a marker matching at dir's root
+  defp detect_build_tool(dir, tools) do
+    Enum.find_value(tools, fn %{"name" => name} = tool ->
+      if Enum.any?(tool["markers"] || [], &(dir |> Path.join(&1) |> Path.wildcard() |> Enum.any?(fn p -> not File.dir?(p) end))),
+        do: name
     end)
   end
 
@@ -95,6 +98,35 @@ defmodule XipeTotec.SurfaceTable do
     case Map.get(extensions, ext) do
       [language] -> language
       _ -> nil
+    end
+  end
+
+  @doc """
+  The rows a scan or an eval pass works from (課題 ④). With a saved
+  `table_file`, its rows as they are -- unless the table is empty (never
+  generated) or one of its paths no longer exists under `dir`, in which
+  case the table is regenerated (`generate/3`, reusing ids) and saved
+  first. Only a missing path triggers this: a file added to `dir` after
+  the table was generated stays out until `xipe table generate` is run.
+
+  Without a `table_file` (a caller that has no registered project, e.g. a
+  test calling `Project.scan_dir/3` on a temp dir), rows are generated on
+  the spot and not saved -- the pre-④ behavior.
+  """
+  @spec rows(String.t(), Path.t() | nil, map() | nil) :: t()
+  def rows(dir, table_file, info \\ nil)
+
+  def rows(dir, nil, info), do: generate(dir, [], info)
+
+  def rows(dir, table_file, info) do
+    saved = load(table_file)
+
+    if saved == [] or Enum.any?(saved, &(not File.exists?(Path.join(dir, &1["path"])))) do
+      fresh = generate(dir, saved, info)
+      save(fresh, table_file)
+      fresh
+    else
+      saved
     end
   end
 

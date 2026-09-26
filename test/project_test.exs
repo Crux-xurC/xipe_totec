@@ -201,6 +201,20 @@ defmodule ProjectTest do
     assert names == [{"ProjA", "f"}, {"ProjB", "g"}, {"Toy", "circle"}, {"Toy", "square"}]
   end
 
+  test "with a saved surface table, scan_dir/3 reads only the files it lists (課題 ④)", %{dir: dir} do
+    table_file = Path.join(dir, "table.json")
+    {_book, ["lib/a.ex", "lib/b.ex"], []} = Project.scan_dir(Book.new(), dir, table_file: table_file)
+    assert File.exists?(table_file)
+
+    # added after the table was saved: not scanned until the table is regenerated
+    File.write!(Path.join(dir, "lib/c.ex"), "defmodule ProjC do\n  def h, do: 1\nend\n")
+    {_book, ["lib/a.ex", "lib/b.ex"], []} = Project.scan_dir(Book.new(), dir, table_file: table_file)
+
+    # a listed file gone: the table is regenerated first, picking up c.ex too
+    File.rm!(Path.join(dir, "lib/b.ex"))
+    {_book, ["lib/a.ex", "lib/c.ex"], _failures} = Project.scan_dir(Book.new(), dir, table_file: table_file)
+  end
+
   test "rescanning an untouched project appends nothing", %{dir: dir} do
     store_path = Path.join(dir, "store.jsonl")
     book1 = Store.load(store_path)

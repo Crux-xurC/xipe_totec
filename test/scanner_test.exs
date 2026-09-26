@@ -30,6 +30,23 @@ defmodule ScannerTest do
              Enum.map(nodes, &Map.take(&1, [:name, :anykey, :module]))
   end
 
+  test "functions only: def/defp/defdelegate become nodes, guarded heads by their own name, macros and guards don't" do
+    source = """
+    defmodule XipeScanKinds do
+      def pos(x) when x > 0, do: x
+      defp neg(x) when x < 0, do: x
+      defdelegate size(list), to: Kernel, as: :length
+      defmacro dbl(x), do: quote(do: unquote(x) * 2)
+      defguard is_small(x) when x < 10
+    end
+    """
+
+    {book, _node_ids} = Scanner.scan(Book.new(), "s1", source)
+    nodes = book |> Book.all(:nodes) |> Enum.map(&{&1.name, &1.anykey, &1.visibility}) |> Enum.sort()
+
+    assert nodes == [{"neg", 1, "private"}, {"pos", 1, "public"}, {"size", 1, "public"}]
+  end
+
   test "scan/3 records a link for an intra-file call to a known node" do
     {book, node_ids} = Scanner.scan(Book.new(), "s1", @source)
     f_id = node_ids[{"XipeScanFixture", "f", 1}]

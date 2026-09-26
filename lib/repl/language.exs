@@ -12,13 +12,13 @@ defmodule XipeTotec.Repl.Language do
   (`XipeTotec.Info.refresh_languages/1`) registers it in `info.json`
   (P4). Once registered, `extensions/0` feeds `SurfaceTable`'s language
   detection, `Project` reads `scanner/0` at scan time, and `Runner` reads
-  `adapter/0`/`launch_opts/2` at eval time (`XipeTotec.Info.language_module/3`):
+  `adapter/0`/`launch_opts/3` at eval time (`XipeTotec.Info.language_module/3`):
   the language a project's surface table names picks the scanner, the REPL
   adapter and how to boot it, nothing else does.
 
   Each language has one REPL, fixed here (Elixir → `iex`, Haskell →
   GHCi, ...). A build tool changes how that REPL is booted
-  (`launch_opts/2`), never which adapter modules read it.
+  (`launch_opts/3`), never which adapter modules read it.
 
   Planned additions: the build-tool priority table (課題 ②, Old.md §25.4)
   and whether the language needs an `embody` module (Old.md §30).
@@ -29,6 +29,19 @@ defmodule XipeTotec.Repl.Language do
 
   @doc "File extensions (without the dot) whose files are written in this language."
   @callback extensions() :: [String.t()]
+
+  @doc "This language's REPL (`\"iex\"` for Elixir), the surface table's `repl` column."
+  @callback repl() :: String.t()
+
+  @doc """
+  The build tools a project in this language may use, highest priority
+  first: `[%{"name" => name, "markers" => [glob]}]`. The first whose
+  marker matches a file at the project's root (`Path.wildcard/1`, e.g.
+  `"mix.exs"`, `"*.cabal"`) is the project's `build_tool` for this
+  language (surface table); none matching is `nil`. The name is what
+  `launch_opts/3` gets back. `xipe refresh -l` records this in info.json.
+  """
+  @callback build_tools() :: [%{String.t() => term()}]
 
   @doc """
   The `XipeTotec.Scanner` implementation that reads this language's files,
@@ -43,9 +56,10 @@ defmodule XipeTotec.Repl.Language do
   @doc """
   How to boot this language's REPL for the project at `root`, whose
   surface table names `build_tool` for this language (`nil` when none was
-  detected). Returns `{launch_opts, cleanup}`: `launch_opts` go to the
+  detected) and `files` (paths relative to `root`) as this language's
+  source files, Mix's own files left out (`Project.sheets_in/2`). Returns `{launch_opts, cleanup}`: `launch_opts` go to the
   adapter's `launch` module, and `cleanup` (0-arity) runs once the pass is
   over (e.g. removing a temp dir the boot needed).
   """
-  @callback launch_opts(root :: String.t(), build_tool :: String.t() | nil) :: {keyword(), (-> any())}
+  @callback launch_opts(root :: String.t(), build_tool :: String.t() | nil, files :: [String.t()]) :: {keyword(), (-> any())}
 end

@@ -7,6 +7,7 @@ Code.require_file("lib/scanner.exs", __DIR__)
 Code.require_file("lib/project.exs", __DIR__)
 Code.require_file("lib/address.exs", __DIR__)
 Code.require_file("lib/protocol.exs", __DIR__)
+Code.require_file("lib/methods.exs", __DIR__)
 Code.require_file("lib/dispatch.exs", __DIR__)
 Code.require_file("lib/serve_project.exs", __DIR__)
 Code.require_file("lib/serve_socket.exs", __DIR__)
@@ -19,16 +20,18 @@ Code.require_file("lib/info.exs", __DIR__)
 Code.require_file("lib/workspace.exs", __DIR__)
 Code.require_file("lib/command_line.exs", __DIR__)
 Code.require_file("lib/session.exs", __DIR__)
+Code.require_file("lib/git_ctx.exs", __DIR__)
+Code.require_file("lib/project_config.exs", __DIR__)
+Code.require_file("lib/project_env.exs", __DIR__)
 
 defmodule XipeTotec.CLI do
   @moduledoc false
 
-  alias XipeTotec.{Book, CommandLine, Core, Info, InOut, Runner, Session, Store, Workspace}
+  alias XipeTotec.{Book, CommandLine, Core, Dispatch, GitCtx, Info, InOut, Methods, ProjectConfig, ProjectEnv, Runner, Session, Store, Workspace}
   alias XipeTotec.Serve.Project, as: ServeProject
 
   @default_serve_port 4200
   @all_tables [:sheets, :nodes, :calls, :links, :runs, :providers]
-  @read_only_methods ~w(card/get card/search graph/neighbors graph/export cell/resolve row/depends)
 
   def main(args) do
     case args do
@@ -48,6 +51,7 @@ defmodule XipeTotec.CLI do
       ["do" | rest] -> do_cmd(rest)
       ["dialogue", "depends" | rest] -> dialogue_depends(rest)
       ["refresh" | rest] -> refresh(rest)
+      ["config" | rest] -> config(rest)
       [cmd | _] -> unknown(cmd)
     end
   end
@@ -65,9 +69,10 @@ defmodule XipeTotec.CLI do
                                 it the selected project (info.json's "project")
       xipe table generate [<path>]
                                 regenerate <path>'s surface table (registering it if new) and save
-                                it to tables/project/<id>_<name>/table
+                                it to tables/project/<id>_<name>/table -- each language's build tool
+                                is detected here -- and resolve its environment again (flake.nix)
       xipe scan [<dir>]        scan the project's .ex/.exs files and update its book
-      xipe show [<dir>]        print a summary of the project's book
+      xipe show [<dir>]        print the project's sheets, nodes, links and calc rows (with values)
       xipe start [<dir>] [--port N] [--lsp <url>] [--fs-root <dir>]
                                 run the §16.1 WebSocket (localhost) server over the project's book
                                 (default port #{@default_serve_port}, or $XIPE_TOTEC_PORT) and record it
@@ -78,7 +83,8 @@ defmodule XipeTotec.CLI do
                                 directory tezcatl's paths are relative to; both are optional
                                 ($XIPE_TOTEC_LSP_RELAY / $XIPE_TOTEC_LSP_FS_ROOT, else derived from
                                 the TEZCATL_RELAY_PORT / TEZCATL_FS_ROOT a tezcatl-spawned xipe
-                                inherits) -- tezcatl itself passes only --port
+                                inherits). tezcatl starts it without a <dir> -- on the selected
+                                project -- passing --port, --lsp and --fs-root
       xipe serve ...           same as xipe start (spec §15's name)
       xipe eval [<dir>] [id...] [--mix] [--include-writes]
                                 launch <dir>'s REPL and (re)evaluate the given calc-row ids
@@ -89,15 +95,21 @@ defmodule XipeTotec.CLI do
                                 schedules writes/unknown-effect rows (still requires each one's
                                 node to have an explicit `effect/set` first)
       xipe do [--dir <dir>] <method> [key=value...] [-- <method> [key=value...]]...
-                                run one or more §16.3 Dispatch methods (row/add, effect/set,
-                                cell/resolve, graph/neighbors, row/depends, scan/run, ...) or the
-                                "eval" pseudo-method (params include_writes=true opts in
-                                writes/unknown-effect rows), chained in one command list -- see
-                                XipeTotec.Runner's moduledoc. A later command can reference an
-                                earlier one's result with "$<index>.<path>", e.g.:
-                                  xipe do row/add node=n1 args=1,2 \\
-                                       -- effect/set id=n1 effect=pure \\
-                                       -- eval call_ids=$0.id
+                                run one or more methods (XipeTotec.Methods: row/add, effect/set,
+                                node/resolve, row/list, row/check, cell/resolve, row/depends,
+                                scan/run, ...) or the "eval" pseudo-method (params
+                                include_writes=true opts in writes/unknown-effect rows), chained
+                                in one command list -- see XipeTotec.Runner's moduledoc. A later
+                                command can reference an earlier one's result with
+                                "$<index>.<path>" (a number indexes a list), or as a cell
+                                reference with "⟦$<index>.<path>⟧", e.g.:
+                                  xipe do node/resolve module=Calc name=add arity=2 \\
+                                       -- effect/set 'id=$0.id' effect=pure \\
+                                       -- row/add 'node=$0.id' args=1,2 \\
+                                       -- eval 'call_ids=[$2.id]' \\
+                                       -- row/check on=error,changed
+                                row/check fails (exit 1) when a row is in one of its `on`
+                                states: error (default), changed, unevaluated
                                 Values: [..] is always a list ([] empty, [10] one element,
                                 [1,2] two); any other value containing a comma is a list too
                                 (args=1,2); everything else stays a plain string
@@ -108,6 +120,12 @@ defmodule XipeTotec.CLI do
                                 everything deeper) and run everything from there up through
                                 <call_id> for real. At a prompt, answer "y <literal>" (target-
                                 language source text) or "n"; declining every step does nothing.
+      xipe config [<dir>] [key=value...]
+                                show or set the project's own settings (its project.json):
+                                env.path=prepend|replace (how the environment a flake.nix gives,
+                                resolved with nix print-dev-env, meets xipe's own PATH) and
+                                env.refresh=auto|manual (a changed flake is resolved again on the
+                                next scan/eval, or only on `xipe table generate`)
       xipe refresh -l|-r|-a     re-scan xipe_totec's own adapter modules and update ./info.json:
                                 -l (--languages) lib/repl/language/*.exs (names + extensions), -r (--repls)
                                 lib/repl/eval/scan/<transport>/*.exs, -a (--all) both. A file being
@@ -122,6 +140,54 @@ defmodule XipeTotec.CLI do
     unless File.dir?(path), do: usage_error("xipe choice project: #{path} is not a directory")
     {project, status} = Workspace.choose(path)
     IO.puts("xipe choice project: #{project.id}  #{project.path}  (#{status})")
+    if status == :new, do: resolve_env(project)
+  end
+
+  # resolve the project's environment again now (a flake.nix at its root:
+  # nix print-dev-env, ProjectEnv) -- registration and `xipe table generate`
+  # are where it is refreshed regardless of env.refresh
+  defp resolve_env(project) do
+    {_env, status} = ProjectEnv.resolve(project.path, project.dir, force: true)
+    print_env_status("xipe", status, true)
+  end
+
+  defp print_env_status(prefix, %{"state" => state} = status, verbose) do
+    cond do
+      state in ["stale", "error"] -> IO.puts(:stderr, "#{prefix}: env #{state} (#{status["source"]}): #{status["message"]}")
+      verbose and state != "none" -> IO.puts("#{prefix}: env #{state} (#{status["source"]})")
+      true -> :ok
+    end
+  end
+
+  # `xipe config [<dir>] [key=value...]`: a project's own settings
+  # (ProjectConfig, its project.json). No key=value prints them.
+  defp config(args) do
+    {dir, pairs} =
+      case args do
+        [first | rest] -> if String.contains?(first, "="), do: {nil, args}, else: {first, rest}
+        [] -> {nil, []}
+      end
+
+    project = project!(dir)
+
+    for pair <- pairs do
+      case String.split(pair, "=", parts: 2) do
+        [key, value] ->
+          case ProjectConfig.put(project.dir, key, value) do
+            :ok -> :ok
+            {:error, message} -> usage_error("xipe config: #{message}")
+          end
+
+        _ ->
+          usage_error("xipe config: expected key=value, got #{inspect(pair)}")
+      end
+    end
+
+    IO.puts("project #{project.id}  #{project.path}")
+
+    for {key, value} <- ProjectConfig.flatten(ProjectConfig.load(project.dir)) do
+      IO.puts("#{key}=#{value}  (#{Enum.join(ProjectConfig.allowed()[key] || [], "|")})")
+    end
   end
 
   defp table_generate(args) do
@@ -136,6 +202,12 @@ defmodule XipeTotec.CLI do
     {project, rows} = Workspace.generate_table(path)
     counts = rows |> Enum.frequencies_by(&(&1["language"] || "-")) |> Enum.sort() |> Enum.map_join("  ", fn {l, n} -> "#{l}=#{n}" end)
     IO.puts("xipe table generate: #{project.id}  #{project.path}  #{length(rows)} files  #{counts}")
+
+    tools =
+      for(r <- rows, r["language"], uniq: true, do: "#{r["language"]}: repl=#{r["repl"] || "-"} build_tool=#{r["build_tool"] || "-"}")
+
+    Enum.each(tools, &IO.puts("xipe table generate: " <> &1))
+    resolve_env(project)
   end
 
   defp scan(dir), do: run_commands(project!(dir), [%{"method" => "scan/run", "params" => %{}}])
@@ -155,6 +227,15 @@ defmodule XipeTotec.CLI do
 
     for {_id, row} <- book.links do
       IO.puts("link  #{row.node} --#{row.role}--> #{row.ref}")
+    end
+
+    # the calc rows, through the same row/list a client uses
+    {:ok, _book, %{"rows" => rows}} = Dispatch.handle(book, "row/list", %{})
+
+    for r <- rows do
+      value = if r["eval_count"] == 0, do: "-", else: r["value"] || "-"
+      state = if r["state"] == "ok", do: "", else: "  state=#{r["state"]}"
+      IO.puts("row   #{r["id"]}  #{r["label"] || "(node gone)"}  args=#{inspect(r["args"])}  #{value}  compare=#{r["compare"]}#{state}")
     end
 
     if book == Book.new() do
@@ -186,11 +267,12 @@ defmodule XipeTotec.CLI do
         :ok
     end
 
-    # Starting on a <dir> is itself the deliberate "use this project" step,
-    # so an unregistered one is registered here (same as `xipe choice
-    # project`, surface table included) -- tezcatl starts xipe on a project
-    # root it may never have been pointed at before. The stored selection
-    # is left alone: the session outranks it only while it runs.
+    # Without a <dir> (how tezcatl starts it: xipe_totec picks the project,
+    # tezcatl is only a window onto it) this is the selected project.
+    # Starting on a <dir> by hand is itself the deliberate "use this project"
+    # step, so an unregistered one is registered here (same as `xipe choice
+    # project`, surface table included). The stored selection is left alone:
+    # the session outranks it only while it runs.
     project =
       case positional do
         [] ->
@@ -206,9 +288,9 @@ defmodule XipeTotec.CLI do
     store_file = project.store_file
     port = opts[:port] || String.to_integer(System.get_env("XIPE_TOTEC_PORT") || Integer.to_string(@default_serve_port))
 
-    # tezcatl passes only --port: the rest comes from the environment a
-    # tezcatl-spawned xipe inherits (TEZCATL_RELAY_PORT/TEZCATL_FS_ROOT,
-    # tezcatl's own settings). The relay URL is a guess outside tezcatl --
+    # tezcatl passes --lsp/--fs-root itself (its XipeConfig.spawn_args/3);
+    # otherwise they come from the environment (TEZCATL_RELAY_PORT/
+    # TEZCATL_FS_ROOT, tezcatl's own settings). The relay URL is a guess outside tezcatl --
     # harmless, a scanner that can't reach it falls through to the next
     # provider (spec §11.3).
     lsp =
@@ -218,7 +300,8 @@ defmodule XipeTotec.CLI do
     fs_root = opts[:fs_root] || System.get_env("XIPE_TOTEC_LSP_FS_ROOT") || System.get_env("TEZCATL_FS_ROOT")
 
     {:ok, _} = Application.ensure_all_started(:cowboy)
-    {:ok, _} = ServeProject.start_link(%{root: root, store_file: store_file})
+    {:ok, _} =
+      ServeProject.start_link(%{root: root, store_file: store_file, project_id: project.id, project_dir: project.dir})
 
     dispatch = :cowboy_router.compile([{:_, [{"/", XipeTotec.Serve.Socket, []}]}])
 
@@ -290,7 +373,7 @@ defmodule XipeTotec.CLI do
       IO.puts("xipe eval: nothing to evaluate (book has no calls -- add some with `xipe do row/add ...` first)")
     else
       # --mix forces Runner's own scripts-vs-mix auto-detection (the
-      # language's Repl.Language.launch_opts/2) off in favor of the
+      # language's Repl.Language.launch_opts/3) off in favor of the
       # mix-mode default;
       # otherwise leave :launch_opts unset and let Runner decide from
       # the project's surface table.
@@ -301,7 +384,7 @@ defmodule XipeTotec.CLI do
       # actually reads this out of the command's params.
       params = %{"call_ids" => target_ids, "include_writes" => opts[:include_writes] || false}
       command = %{"method" => "eval", "params" => params}
-      run_commands(project, [command], Keyword.put(evaluator_opts, :ctx, git_ctx(project.path)))
+      run_commands(project, [command], Keyword.put(evaluator_opts, :ctx, GitCtx.read(project.path)))
     end
   end
 
@@ -350,7 +433,7 @@ defmodule XipeTotec.CLI do
       end
 
       {new_book, outcome} =
-        InOut.run_to_completion(old_book, dir, first, [ctx: git_ctx(dir)], programs, next_answer, &IO.puts/1)
+        InOut.run_to_completion(old_book, dir, first, [ctx: GitCtx.read(dir), project_dir: project.dir], programs, next_answer, &IO.puts/1)
 
       Store.persist_diff(project.store_file, old_book, new_book, @all_tables)
 
@@ -385,6 +468,13 @@ defmodule XipeTotec.CLI do
     Info.save(info)
 
     if do_languages, do: IO.puts("xipe refresh: languages = #{inspect(info["languages"])}  extensions = #{inspect(info["extensions"])}")
+
+    if do_languages do
+      for name <- info["languages"] do
+        tools = Enum.map_join(info["build_tools"][name] || [], " > ", &"#{&1["name"]}(#{Enum.join(&1["markers"], ",")})")
+        IO.puts("xipe refresh: #{name}: repl=#{info["language_repls"][name] || "-"}  build_tools = #{if tools == "", do: "-", else: tools}")
+      end
+    end
     if do_repls, do: IO.puts("xipe refresh: repls = #{inspect(info["repls"])}")
   end
 
@@ -403,8 +493,11 @@ defmodule XipeTotec.CLI do
   # this same way; `do_cmd/1` below is the general form for any number of
   # chained commands.
   defp run_commands(project, commands, evaluator_opts \\ []) do
-    unless Enum.all?(commands, &(&1["method"] in @read_only_methods)), do: warn_if_session_project(project)
+    unless Enum.all?(commands, &Methods.read_only?(&1["method"])), do: warn_if_session_project(project)
     old_book = Store.load(project.store_file)
+    # scan/run and eval read the project's saved surface table (課題 ④) and
+    # run its tools in its own environment (ProjectEnv)
+    evaluator_opts = Keyword.put(evaluator_opts, :project_dir, project.dir)
     {new_book, outcomes} = Runner.run(old_book, project.path, commands, evaluator_opts)
     Store.persist_diff(project.store_file, old_book, new_book, @all_tables)
     print_outcomes(outcomes)
@@ -416,7 +509,10 @@ defmodule XipeTotec.CLI do
     IO.puts("xipe: #{length(outcomes)} command(s), #{Enum.count(outcomes, & &1.ok?)} ok")
   end
 
-  defp print_outcome(%{method: "eval", ok?: true, result: %{"results" => results} = result}) do
+  # "eval" and the pipelines.json methods ending in it (eval/run, row/update)
+  defp print_outcome(%{method: method, ok?: true, result: %{"results" => results} = result}) do
+    if method != "eval", do: IO.puts("#{method}  ok#{if result["id"], do: "  id=#{result["id"]}", else: ""}")
+    if status = result["env"], do: print_env_status("  eval", status, false)
     for r <- results, do: IO.puts("  eval call #{r.call_id}  #{format_eval_call_outcome(r.outcome)}  compare=#{r.compare}")
     for n <- Map.get(result, "not_run", []), do: IO.puts("  eval call #{n["id"]}  not run  #{n["reason"]}")
   end
@@ -430,8 +526,8 @@ defmodule XipeTotec.CLI do
   defp format_eval_call_outcome(:timeout), do: "timeout"
   defp format_eval_call_outcome(:max_heap), do: "max_heap"
   defp format_eval_call_outcome({:error, reason}), do: "crash    #{reason}"
-  defp format_eval_call_outcome({:skipped, upstream_id}), do: "skipped  upstream #{upstream_id} did not evaluate"
-  defp format_eval_call_outcome({:lost, ref}), do: "lost     missing binding for #{ref}"
+  defp format_eval_call_outcome({:skipped, upstream_id}),
+    do: "skipped  upstream #{upstream_id} has no value to pass on -- evaluate it in the same command (not recorded)"
   defp format_eval_call_outcome(:aborted), do: "aborted  session ended before this call ran"
 
   # `xipe do [--dir <dir>] <method> [key=value...] [-- <method> [key=value...]]...`
@@ -451,29 +547,13 @@ defmodule XipeTotec.CLI do
       IO.puts(:stderr, "xipe do: no command given (xipe help for the syntax)")
       System.halt(1)
     else
-      # Same git_ctx/1 `eval/1` passes -- without it, an "eval" step inside
+      # Same GitCtx.read/1 `eval/1` passes -- without it, an "eval" step inside
       # `xipe do ...` silently persisted commit/commit_at/dirty as nil
       # instead of the real git provenance the dedicated `xipe eval`
       # command records for the identical underlying operation (2026-09-19
       # review finding).
       project = project!(dir)
-      run_commands(project, commands, ctx: git_ctx(project.path))
-    end
-  end
-
-  # git info for apply_results/3's ctx (Old.md §4.4: "git読み取りは
-  # GenServer側で行い、ここに渡すだけ" -- reading git is this shell's job,
-  # not Core's/Evaluator's). `dir` need not be a git repo at all (or `git`
-  # need not be installed) -- every field just stays nil rather than raise,
-  # same "don't crash a whole eval over an optional annotation" spirit as
-  # Dispatch's own error handling elsewhere.
-  defp git_ctx(dir) do
-    with {sha, 0} <- System.cmd("git", ["rev-parse", "HEAD"], cd: dir, stderr_to_stdout: true),
-         {commit_at, 0} <- System.cmd("git", ["show", "-s", "--format=%cI", "HEAD"], cd: dir, stderr_to_stdout: true),
-         {status, 0} <- System.cmd("git", ["status", "--porcelain"], cd: dir, stderr_to_stdout: true) do
-      %{commit: String.trim(sha), commit_at: String.trim(commit_at), dirty: status != ""}
-    else
-      _ -> %{commit: nil, commit_at: nil, dirty: nil}
+      run_commands(project, commands, ctx: GitCtx.read(project.path))
     end
   end
 

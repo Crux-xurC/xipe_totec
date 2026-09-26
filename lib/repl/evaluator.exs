@@ -22,11 +22,12 @@ defmodule XipeTotec.Repl.Evaluator do
   tracking across requests, `eval/cancel`, none of which a one-shot CLI
   command needs).
 
-  `Core.plan_recalc/3`'s `restart_session` field is not read here: it exists
-  for a *persistent* server-side session that might outlive one pass (should
-  the next pass reuse the live session, or force a fresh one?) -- this
-  module always launches a brand-new session per `run_pass/3` call, so
-  there's never a live one to decide whether to reuse.
+  One pass is one REPL session, launched here and closed at the end of the
+  pass; nothing carries over to the next (2026-09-26: xipe_totec assumes the
+  evaluated functions are referentially transparent, so a session only has
+  to last as long as the evaluation that needs it -- spec v0.4's resident
+  session and its `lost` state were dropped, Old.md §35). A result's
+  `session_gen` is the pass id, recorded as the row's `session`.
 
   ## Language independence (fixed 2026-09-18, crux's own review)
 
@@ -115,7 +116,7 @@ defmodule XipeTotec.Repl.Evaluator do
 
   @doc """
   Runs one recalc pass end-to-end: `Core.plan_recalc/3` (same `opts` keys:
-  `:call_ids`/`:changed_node_ids`/`:include_writes`), launch a REPL session,
+  `:call_ids`/`:include_writes`), launch a REPL session,
   drive every entry through it in order, `Core.apply_results/3` the
   outcomes. `opts` (beyond `plan_recalc/3`'s own):
 
@@ -145,19 +146,16 @@ defmodule XipeTotec.Repl.Evaluator do
       (`Repl.Launch`/`Repl.EvalTemplate`/`Repl.Eval.Scan.Direct.Iex`/
       `Repl.Eval.FieldDrip.Elixir`).
 
-  An empty `plan.entries` (nothing left to run after `Core.plan_recalc/3`'s
-  own `:skipped` filtering) short-circuits to `{:ok, book, results}` without
-  ever launching a session -- `results` is `plan.skipped` (`[]` when there
-  was nothing to skip either, the previous behavior). Returns
+  `plan.skipped` (rows `Core.plan_recalc/3` left out because a referenced
+  row's value couldn't be handed over) is reported first in `results` and
+  never written to the book -- nothing was evaluated. An empty
+  `plan.entries` short-circuits to `{:ok, book, plan.skipped}` without ever
+  launching a session. Returns
   `{:error, {:launch_failed, reason}}` /
   `{:error, {:boot_failed, reason}}` if the session itself never came up --
   the book is untouched in either case (nothing was evaluated, so there's
   nothing for `apply_results/3` to fold in; unlike a mid-pass hang, a
   boot failure has no partial results to report as `:aborted` either).
-  `plan.skipped` (if any) is computed before the launch attempt but is
-  **not** persisted on this path either -- a later successful `run_pass/3`
-  call recomputes and applies it the same way, so nothing is lost long
-  term, just deferred.
   """
   @spec run_pass(Book.t(), String.t(), keyword()) :: {:ok, Book.t(), [map()]} | {:error, term()}
   def run_pass(book, pass_id, opts) do
@@ -170,19 +168,15 @@ defmodule XipeTotec.Repl.Evaluator do
     launch_opts = Keyword.get(opts, :launch_opts, [])
     adapter = adapter_from(opts)
 
-    plan_opts = Keyword.take(opts, [:call_ids, :changed_node_ids, :include_writes])
+    plan_opts = Keyword.take(opts, [:call_ids, :include_writes])
     plan = Core.plan_recalc(book, pass_id, plan_opts)
-    # plan.skipped needs no REPL round trip (Core.plan_recalc/3's own
-    # moduledoc) -- fold it in before ever deciding whether a session needs
-    # launching at all, so a pass that skips everything still persists why.
-    book = Core.apply_results(book, ctx, plan.skipped)
 
     case plan.entries do
       [] ->
         {:ok, book, plan.skipped}
 
       entries ->
-        case run_plan(book, ctx, entries, cwd, sender, adapter, boot_timeout_ms, hang_grace_ms, interrupt_grace_ms, launch_opts) do
+        case run_plan(book, ctx, entries, pass_id, cwd, sender, adapter, boot_timeout_ms, hang_grace_ms, interrupt_grace_ms, launch_opts) do
           {:ok, new_book, results} -> {:ok, new_book, plan.skipped ++ results}
           error -> error
         end
@@ -201,15 +195,15 @@ defmodule XipeTotec.Repl.Evaluator do
     }
   end
 
-  defp run_plan(book, ctx, entries, cwd, sender, adapter, boot_timeout_ms, hang_grace_ms, interrupt_grace_ms, launch_opts) do
+  defp run_plan(book, ctx, entries, pass_id, cwd, sender, adapter, boot_timeout_ms, hang_grace_ms, interrupt_grace_ms, launch_opts) do
     message = adapter.launch.build([{:cwd, cwd} | launch_opts])
 
     case sender.send(message) do
       {:ok, handle} ->
-        case Session.await_ready(handle, message["ready_pattern"], boot_timeout_ms) do
+        case Session.await_ready(sender, handle, message, boot_timeout_ms) do
           :ok ->
             interruptible = Map.get(message, "interruptible", false)
-            {status, results} = run_entries(entries, handle, sender, adapter, interruptible, hang_grace_ms, interrupt_grace_ms)
+            {status, results} = run_entries(entries, pass_id, handle, sender, adapter, interruptible, hang_grace_ms, interrupt_grace_ms)
 
             # a hung session was already forced down (run_entries' :hung
             # branch calls end_hung_session/3, which itself always calls
@@ -233,9 +227,9 @@ defmodule XipeTotec.Repl.Evaluator do
     end
   end
 
-  defp run_entries([], _handle, _sender, _adapter, _interruptible, _hang_grace_ms, _interrupt_grace_ms), do: {:ok, []}
+  defp run_entries([], _pass_id, _handle, _sender, _adapter, _interruptible, _hang_grace_ms, _interrupt_grace_ms), do: {:ok, []}
 
-  defp run_entries([entry | rest], handle, sender, adapter, interruptible, hang_grace_ms, interrupt_grace_ms) do
+  defp run_entries([entry | rest], pass_id, handle, sender, adapter, interruptible, hang_grace_ms, interrupt_grace_ms) do
     sender.write(handle, adapter.eval_template.build(entry))
     grace_ms = hang_grace_ms || entry.limits.timeout + @default_deadline_padding_ms
     # a fixed wall-clock deadline, not a per-chunk silence window -- see
@@ -243,9 +237,9 @@ defmodule XipeTotec.Repl.Evaluator do
     # finding).
     deadline = System.monotonic_time(:millisecond) + grace_ms
 
-    case wait_result(handle, entry.call_id, "", 1, adapter, deadline) do
+    case wait_result(handle, entry.call_id, "", pass_id, adapter, deadline) do
       {:ok, result} ->
-        {status, rest_results} = run_entries(rest, handle, sender, adapter, interruptible, hang_grace_ms, interrupt_grace_ms)
+        {status, rest_results} = run_entries(rest, pass_id, handle, sender, adapter, interruptible, hang_grace_ms, interrupt_grace_ms)
         {status, [result | rest_results]}
 
       :hung ->

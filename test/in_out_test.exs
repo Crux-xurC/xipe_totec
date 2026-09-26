@@ -51,15 +51,15 @@ defmodule InOutTest do
     assert map_size(book.calls) == 1
   end
 
-  test "a Pipeline-routed method (eval/run, still a stub) is tagged 00 -- via_repl, not held" do
+  test "a Pipeline-routed method (eval/run) is tagged 00 -- via_repl, not held" do
+    # the book's rows aren't classified, so nothing reaches a REPL: this
+    # only proves the tag and that the pipeline runs (Old.md §37)
     {dialogue, _book, outcome} = InOut.handle(nil, book(), ".", %{"method" => "eval/run", "params" => %{}})
 
     assert dialogue == nil
     assert outcome.hold == false
     assert outcome.via_repl == true
-    # the pipeline's "eval" stage is still a stub (Old.md §15) -- this
-    # only proves the tag, not that eval/run itself works yet.
-    assert outcome.ok? == false
+    assert outcome.ok? == true
   end
 
   test "starting a registered dialogue holds, tagged 11, and returns the program's question" do

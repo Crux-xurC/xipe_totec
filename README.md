@@ -1,7 +1,7 @@
 # Xipe Totec
 
 関数型言語のプロジェクトに、表計算ソフトの構造 ── 住所を持つセル、住所への参照、
-上流を変えると下流が再計算される仕組み ── を持ち込む、独立したローカルサーバー
+参照を順にたどって評価し直せる仕組み ── を持ち込む、独立したローカルサーバー
 兼 CLI。
 
 名称は、ソースという本体から関数ごとに皮（カード）を剥いでいく像に由来する。
@@ -17,8 +17,10 @@ Elixir 実装。アプリ名 `:xipe_totec`、モジュール名 `XipeTotec`、CL
 
 出発点は、REPL で関数を試すときの手間である。入力値を毎回手で打つ、ファイル
 パスを指定する、といった操作を、**計算行**として保存し再利用できるようにする。
-計算行の引数には、別の計算行の出力への参照（`⟦id⟧`）を置ける ── 上流を変えれば
-下流が再計算される、表計算ソフトと同じ仕組みが手に入る。
+計算行の引数には、別の計算行の出力への参照（`⟦id⟧`）を置ける ── 参照でつないだ
+計算行を並べて評価すれば、上流の変化が下流にどう伝わるかを見られる。評価するのは
+指定した計算行だけで、指定していない行を裏で評価して記録に加えることはしない
+（Book は時系列の記録、`document/Old.md` §36）。
 
 評価は、人が REPL の端末で行う操作をそのまま自動化する形で行う。対象プロジェクト
 自身の REPL（Elixir なら `iex`）を起動し、標準入力へ呼び出し式を書き込み、
@@ -93,7 +95,7 @@ P1 の具体形: 副作用の分類（`pure`/`reads`/`writes`）は利用者が 
         │
    入口        CLI（main.exs）／ Serve.Project（GenServer）+ Serve.Socket（WebSocket）
         │ WebSocket（localhost）
-   tezcatl の `/xipe`（設計済み・未実装）
+   tezcatl の `/xipe`（relay 側は実装済み。パネルは card/get の1回取得のみ）
 ```
 
 スキャンと評価は言語で選ばれる。surface table が示す言語（`info.json` に登録済みの
@@ -105,7 +107,11 @@ P1 の具体形: 副作用の分類（`pure`/`reads`/`writes`）は利用者が 
 ない。Elixir の Scanner は elixir-ls（`Scanner.Lsp.Elixir`）を優先する。言語サーバーへは
 tezcatl の `/lsp` を先に試し、つながらなければ elixir-ls を自分で起動する（CLI 単体でも
 使える）。どちらも駄目なら自前の `Scanner.Elixir` を使う（仕様 §11.3）。どれで読んだか
-（`via` が `relay`/`stdio`）は `scan/run` の結果の `scanners` に出る。`XIPE_TOTEC_LSP=off` で言語サーバー経由を止められる
+（`via` が `relay`/`stdio`）は `scan/run` の結果の `scanners` に出る。カードは disk のファイル
+（評価で REPL が読むもの）に合わせる。言語サーバーがエディタの未保存の内容を持っていて位置が
+disk とずれるファイルは、そのファイルだけ次の Scanner（Elixir なら `Scanner.Elixir`）で読み直し、
+`scanners.<言語>.fallbacks` に出す。カードになるのは関数だけ（Elixir なら `def`/`defp`/
+`defdelegate`）で、マクロ・ガードは入らない。`XIPE_TOTEC_LSP=off` で言語サーバー経由を止められる
 （テストはこれで走る）。`Scanner`（ソースから定義を抽出）と `Eval.Scan`
 （REPL 出力からマーカーを検出）は名前が似ているが別物。
 
@@ -123,7 +129,7 @@ tezcatl の `/lsp` を先に試し、つながらなければ elixir-ls を自�
 
 ## いまどこまで動くか
 
-2026-09-25 時点。`./test/run.sh` の全36ファイル・331件がすべて通る。これとは別に、
+2026-09-25 時点。`./test/run.sh` の全36ファイル・339件がすべて通る。これとは別に、
 実機の `iex` を起動するテスト（`test/live/`）がある。
 
 **CLI からは、Elixir プロジェクトに対してスキャン → 計算行の作成 → 実評価 → 結果の
@@ -139,7 +145,7 @@ tezcatl の `/lsp` を先に試し、つながらなければ elixir-ls を自�
 - `xipe dialogue depends` で、上流の依存チェーンの深い段から順に「ここに値を手で
   入れて、そこから上を評価するか」を対話で決められる
 
-`xipe serve`（WebSocket）経由でも評価できる。`eval`／`eval/run` はすぐに `pass_id` を
+`xipe serve`（WebSocket）経由でも評価できる。`eval`／`eval/run`／`row/update` はすぐに `pass_id` を
 返し、評価は別プロセスで走る（評価中もほかの要求に応答する）。終わると
 `notify/rowChanged` と `notify/passCompleted`（独自追加）が届く。評価回は1プロジェクトに
 つき1つずつ、来た順に実行する。
@@ -150,8 +156,8 @@ tezcatl の `/lsp` を先に試し、つながらなければ elixir-ls を自�
 |---|---|---|
 | Tier 1 | `scan/run`・`row/add`・`row/remove`・`effect/set`・`card/get`・`card/search`・`graph/neighbors`・`graph/export`・`cell/resolve` | 実装済み |
 | 独自追加 | `row/depends`（上流依存チェーン）・`row/set-result`（値の手入力）・`notify/passCompleted`（評価回の完了通知） | 実装済み（仕様 v0.4 には無い） |
-| 評価 | `eval`・`eval/run` | 実装済み。CLI（`xipe eval`／`xipe do ... eval`）は同期実行、`xipe serve` では2つとも非同期（`pass_id` を返す）。CLI の `xipe do ... eval/run` だけは今も `Pipeline` の空スタブに行く |
-| Pipeline 経由 | `row/update` | `pipelines.json` に登録済みで、段（`"edit"`）の中身は空スタブ |
+| 評価 | `eval`・`eval/run` | 実装済み。CLI（`xipe eval`／`xipe do ... eval`）は同期実行、`xipe serve` では非同期（`pass_id` を返す）。`eval/run` は `Pipeline`（`["eval"]`）経由 |
+| Pipeline 経由 | `row/update` | 実装済み。`["edit", "eval"]`：引数を変えてその行だけを評価する（Old.md §37） |
 | Tier 3 | `cell/complete` | 未実装 |
 | — | `edit/propose`・`edit/apply` | 撤回（参照一覧＋エディタ委譲へ方針転換）。`row/update` の `"edit"` 段とは別物 |
 | Tier 4〜5 | `provider/recheck`・`trace/*` | 未実装（trace は凍結） |
@@ -193,7 +199,8 @@ xipe start [<dir>] [--port N] [--lsp <url>] [--fs-root <dir>]
                            # 未登録の <dir> は登録する（選択中のプロジェクトは変えない）
                            # --lsp/--fs-root は tezcatl の /lsp 中継とファイルルート。省略時は
                            # tezcatl から引き継いだ TEZCATL_RELAY_PORT/TEZCATL_FS_ROOT から決める
-                           # （tezcatl は --port だけを渡す）
+                           # tezcatl は <dir> を渡さずに起動する（対象は選択中のプロジェクト。
+                           # 決めるのは xipe_totec で、tezcatl は窓）。--port・--lsp・--fs-root は渡す
 xipe refresh -l|-r|-a      # xipe_totec 自身の info.json（言語と拡張子・REPL アダプタ一覧）を更新
 
 ./test/run.sh                         # ExUnit 全件（何も起動せず単体で走る）
@@ -256,6 +263,7 @@ Mix プロジェクトではない（`mix.exs` なし）。tezcatl と同じ規�
 | セッション | REPL アダプタが起動した REPL の1回の実行。世代番号を持つ |
 | 墓標 | 消失した対象を即削除せず保持する状態 |
 | anykey | ノードの照合キー（モジュール・関数名・anykey）の3つ目。同じモジュールの同名の関数を区別するために、言語の Scanner が入れる値。Elixir では arity（`add/2` と `add/3` は別の関数）。名前だけで一意な言語では空でよい。整数なら引数の数としても使われる（`row/add` の確認、`Calc.add/2` の表示）。住所では `arity` も別名として使える |
+| visibility | ノードの列。`public` は REPL から呼べる関数、`private` は呼べない関数（Elixir の `defp`）。`private` のノードも参照一覧には出るが、`row/add` で計算行は作れない |
 | surface_table | 対象プロジェクトのファイルツリーを、パス・深さ・言語・REPL・ビルドツールの行にした表 |
 | エラー値 | 評価できなかったセルが持つ値。参照を通じて下流に伝わる |
 
@@ -263,13 +271,14 @@ Mix プロジェクトではない（`mix.exs` なし）。tezcatl と同じ規�
 
 ## tezcatl 連携
 
-[tezcatl](../tezcatl) 側の UI から Xipe Totec を使うための接続モデルは設計済み
-（tezcatl 側 `forAI/progress.md` 2026-09-17 分）── tezcatl の relay が `/xipe`
-を新設し、既に立っている Xipe Totec サーバーへ接続（connect）するか、
-`xipe serve` を自分で起動してから接続（spawn）するかをプロジェクトごとの設定
-で選べるようにする。§16.2 の「中継は状態を持たない」規定に従い、`/xipe` は
-`/lsp` のような id 書き換え型の多重化はせず、状態を持たないブロードキャスト
-中継にする。tezcatl 側のコードはまだ無い。
+[tezcatl](../tezcatl) の relay の `/xipe` が、ブラウザ側のパネル（`panels/matrix.html` など）と
+Xipe Totec のサーバーをつなぐ。対象プロジェクトを決めるのは Xipe Totec（`xipe choice project`）で、
+tezcatl はその窓に過ぎない。基本は tezcatl が `xipe start` を `<dir>` なしで起動し（`xipe.json` の
+`mode: "spawn"`）、その後 WebSocket でつなぐ。既に立っているサーバーへつなぐだけの
+`mode: "connect"` もある。`xipe.json` のキー（`"."` など）はつなぐ先の名前で、パスではない。
+どのプロジェクトが開いているかは `initialize` の結果の `project`（`id`・`root`）で分かる。
+§16.2 の「中継は状態を持たない」規定に従い、`/xipe` は `/lsp` のような id 書き換え型の
+多重化はせず、状態を持たないブロードキャスト中継にしている（tezcatl 側 `lib/relay/xipe_*.exs`）。
 
 WebSocket の応答には、JSON-RPC の通常の `result`/`error` に加えて `from`（予約、
 常に `null`）と `dialogue`（`hold`/`via_repl`/`text`）が付く（`Old.md` §17.2）。
@@ -281,6 +290,7 @@ WebSocket の応答には、JSON-RPC の通常の `result`/`error` に加えて 
 | 文書 | 答える問い |
 |---|---|
 | この README | 何のために作られ、何ではなく、いまどこまで動くか |
+| [`document/How_to_use.md`](document/How_to_use.md) | いまのコードで、実際にどう使うか |
 | [`document/動作原理.md`](document/動作原理.md) | 使う場面ごとに、何がどの順で呼ばれ、どのプログラムが担っているか |
 | [`document/repl-adapter-guide.md`](document/repl-adapter-guide.md) | 新しい言語・REPL のアダプタをどう書くか |
 | [`document/課題.md`](document/課題.md) | いま何が未解決で、次に何をするか |

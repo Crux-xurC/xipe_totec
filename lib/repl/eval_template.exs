@@ -5,33 +5,15 @@ defmodule XipeTotec.Repl.EvalTemplate do
   assembly half). Pure string manipulation -- no process spawning, no I/O.
 
   Per Old.md §28 B's division of labor: Core hands over `args` with
-  embeddable references already substituted (exact/binary) and
-  non-embeddable ones left as placeholder tokens plus typed `inputs`
-  (`core.exs`'s `resolve_ref/4`). This module is the "REPL adapter" side
-  of that split -- it turns the remaining placeholders into real Elixir
-  text.
-
-  `in_plan`/`binding` placeholders are, per Core's own design, already
-  the correct final text (`Atom.to_string(var)` -- a bare variable
-  reference to a session binding that either already exists, or will by
-  the time this entry runs within the same pass) -- nothing to do there.
-  `inline_call` placeholders are not valid Elixir on their own; they must
-  be replaced with the nested call expression Core deliberately did NOT
-  build itself (building call syntax is this module's job, not Core's).
-
-  A subtlety worth a callout: `binding_name/1` is deterministic
-  (call_id-derived), so the *same* placeholder text can legitimately
-  appear as an `:inline_call` target in one place and, in a deeper nested
-  position, as a `:binding` fallback for the exact same call_id -- this
-  happens precisely when `core.exs`'s occurs-check kicks in (a call
-  reachable through more than one `inline_call` chain). A naive "replace
-  every occurrence of this placeholder the same way" would silently
-  reintroduce the infinite expansion Core's occurs-check exists to avoid.
-  `expand/5`'s `expanding` accumulator (mirrors Core's own `visiting` set)
-  is what keeps that from happening: while a placeholder's own inline
-  expansion is in progress, any *further* occurrence of that same
-  placeholder inside it is left as a bare reference (the binding
-  fallback) instead of being expanded again.
+  embeddable references already substituted (exact/binary) and the rest
+  left as placeholder tokens plus typed `inputs` (`core.exs`'s
+  `resolve_ref/4`). Every placeholder Core produces is already the final
+  text -- `xt_<call_id>`, a bare reference to the session variable an
+  earlier entry of the same pass binds (`:in_plan`) -- so the call
+  expression is the args joined as they are. (Until 2026-09-26 Core also
+  produced `:inline_call` placeholders, a referenced pure call to re-embed,
+  which this module expanded; that ran a function no command asked for, so
+  it was dropped, Old.md §36.)
   """
 
   @doc """
@@ -39,9 +21,8 @@ defmodule XipeTotec.Repl.EvalTemplate do
   `Core.plan_recalc/3`'s `Plan.Entry`: `%{module:, name:, args:, inputs:}`).
   """
   @spec call_expression(map()) :: String.t()
-  def call_expression(%{module: module, name: name, args: args, inputs: inputs}) do
-    resolved = resolve_args(args, inputs)
-    "#{module}.#{name}(#{Enum.join(resolved, ", ")})"
+  def call_expression(%{module: module, name: name, args: args}) do
+    "#{module}.#{name}(#{Enum.join(args, ", ")})"
   end
 
   # compare's float tolerance (Old.md §28 C: "誤差の値は設定パラメータにする").
@@ -65,12 +46,11 @@ defmodule XipeTotec.Repl.EvalTemplate do
   may need reconstructing from text/binary too, so that reconstruction
   and the comparison itself both have to happen target-side).
 
-  Always binds the result to `xt_<call_id>` as a top-level statement,
-  regardless of `entry.bind_as` -- decided 2026-09-18: structurally
-  required for any later `:in_plan` reference regardless of purity, and
-  separately useful for tezcatl-side integration (crux: a live, inspectable
-  session variable per evaluated call). `entry.bind_as` itself is not
-  read here.
+  Always binds the result to `xt_<call_id>` as a top-level statement --
+  decided 2026-09-18: structurally required for any later `:in_plan`
+  reference in the same pass regardless of purity, and separately useful
+  for tezcatl-side integration (crux: a live, inspectable session variable
+  per evaluated call). The session, and so the binding, lasts one pass.
 
   `entry.call_id` doubles as the marker/variable-name suffix -- already
   unique (a ULID in production), no separate id generator needed.
@@ -361,42 +341,5 @@ defmodule XipeTotec.Repl.EvalTemplate do
     """
               {:ok, #{inspect(prev_base64)} |> Base.decode64!() |> :erlang.binary_to_term()}
     """
-  end
-
-  @doc "Resolves every arg string's placeholders (see moduledoc). Exposed for direct testing."
-  @spec resolve_args([String.t()], list()) :: [String.t()]
-  def resolve_args(args, inputs) do
-    inline_calls = for {:inline_call, m} <- inputs, into: %{}, do: {m.placeholder, m}
-    bindings = for {:binding, m} <- inputs, into: %{}, do: {m.placeholder, m}
-
-    Enum.map(args, &expand(&1, inline_calls, bindings, MapSet.new()))
-  end
-
-  defp expand(text, inline_calls, bindings, expanding) do
-    placeholders = Map.keys(inline_calls) ++ Map.keys(bindings)
-
-    placeholders
-    |> Enum.uniq()
-    |> Enum.reduce(text, fn placeholder, acc ->
-      cond do
-        not String.contains?(acc, placeholder) ->
-          acc
-
-        # already mid-expansion for this placeholder (occurs-check hit,
-        # same reasoning as core.exs's `visiting`) -- must be the binding
-        # fallback at this position, already valid text, leave as-is
-        MapSet.member?(expanding, placeholder) ->
-          acc
-
-        Map.has_key?(inline_calls, placeholder) ->
-          %{module: m, name: n, args: inner_args} = Map.fetch!(inline_calls, placeholder)
-          inner = Enum.map(inner_args, &expand(&1, inline_calls, bindings, MapSet.put(expanding, placeholder)))
-          String.replace(acc, placeholder, "#{m}.#{n}(#{Enum.join(inner, ", ")})")
-
-        # a plain :binding or :in_plan placeholder -- already correct text
-        true ->
-          acc
-      end
-    end)
   end
 end

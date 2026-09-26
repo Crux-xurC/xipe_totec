@@ -11,7 +11,7 @@ defmodule RunnerTest.EchoSender do
 
   def send(message) do
     handle = self()
-    Kernel.send(handle, {handle, {:data, message["ready_pattern"] <> "\n"}})
+    Kernel.send(handle, {handle, {:data, message["ready_pattern"] <> "\nXT_READY\n"}})
     {:ok, handle}
   end
 
@@ -98,6 +98,40 @@ defmodule RunnerTest do
     refute bad.ok?
     refute second.ok?
     assert second.error["code"] == "invalid_params"
+  end
+
+  test "$n.path indexes a list with a number and reads a Book row's atom keys" do
+    book = Book.new() |> Core.put_node("n1", pure_node("f")) |> Core.put_node("n2", pure_node("g"))
+
+    commands = [
+      %{"method" => "card/get", "params" => %{"name" => "f"}},
+      %{"method" => "row/add", "params" => %{"node" => "$0.matches.0.id", "args" => ["1"]}},
+      %{"method" => "row/add", "params" => %{"node" => "n2", "args" => ["$1.row.args.0"]}},
+      # not there: nil, not a crash
+      %{"method" => "row/add", "params" => %{"node" => "$0.matches.9.id", "args" => ["1"]}}
+    ]
+
+    {_book, [_card, first, second, missing]} = Runner.run(book, ".", commands)
+
+    assert first.result["row"].node == "n1"
+    assert second.result["row"].args == ["1"]
+    refute missing.ok?
+  end
+
+  test "⟦$n.path⟧ inside a string becomes a cell reference to that id" do
+    book = Book.new() |> Core.put_node("n1", pure_node("f"))
+
+    commands = [
+      %{"method" => "row/add", "params" => %{"node" => "n1", "args" => ["3"]}},
+      %{"method" => "row/add", "params" => %{"node" => "n1", "args" => ["⟦$0.id⟧ + 1"]}},
+      # a reference that doesn't resolve is left as written
+      %{"method" => "row/add", "params" => %{"node" => "n1", "args" => ["⟦$7.id⟧"]}}
+    ]
+
+    {_book, [first, second, third]} = Runner.run(book, ".", commands)
+
+    assert second.result["row"].args == ["⟦#{first.result["id"]}⟧ + 1"]
+    assert third.result["row"].args == ["⟦$7.id⟧"]
   end
 
   test "$n.path substitutes inside a list value too" do
@@ -341,12 +375,28 @@ defmodule RunnerTest do
 
     {^book, [eval_run, row_update]} = Runner.run(book, ".", commands)
 
-    # Dispatch's @not_implemented would answer with "not_implemented" too,
-    # so the real proof this went through Pipeline (not Dispatch) is which
-    # *stage* the message names -- Dispatch has no concept of stages at all.
-    refute eval_run.ok?
-    assert eval_run.error["message"] =~ "\"eval\""
+    # Dispatch's @not_implemented would answer not_implemented for both
+    assert eval_run.ok?
     refute row_update.ok?
-    assert row_update.error["message"] =~ "\"edit\""
+    assert row_update.error["message"] =~ "row/update needs id"
+  end
+
+  # 2026-09-26 (Old.md §37): the pipeline's eval stage is this module's own "eval"
+  test "row/update edits a row and evaluates it, and only it, through Runner's eval" do
+    book =
+      Book.new()
+      |> Core.put_node("n1", pure_node("f"))
+      |> Core.add_call("c1", %{node: "n1", args: ["1"]})
+      |> Core.add_call("c2", %{node: "n1", args: ["⟦c1⟧"]})
+
+    command = %{"method" => "row/update", "params" => %{"id" => "c1", "args" => ["9"]}}
+    {new_book, [outcome]} = Runner.run(book, ".", [command], sender: EchoSender, launch_opts: [])
+
+    assert outcome.ok?
+    assert outcome.result["id"] == "c1"
+    assert Enum.map(outcome.result["results"], & &1.call_id) == ["c1"]
+    assert Book.get(new_book, :calls, "c1").args == ["9"]
+    assert Book.get(new_book, :calls, "c1").eval_count == 1
+    assert Book.get(new_book, :calls, "c2").eval_count == 0
   end
 end

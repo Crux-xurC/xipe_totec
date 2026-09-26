@@ -1406,3 +1406,88 @@ cruxの問い「プロジェクトを決める → テーブルを作る → コ
 ### 34.3 テスト
 
 `info_test.exs`（空の雛形に`extensions`、実物の`language/`の読み込み、一時ディレクトリに`c`と`cpp`を置いた`.h`の衝突）、`surface_table_test.exs`（対応表を明示的に渡す形に変更、衝突で`nil`、登録ゼロで全行`nil`）。`./test/run.sh`全32ファイル・294件、0 failures。スキャン系のテスト（`project_test`・`dispatch_test`の`scan/run`等）は実物の`info.json`を読んで通っている。
+
+## 35. 評価モデルの確定 ── 参照透明の前提、セッションは1回の評価の間だけ、`lost`の廃止、`XT_READY`（2026-09-26、`~/my_app/tezcatl`セッション）
+
+cruxとのco-design。REPLの仕様を詰める中で、仕様書 v0.4 の「REPLセッションの常駐」を前提にした記述と、実装（passごとにiexを起動し直す、§11.4・§22）のずれを整理した。
+
+### 35.1 決定（crux）
+
+1. **Xipe Totecは関数ごとの単体の確認を基本とし、計算行を続けて評価することで依存の連鎖を見る。** 参照透明性は**評価する関数**に求めるもので、**渡された値の出どころ**には求めない。行A（`⟦B⟧`を引数に使う）の関数が参照透明なら、Bが参照透明でなくても、型の合った値を渡した結果として記録は有効とする
+2. **再現できない値の参照は認めない**が、これは上の意味（評価する関数が参照透明であること）であって、参照先が`unsupported`だから止める、という意味ではない
+3. **仕様書 v0.4 の「常駐」は、対話型を前提にしていなかったための形**だった可能性が高い（crux）。いまの構成では「評価要求1回の間だけREPLを保持し、終われば閉じる」ので、仕様の「セッション」はこの意味に読み替える。常駐（passをまたいでセッションや束縛を持ち越す）はしない
+4. **`lost`は廃止。** `lost`は常駐セッションが落ちたとき（再起動で束縛が失われたとき）のための状態で、束縛が評価をまたがない以上、起きる場面が無い。評価の途中でREPLが固まった場合は既存の`aborted`がこれにあたる
+5. **表から値を渡せない参照先は、同じ評価に含めて評価し直す（案a）。** 対象は、まだ評価されていない参照先と、pure以外の関数の`unsupported`の値。参照先の行の結果も更新される（依存の連鎖が表にそのまま残る）。参照先も副作用の分類による制限を受け、評価できなければ参照している行は`skipped`（`ref_error`）。pureの`unsupported`は従来どおり呼び出し式を埋め込む（案b「pure以外にも呼び出し式の埋め込みを広げる」は、参照先の行が更新されず連鎖が表に残らないので退けた）
+6. **`XT_READY`は「現状のバナー待ち＋echo」の2段**（crux、§25.3の具体化）。バナー（`ready_pattern`）が出るのを待ち（`nil`なら省略）、次に言語ごとの確認用の式（`ready_probe`、Elixirは`IO.puts("XT_" <> "READY")`）を送り、`XT_READY`が出るのを待つ（`nil`なら省略）。バナーの無いREPLでも同じ仕組みで済み、式が実際に評価されたことまで確かめられる。マーカーを式の中で分割して書くので、入力をそのまま返す端末（PTY）でも誤検出しない。実測で、バナーから`XT_READY`までは約30ミリ秒
+
+### 35.2 検討した候補（常駐）
+
+| 案 | 中身 | 退けた理由 / 採った理由 |
+|---|---|---|
+| 1. passごとに起動（現状） | 毎回新しいREPL | **採用。** ディスク上のコードで評価でき、状態が漏れない（P2）。参照透明の前提なら、passをまたいで値を持ち越す必要が無い |
+| 2. サーバーだけ常駐、変化したら再起動 | `xipe start`がREPLを保持 | 速いのはコードが変わっていない間だけ。状態の漏れで結果が履歴に左右されうる。`lost`の扱いが要る |
+| 3. 常駐して変更をその場で読み込み直す | `recompile()`等 | 「カードは常にディスクの内容に合わせる」原則（Scanner.Lsp）と衝突 |
+| 4. CLIもサーバーのセッションを使う | 2が前提 | 同上 |
+
+実測（calc、scripts-mode）: `xipe eval`全体で約2.7秒、うちCLI自身の起動が約1.7秒、iexの起動が約0.6秒。Mixプロジェクト（`iex -S mix`）は未測定。
+
+### 35.3 実装
+
+- **`Core.plan_recalc/3`**: `with_needed_upstream/2`（新規）で、予定した行が参照している「表から値を渡せない参照先」（未評価、またはpure以外の`unsupported`）を推移的に計画へ加える。pureの`unsupported`は呼び出し式を埋め込むので加えず、その引数の参照先を同じ規則で見る。加えた行も`filter_by_effect/3`を通る。`restart_session`（計画の欄と引数）、`bind_as`（エントリの欄、どこからも読まれていなかった）、`apply_result/3`の`{:lost, ref}`を削除。`:binding`入力から`gen`を削除（`:binding`は「この評価の中で束縛されない参照」を表すだけになり、`drop_unresolvable/2`が`skipped`にする）
+- **`Repl.Evaluator`**: 結果の`session_gen`（計算行の`session`列）に評価の id（`pass_id`）を入れる（従来は常に1）
+- **`Repl.Launch`**: `ready_probe`を追加。`ready_pattern`は`nil`を許す
+- **`Repl.Session.await_ready/4`**: `(sender, handle, message, timeout)`に変更し、上の2段を行う。`timeout`は2段の合計
+- **`Protocol`・`main.exs`**: `lost`の表示を削除
+- **仕様書 v0.4**: 用語「セッション」・`session`列・`state`の一覧・§6.3（参照の解決）・§6.5（エラー値、`lost`の行を削除、`unreproducible`は下流に伝わるエラー値ではなく注意の表示と明記）・§13（境界規則の「再起動の指示」）・§14.2（評価の手順）・段階計画の該当行を書き換えた。版の行に改訂を記した
+- テスト: `core_test`（参照先を評価に含める3件、`lost`の削除）、`repl_session_test`（2段の待ち合わせ2件、引数の変更）、`repl_evaluator_test`（`session_gen`が評価の id）、`repl_launch_test`、`protocol_test`。テスト用の偽のsenderは、起動時にバナーと`XT_READY`を返すようにした。`./test/run.sh` 369件、0 failures。`test/live/repl_iex_test.exs`（本物のiex）12件、0 failures
+- 実機: `Probe.mkref/0`（`make_ref()`、reads、`unsupported`）の行Bと、`Probe.is_ref/1`（pure）の行A＝`is_ref(⟦B⟧)`を作り、Aだけを評価した。Bが同じ評価に含まれて新しい参照が作られ、Aは`true`を記録した
+
+### 35.4 REPLの起動失敗でCLIごと落ちる不具合の修正
+
+`Repl.Sender.Direct.send/1`は見張り役のGenServerを`GenServer.start_link/2`で起動していた。OSプロセスの起動をerlexecが拒否すると`init/1`が`{:stop, {:spawn_failed, reason}}`を返し、戻り値は`{:error, ...}`になるが、リンクを通じて終了シグナルも呼び出し元に届き、`xipe eval`（やサーバーの評価プロセス）ごと落ちていた（§35の実装中、flakeの環境変数を文字リストで渡したときに`** (EXIT from ...) {:spawn_failed, ...}`として表面化）。起動の間だけ呼び出し元で終了シグナルを受け止めて捨てる`start_linked/1`に変え、失敗は`{:error, {:spawn_failed, reason}}`として返るようにした（`Evaluator`は既存どおり`launch_failed`として報告する）。テスト（`repl_sender_direct_test`、erlexecが拒否する環境変数の値で起動）は修正前のコードで同じ形で落ち、修正後に通ることを確認した。`./test/run.sh` 370件、0 failures。
+
+## 36. 評価するのは指定した計算行だけ ── 下流・上流の自動評価と呼び出し式の埋め込みをやめる（2026-09-26、`~/my_app/tezcatl`セッション）
+
+評価の入口の一本化（`row/update`の再評価範囲）を詰める中で、cruxから「下流再計算はあくまで可能というだけで、実行は単体、記録もそれだけを前提にしていいか。データベース（Book）に載るのは時系列のはず。下流も含めて載ると、コマンドに明示していない評価を勝手に実行していることにならないか」と指摘があった。実機で確かめると、`xipe eval <R1>`で、R1を参照しているR2まで評価・記録されていた。
+
+### 36.1 決定（crux）
+
+- **評価するのは、評価要求で指定された計算行だけ。** Bookは時系列の記録で、載るのはコマンドで指定した評価だけとする
+- **下流の自動評価をやめる**（仕様書 v0.4 §6.6の「affected集合」に由来する、以前からの動作）。下流を評価したいときは、How to use §2.6と同じく行を並べて指定する。専用の手段（`--downstream`など）は作らない
+- **上流の自動評価（§35の決定5、案a）もやめる。** §35で採った「表から値を渡せない参照先を自動で同じ評価に含める」は、同じ理由で撤回した。値の無い参照先を使う行は、参照先も一緒に指定したときだけ評価できる
+- **pureな関数の`unsupported`の呼び出し式を埋め込む処理（`:inline_call`）もやめる。** 参照先の関数を、記録に残さずに実行していたため。これも参照先を一緒に指定する形に揃えた
+- **評価しなかった行（`skipped`）はBookに書かない。** 従来は`state: ref_error`を書いていたが、評価していない行の記録になるため。理由は出力にだけ出す
+
+### 36.2 実装
+
+- **`Core.plan_recalc/3`**: 計画に入るのは`call_ids`で指定され、存在し、循環に入っていない行だけ（`affected_set/3`を使わない）。`with_needed_upstream/2`（§35）を削除。`:changed_node_ids`オプションを削除。`resolve_ref/4`から`:inline_call`の分岐と`visiting`を削除。`apply_result/3`の`{:skipped, _}`はno-op
+- **`Repl.Evaluator.run_pass/3`**: `plan.skipped`をBookに畳み込まない（結果の先頭で報告するだけ）
+- **`Repl.EvalTemplate`**: `:inline_call`の展開（`resolve_args/2`・`expand/4`）を削除。Coreが作るプレースホルダはすべて最終形なので、呼び出し式は引数をそのまま並べる
+- **CLI**: `skipped`の表示を「upstream X has no value to pass on -- evaluate it in the same command (not recorded)」に変更。`xipe dialogue depends`の「その上流を評価します」（実際は下流）を「そこから指定した行までを評価します」に直した（途中の行は元から明示的に並べていたので、動作はこの変更の影響を受けない）
+- `Core.affected_set/3`・`dep_hash_affected_nodes/2`・`calls_for_nodes/2`は使われなくなった。扱いは`課題.md`
+- 仕様書 v0.4（版の行、§6.3の表と箇条、§6.6、§14.2）、How to use §2.6・§4.2・§3.4・§11、README冒頭、動作原理.md、課題.mdを更新
+- テスト: `core_test`（指定した行だけが計画に入る、`unsupported`＋pureは埋め込まず`skipped`・一緒に指定すれば同じpassで渡る、`skipped`/`aborted`はBookを変えない）、`repl_eval_template_test`（`:inline_call`の2件を削除）。`./test/run.sh` 367件、0 failures
+- 実機: `xipe eval <R1>`はR1だけ、`xipe eval <R1> <R2>`は両方を評価した。`is_ref(⟦mkref⟧)`だけを指定すると`skipped`で、`book.jsonl`の行数は変わらなかった（86→86）。両方を指定すると、`mkref`が先に評価され、その値で`is_ref`が`true`を記録した
+
+## 37. 評価の入口の一本化 ── `Pipeline`の段を実装し、REPLを使う基本の操作を1つにする（2026-09-26、`~/my_app/tezcatl`セッション）
+
+コマンド追加の準備の最後の項目。REPLを使う処理の入口が3か所（Runnerの`"eval"`、`pipelines.json`＋`Pipeline`〈段はすべてスタブ〉、`Serve.Project`の`@eval_methods`）に分かれていて、同じ`eval/run`がCLIでは未実装、サーバーでは（`Pipeline`を通らずに）動く、という状態だった。
+
+### 37.1 決定（crux、案B）
+
+- **REPLを使う基本の操作は、Runnerの`"eval"`だけ。** 組み合わせのコマンドは`pipelines.json`に段を並べて表す（2026-09-18に設計した「データで持つ組み合わせ」を活かす）。案A（`Pipeline`をやめて`eval/run`を`eval`の別名、`row/update`をRunnerに直書き）は退けた
+- **`row/update`は「引数を変えて、その行だけを評価する」**（§36の原則どおり、下流は含めない）
+
+### 37.2 実装
+
+- **`Pipeline`**: `"edit"`段（`params["id"]`の`args`を変える。検査は`row/add`と共通の`Dispatch.check_args/4`、新設）と`"eval"`段（呼び出し元が`ctx.eval`として渡すRunnerの`"eval"`を呼ぶ。`Pipeline`はRunnerに依存しない〈Runnerが`Pipeline`に依存しているので、直接呼ぶと読み込み順の循環でコンパイル時の警告が出た〉）を実装。評価する行は`eval_params/1`が決める（`call_ids`、なければ`id`の1行）。段の結果は順にマージする（`row/update`は編集後の行と評価結果の両方を返す）。`"eval"`段は最後に置く約束
+- **`Pipeline.prepare/4`（新設）**: `"eval"`より前の段だけを実行し、評価すべき`eval_params`を返す。サーバーは評価結果だけをその時点のBookに反映するので、`"edit"`を評価回の中で行うと編集が反映されずに失われるため
+- **`Serve.Project`**: REPLのメソッド（`Methods`の`repl`、`row/update`を追加）は`start_repl_method/3`で、`"eval"`より前の段をその場で実行して保存・配信し、`"eval"`段（または素の`eval`）を評価回のキューに回す。応答は両方をマージ（`row/update`なら編集後の`row`と`pass_id`）
+- **`Runner`**: `Pipeline`へ渡すctxに、自身の`"eval"`を`ctx.eval`として入れる
+- **CLI**: `eval`以外でも結果に`"results"`があれば評価結果の行を表示する（`row/update  ok  id=...`の後に`eval call ...`）
+- テスト: `pipeline_test`（スタブ前提の2件を実装の検証に書き換え、`row/update`がその行だけを評価すること・検査・`eval/run`・`ctx.eval`無しの拒否・`prepare/4`の5件）、`runner_test`（`row/update`が編集してその行だけを評価）、`serve_project_test`（編集はその場で反映・配信され、評価はその行だけ）、`in_out_test`（`eval/run`が通ること）。`./test/run.sh` 372件、0 failures
+- 実機（CLI）: `xipe do row/update id=<R1> 'args=[4]'`で、R1の引数が変わりR1だけが評価された（R1を参照するR2は評価されない）。`xipe do eval/run 'call_ids=[<R1>,<R2>]'`で両方を評価。引数の数が合わない`row/update`は`row/add`と同じ文言で拒否
+
+### 37.3 下流の問い合わせ関数の削除
+
+§36で評価対象の決定に使わなくなった`Core.affected_set/3`・`dep_hash_affected_nodes/2`・`calls_for_nodes/2`を削除した（crux）。「ある行の下流」「ある関数を呼んでいる関数」のような問い合わせは、後で追加する予定のデータベースやsurface tableを検索するコマンド（単純なSQLの応用）で表せるため、専用の関数として持っておく理由が無い。`bfs/3`は`upstream_chain/2`（`row/depends`・`dialogue depends`）が使うので残した。関係するテスト5件を削除。

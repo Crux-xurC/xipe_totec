@@ -35,6 +35,11 @@ defmodule XipeTotec.Repl.Launch do
 
   @default_argv ["iex", "-S", "mix"]
   @default_ready_pattern "Interactive Elixir"
+  # written once the banner is seen; the REPL answers with the XT_READY
+  # marker only once it is actually evaluating input (Old.md §25.3). The
+  # marker is split in the source so a REPL echoing its input (a PTY)
+  # can't be mistaken for the answer.
+  @default_ready_probe ~s|IO.puts("XT_" <> "READY")\n|
   @default_exit_input "System.halt()\n"
   # Confirmed live 2026-09-22 (Old.md §23): a SIGINT delivered to
   # iex's own process group via erlexec (Sender.Direct, plain pipe, no
@@ -64,6 +69,12 @@ defmodule XipeTotec.Repl.Launch do
       an exact match version-fragile). A **substring**, not a regex --
       keeps the message trivially JSON-safe; upgrade to a regex-source
       string later if substring matching turns out not to be enough.
+      `nil` skips this stage (a REPL with no banner of its own).
+    * `:ready_probe` -- text written to the REPL once the banner (if any)
+      has been seen, which must make it print `XT_READY` (default:
+      `#{inspect(@default_ready_probe)}`). Seeing `XT_READY` is what proves the
+      REPL is reading and evaluating input, not just started (Old.md §25.3,
+      2026-09-26: banner first, then this echo). `nil` skips this stage.
     * `:exit_input` -- text to write to the REPL's stdin for a graceful
       shutdown (default: `#{inspect(@default_exit_input)}`). Only works
       while the session is actually reading stdin -- a hung session needs
@@ -83,6 +94,7 @@ defmodule XipeTotec.Repl.Launch do
     env = Keyword.get(opts, :env, %{})
     files = Keyword.get(opts, :files, [])
     ready_pattern = Keyword.get(opts, :ready_pattern, @default_ready_pattern)
+    ready_probe = Keyword.get(opts, :ready_probe, @default_ready_probe)
     exit_input = Keyword.get(opts, :exit_input, @default_exit_input)
     interruptible = Keyword.get(opts, :interruptible, @default_interruptible)
 
@@ -93,6 +105,7 @@ defmodule XipeTotec.Repl.Launch do
       "cwd" => cwd,
       "files" => files,
       "ready_pattern" => ready_pattern,
+      "ready_probe" => ready_probe,
       "exit_input" => exit_input,
       "interruptible" => interruptible
     }

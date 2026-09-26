@@ -23,10 +23,11 @@ defmodule XipeTotec.Scanner.Lsp.Dialect do
   @doc """
   The definition a `DocumentSymbol` is, given the names of the containers
   around it (outermost first), or `nil` if it isn't one:
-  `%{module:, name:, anykey:}` -- the node's natural key.
+  `%{module:, name:, anykey:, visibility:}` -- the node's natural key and
+  whether the REPL can call it (`Scanner.definition/0`).
   """
   @callback definition(symbol :: map(), containers :: [String.t()]) ::
-              %{module: String.t(), name: String.t(), anykey: term()} | nil
+              %{module: String.t(), name: String.t(), anykey: term(), visibility: String.t()} | nil
 
   @doc "The natural key a call hierarchy item (a callee) refers to, or `nil`."
   @callback callee_key(item :: map()) :: {String.t(), String.t(), term()} | nil
@@ -57,6 +58,21 @@ defmodule XipeTotec.Scanner.Lsp do
 
   A server without `callHierarchyProvider` still gives cards; every module
   is then reported in `link_failures` and keeps the links it had.
+
+  ## Files the server sees differently from the disk
+
+  A card has to match what the REPL will load, and the REPL loads the
+  file on disk. A shared server (tezcatl's relay) may instead hold an
+  editor's unsaved buffer of the same file -- the relay forwards only the
+  first `didOpen` of a file, so ours is dropped while the editor has it
+  open. Its positions then point into text we don't have. Each file's
+  definitions are checked against the disk (the definition's name must be
+  on the line its `selectionRange` starts at); a file that fails is read by
+  the language's next scanner instead (`opts[:next]` from
+  `Project.scan_dir_report/3`, used only if it needs no `begin/3`), both
+  passes, and reported by `fallbacks/1`. The check catches shifted lines,
+  not every edit: a function removed below all the others, or a changed
+  call inside a body, still goes by the buffer.
   """
 
   alias XipeTotec.{Scanner, Session}
@@ -65,7 +81,8 @@ defmodule XipeTotec.Scanner.Lsp do
 
   @doc """
   `Scanner.begin/3` for `dialect`. `opts[:files]` are the language's files
-  (relative to `root`). `XIPE_TOTEC_LSP=off` turns LSP scanning off (the
+  (relative to `root`); `opts[:env]` is the project's environment
+  (`ProjectEnv`) a server started over stdio runs in. `XIPE_TOTEC_LSP=off` turns LSP scanning off (the
   test suite does, so a tezcatl running on the same machine can't change
   its results) unless `opts[:transport]` names one explicitly.
   """
@@ -88,7 +105,7 @@ defmodule XipeTotec.Scanner.Lsp do
         :error ->
           [
             {XipeTotec.Lsp.Transport.Relay, relay_config(opts)},
-            {XipeTotec.Lsp.Transport.Stdio, %{command: dialect.lsp_command()}}
+            {XipeTotec.Lsp.Transport.Stdio, %{command: dialect.lsp_command(), env: Keyword.get(opts, :env, %{})}}
           ]
       end
 
@@ -99,7 +116,7 @@ defmodule XipeTotec.Scanner.Lsp do
       [first | _] ->
         Enum.reduce_while(candidates, [], fn {transport, config}, reasons ->
           case open(dialect, transport, config, root, language, Path.join(root, first)) do
-            {:ok, ctx} -> {:halt, {:ok, ctx}}
+            {:ok, ctx} -> {:halt, {:ok, Map.put(ctx, :fallback, fallback(opts))}}
             {:error, reason} -> {:cont, ["#{via(transport)}: #{reason}" | reasons]}
           end
         end)
@@ -141,6 +158,18 @@ defmodule XipeTotec.Scanner.Lsp do
     end
   end
 
+  # the next scanner in the language's line, if it can read a file cold
+  defp fallback(opts) do
+    case Keyword.get(opts, :next, []) do
+      [scanner | _] ->
+        Code.ensure_loaded(scanner)
+        if function_exported?(scanner, :begin, 3), do: nil, else: scanner
+
+      [] ->
+        nil
+    end
+  end
+
   @doc "`Scanner.describe/1`: how the server was reached (`\"relay\"`/`\"stdio\"`), for the scan report."
   def describe(%{transport: transport}), do: via(transport)
 
@@ -148,9 +177,20 @@ defmodule XipeTotec.Scanner.Lsp do
   defp via(XipeTotec.Lsp.Transport.Stdio), do: "stdio"
   defp via(transport), do: inspect(transport)
 
+  @doc """
+  `Scanner.fallbacks/1`: the files the server saw differently from the disk,
+  `[%{"path" => path, "reason" => text}]` -- read by the fallback scanner
+  if there was one, else by the server anyway (`"reason"` then says so).
+  Empty when every file matched.
+  """
+  def fallbacks(%{positions: positions}) do
+    notes = for {{:stale, _uri}, {path, reason, _fell_back?}} <- Agent.get(positions, & &1), do: %{"path" => path, "reason" => reason}
+    Enum.sort_by(notes, & &1["path"])
+  end
+
   @doc "`Scanner.finish/1`: close every file this scan opened, and the connection."
   def finish(%{transport: transport, conn: conn, positions: positions}) do
-    for uri <- Agent.get(positions, &Map.keys/1),
+    for uri <- Agent.get(positions, &Map.keys/1), is_binary(uri),
         do: transport.notify(conn, "textDocument/didClose", %{"textDocument" => %{"uri" => uri}})
 
     Agent.stop(positions)
@@ -174,6 +214,34 @@ defmodule XipeTotec.Scanner.Lsp do
     lines = String.split(file.source, "\n")
     found = definitions(ctx.dialect, symbols, [])
 
+    # every opened uri gets an entry, so finish/1 closes it
+    case stale(found, lines) do
+      nil ->
+        put_defs(book, sheet_id, uri, found, lines, ctx)
+
+      reason when ctx.fallback != nil ->
+        Agent.update(ctx.positions, &(&1 |> Map.put(uri, []) |> Map.put({:stale, uri}, {file.path, reason, true})))
+        ctx.fallback.scan_defs(book, sheet_id, file)
+
+      reason ->
+        note = reason <> "; no fallback scanner, read from the server anyway"
+        Agent.update(ctx.positions, &Map.put(&1, {:stale, uri}, {file.path, note, false}))
+        put_defs(book, sheet_id, uri, found, lines, ctx)
+    end
+  end
+
+  # the first definition whose name isn't where the server says it starts
+  defp stale(found, lines) do
+    Enum.find_value(found, fn {def, symbol} ->
+      line = symbol["selectionRange"]["start"]["line"]
+      text = Enum.at(lines, line)
+
+      if text == nil or not String.contains?(text, def.name),
+        do: "#{def.module}.#{def.name} is not on line #{line + 1} on disk (an unsaved editor buffer?)"
+    end)
+  end
+
+  defp put_defs(book, sheet_id, uri, found, lines, ctx) do
     defs =
       for {def, symbol} <- found do
         range = symbol["range"]
@@ -198,8 +266,14 @@ defmodule XipeTotec.Scanner.Lsp do
   @doc "`Scanner.scan_links_report/3` for the dialect in `file.ctx`."
   def scan_links_report(book, node_ids, %{ctx: ctx} = file) do
     uri = uri(file)
-    entries = Agent.get(ctx.positions, &Map.get(&1, uri, []))
 
+    case Agent.get(ctx.positions, &Map.get(&1, {:stale, uri})) do
+      {_path, _reason, true} -> ctx.fallback.scan_links_report(book, node_ids, file)
+      _ -> links_from_server(book, node_ids, uri, Agent.get(ctx.positions, &Map.get(&1, uri, [])), ctx)
+    end
+  end
+
+  defp links_from_server(book, node_ids, uri, entries, ctx) do
     if ctx.call_hierarchy? do
       results = for {node, module, position} <- entries, do: {node, module, outgoing(ctx, uri, position)}
 

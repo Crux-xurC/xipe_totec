@@ -28,17 +28,62 @@ defmodule PipelineTest do
     end
   end
 
-  describe "run/5 against the real (today: stub) registry" do
-    test "eval/run's single stub stage reports not_implemented, book untouched" do
-      book = Book.new()
-      assert {:error, ^book, %{"code" => "not_implemented", "message" => message}} = Pipeline.run("eval/run", book, %{}, %{})
-      assert message =~ "\"eval\""
+  # 2026-09-26 (Old.md §37): the real stages
+  describe "run/5 against the real registry" do
+    setup do
+      book =
+        Book.new()
+        |> XipeTotec.Core.put_node("n1", %{module: "M", name: "f", anykey: 1, effect: "pure", effect_source: "user"})
+        |> XipeTotec.Core.add_call("c1", %{node: "n1", args: ["1"]})
+        |> XipeTotec.Core.add_call("c2", %{node: "n1", args: ["⟦c1⟧"]})
+
+      # stands in for Runner's "eval": records what it was asked to evaluate
+      eval = fn book, eval_params ->
+        send(self(), {:evaluated, eval_params})
+        {book, %{ok?: true, result: %{"results" => [], "not_run" => []}, error: nil}}
+      end
+
+      {:ok, book: book, ctx: %{root: ".", eval: eval}}
     end
 
-    test "row/update's first stage (edit) is the one that reports not_implemented -- eval is never reached" do
-      book = Book.new()
-      assert {:error, ^book, %{"code" => "not_implemented", "message" => message}} = Pipeline.run("row/update", book, %{}, %{})
-      assert message =~ "\"edit\""
+    test "row/update edits the row's args, then evaluates that row only", %{book: book, ctx: ctx} do
+      assert {:ok, new_book, %{"id" => "c1", "row" => row, "results" => []}} =
+               Pipeline.run("row/update", book, %{"id" => "c1", "args" => ["5"]}, ctx)
+
+      assert row.args == ["5"]
+      assert Book.get(new_book, :calls, "c1").args == ["5"]
+      # not c2, which references c1 (Old.md §36)
+      assert_received {:evaluated, %{"call_ids" => ["c1"], "include_writes" => false}}
+    end
+
+    test "row/update's edit checks the args like row/add; eval is never reached", %{book: book, ctx: ctx} do
+      assert {:error, ^book, %{"code" => "invalid_params", "message" => message}} =
+               Pipeline.run("row/update", book, %{"id" => "c1", "args" => ["1", "2"]}, ctx)
+
+      assert message =~ "takes 1 arg(s)"
+      assert {:error, _, %{"code" => "not_found"}} = Pipeline.run("row/update", book, %{"id" => "nope", "args" => ["1"]}, ctx)
+      assert {:error, _, %{"code" => "invalid_params"}} = Pipeline.run("row/update", book, %{}, ctx)
+      refute_received {:evaluated, _}
+    end
+
+    test "eval/run evaluates the given rows, or every row with none", %{book: book, ctx: ctx} do
+      assert {:ok, _, _} = Pipeline.run("eval/run", book, %{"call_ids" => ["c2"]}, ctx)
+      assert_received {:evaluated, %{"call_ids" => ["c2"]}}
+      assert {:ok, _, _} = Pipeline.run("eval/run", book, %{}, ctx)
+      assert_received {:evaluated, %{"call_ids" => []}}
+    end
+
+    test "without a REPL in ctx the eval stage refuses cleanly", %{book: book} do
+      assert {:error, ^book, %{"code" => "no_repl"}} = Pipeline.run("eval/run", book, %{}, %{root: "."})
+    end
+
+    test "prepare/4 runs the stages before eval and says what to evaluate", %{book: book} do
+      assert {:ok, new_book, %{"id" => "c1"}, %{"call_ids" => ["c1"]}} =
+               Pipeline.prepare("row/update", book, %{"id" => "c1", "args" => ["7"]}, %{})
+
+      assert Book.get(new_book, :calls, "c1").args == ["7"]
+      assert {:ok, ^book, %{}, %{"call_ids" => ["c1"]}} = Pipeline.prepare("eval/run", book, %{"call_ids" => ["c1"]}, %{})
+      assert {:error, _, %{"code" => "unknown_method"}} = Pipeline.prepare("nope", book, %{}, %{})
     end
 
     test "a method with no registry entry is a clean unknown_method, not a crash" do

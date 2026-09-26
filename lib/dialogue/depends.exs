@@ -75,7 +75,7 @@ defmodule XipeTotec.Dialogue.Depends do
       %{"method" => "eval", "params" => %{"call_ids" => above, "include_writes" => true}}
     ]
 
-    {:done, "#{current["id"]} (#{current["label"]}) に値を注入し、その上流を評価します。", commands}
+    {:done, "#{current["id"]} (#{current["label"]}) に値を注入し、そこから指定した行までを評価します。", commands}
   end
 
   def answer(%{chain: chain, position: position}, %{"answer" => "n"}),

@@ -24,7 +24,8 @@ defmodule XipeTotec.Scanner.Lsp.Elixir do
 
   @module_kind 2
   @function_kind 12
-  @definition_details ~w(def defp defmacro defmacrop defguard defguardp defdelegate)
+  # functions only -- macros and guards are not definitions (Scanner.definition/0)
+  @definition_details ~w(def defp defdelegate)
 
   @impl XipeTotec.Scanner
   def begin(root, language, opts), do: Lsp.begin(__MODULE__, root, language, opts)
@@ -34,6 +35,9 @@ defmodule XipeTotec.Scanner.Lsp.Elixir do
 
   @impl XipeTotec.Scanner
   def describe(ctx), do: Lsp.describe(ctx)
+
+  @impl XipeTotec.Scanner
+  def fallbacks(ctx), do: Lsp.fallbacks(ctx)
 
   @impl XipeTotec.Scanner
   def scan_defs(book, sheet_id, file), do: Lsp.scan_defs(book, sheet_id, file)
@@ -54,7 +58,14 @@ defmodule XipeTotec.Scanner.Lsp.Elixir do
   def definition(%{"kind" => @function_kind, "detail" => detail, "name" => name}, [_ | _] = containers)
       when detail in @definition_details do
     case Regex.run(~r{^(.+)/(\d+)$}, name) do
-      [_, fun, arity] -> %{module: Enum.join(containers, "."), name: fun, anykey: String.to_integer(arity)}
+      [_, fun, arity] ->
+        %{
+          module: Enum.join(containers, "."),
+          name: fun,
+          anykey: String.to_integer(arity),
+          visibility: if(detail == "defp", do: "private", else: "public")
+        }
+
       nil -> nil
     end
   end

@@ -4,6 +4,8 @@ Code.require_file("id.exs", __DIR__)
 Code.require_file("project.exs", __DIR__)
 Code.require_file("address.exs", __DIR__)
 Code.require_file("graph_query.exs", __DIR__)
+Code.require_file("methods.exs", __DIR__)
+Code.require_file("project_env.exs", __DIR__)
 
 defmodule XipeTotec.Dispatch do
   @moduledoc """
@@ -22,10 +24,9 @@ defmodule XipeTotec.Dispatch do
   unknown-method error and a not-implemented-yet error are visibly
   different things to a client) but every one of them returns a clean
   `{:error, book, reason}` instead of touching `Book` -- no half-fulfilled
-  contracts. `row/update`'s spec text explicitly promises a recalc result
-  back; the edit half (`Core.edit_args`/`set_prev`) is done and waiting, but
-  since the promised result can't be produced without Evaluator, the whole
-  method stays unimplemented rather than silently only doing the edit half.
+  contracts. `row/update` and `eval/run` are here too, only as a fallback:
+  they are `pipelines.json` methods, which `Runner` and `Serve.Project`
+  hand to `Pipeline` before a call ever reaches this module (Old.md §37).
 
   `initialize`/`subscribe` are deliberately not entries here at all (not
   even in `@not_implemented`) -- they're transport/session bookkeeping
@@ -34,37 +35,45 @@ defmodule XipeTotec.Dispatch do
   before a message ever reaches here.
   """
 
-  alias XipeTotec.{Address, Book, Core, GraphQuery, Id, Project}
+  alias XipeTotec.{Address, Book, Core, GraphQuery, Id, Methods, Project, ProjectEnv}
 
-  @type ctx :: %{optional(:root) => String.t()}
+  @type ctx :: %{optional(:root) => String.t(), optional(:project_dir) => Path.t() | nil}
   @type result :: {:ok, Book.t(), map()} | {:error, Book.t(), map()}
 
   @valid_effects ["pure", "reads", "writes", "unknown"]
 
-  # Real methods (spec §16.3), genuinely not built yet -- see moduledoc.
-  @not_implemented ~w(
-    row/update eval/run cell/complete edit/propose edit/apply
-    trace/start trace/stop trace/get trace/import provider/recheck
-  )
+  # Real methods (spec §16.3), genuinely not built yet -- see moduledoc --
+  # plus the pipelines.json ones, as a fallback for a caller that reaches
+  # here without checking Pipeline.handles?/1 first (XipeTotec.Methods).
+  @not_implemented Methods.names([:pipeline, :not_implemented])
+
+  @check_conditions ["error", "changed", "unevaluated"]
 
   @spec handle(Book.t(), String.t(), map(), ctx) :: result
   def handle(book, method, params, ctx \\ %{})
 
   def handle(book, "scan/run", _params, ctx) do
     root = Map.fetch!(ctx, :root)
-    report = Project.scan_dir_report(book, root)
+    # the project's saved surface table (課題 ④) and environment
+    # (ProjectEnv, for a language server the scan starts itself), when the
+    # caller has a project
+    project_dir = Map.get(ctx, :project_dir)
+    {env, env_status} = ProjectEnv.resolve(root, project_dir)
+    table_file = if project_dir, do: Path.join(project_dir, "table")
+    report = Project.scan_dir_report(book, root, table_file: table_file, scanner_opts: [env: env])
     %{book: new_book, paths: paths, link_failures: link_failures} = report
 
-    {:ok, new_book,
-     %{
-       "paths" => paths,
-       "sheets" => map_size(new_book.sheets),
-       "nodes" => map_size(new_book.nodes),
-       "links" => map_size(new_book.links),
-       "link_failures" =>
-         Enum.map(link_failures, &%{"path" => &1.path, "module" => &1.module, "reason" => &1.reason}),
-       "scanners" => report.scanners
-     }}
+    result = %{
+      "paths" => paths,
+      "sheets" => map_size(new_book.sheets),
+      "nodes" => map_size(new_book.nodes),
+      "links" => map_size(new_book.links),
+      "link_failures" =>
+        Enum.map(link_failures, &%{"path" => &1.path, "module" => &1.module, "reason" => &1.reason}),
+      "scanners" => report.scanners
+    }
+
+    {:ok, new_book, if(project_dir, do: Map.put(result, "env", env_status), else: result)}
   end
 
   def handle(book, "row/add", %{"node" => node_id, "args" => args}, _ctx)
@@ -74,27 +83,14 @@ defmodule XipeTotec.Dispatch do
     # to the REPL, where an arity mismatch would only surface as a crash at
     # eval time. Old.md §32: `xipe do row/add ... args=3,` used to silently
     # mint a 2-arg row for a 1-arity function.
-    node = Book.get(book, :nodes, node_id)
-
-    cond do
-      not Enum.all?(args, &is_binary/1) ->
-        {:error, book, invalid_params("row/add needs node (string) and args ([string])")}
-
-      node == nil ->
-        {:error, book, not_found("node", node_id)}
-
-      # only an integer anykey is an argument count (Scanner.Elixir's arity);
-      # another scanner's anykey says nothing about how many args to expect
-      is_integer(node[:anykey]) and length(args) != node.anykey ->
-        {:error, book,
-         invalid_params(
-           "row/add: #{Core.node_label(node)} takes #{node.anykey} arg(s), got #{length(args)}: #{inspect(args)}"
-         )}
-
-      true ->
+    case check_args(book, node_id, args, "row/add") do
+      :ok ->
         id = Id.ulid()
         new_book = Core.add_call(book, id, %{node: node_id, args: args})
         {:ok, new_book, %{"id" => id, "row" => Book.get(new_book, :calls, id)}}
+
+      {:error, error} ->
+        {:error, book, error}
     end
   end
 
@@ -234,13 +230,179 @@ defmodule XipeTotec.Dispatch do
   def handle(book, "row/set-result", _params, _ctx),
     do: {:error, book, invalid_params("row/set-result needs id (string) and result (string)")}
 
+  # The calc rows as a list (2026-09-26): what `xipe show` prints and a
+  # client can render as the table. `call_ids` (optional) narrows it to
+  # those rows, in that order; otherwise every row, oldest first (ULIDs
+  # sort by creation time).
+  def handle(book, "row/list", params, _ctx) when is_map(params) do
+    with {:ok, ids} <- call_ids(book, params) do
+      {:ok, book, %{"rows" => Enum.map(ids, &list_row(book, &1))}}
+    else
+      {:error, error} -> {:error, book, error}
+    end
+  end
+
+  # An address (spec §6.1, the same columns card/get takes) to the one node
+  # it names (2026-09-26), so a command list can go on with `$N.id` instead
+  # of a copied ULID: `node/resolve module=Calc name=square arity=1 --
+  # row/add node=$0.id ...`. A `row=<call id>` address names that row's
+  # node. No match is not_found; several are "ambiguous", with the
+  # candidates in `data`.
+  def handle(book, "node/resolve", params, _ctx) when is_map(params) and map_size(params) > 0 do
+    case Address.resolve(book, params) do
+      {:ok, matches} ->
+        # a row whose node a rescan removed names no node
+        case matches |> Enum.map(&match_node_id/1) |> Enum.uniq() |> Enum.filter(&Book.get(book, :nodes, &1)) do
+          [id] ->
+            {:ok, book, %{"id" => id, "label" => Core.node_label(Book.get(book, :nodes, id))}}
+
+          [] ->
+            {:error, book, %{"code" => "not_found", "message" => "no node matches #{inspect(params)}"}}
+
+          ids ->
+            candidates = for id <- ids, do: %{"id" => id, "label" => Core.node_label(Book.get(book, :nodes, id))}
+
+            {:error, book,
+             %{
+               "code" => "ambiguous",
+               "message" => "#{length(ids)} nodes match #{inspect(params)}: #{Enum.map_join(candidates, ", ", & &1["label"])}",
+               "data" => %{"candidates" => candidates}
+             }}
+        end
+
+      {:error, {:unsupported_column, col}} ->
+        {:error, book, %{"code" => "unsupported_column", "message" => col}}
+    end
+  end
+
+  def handle(book, "node/resolve", _params, _ctx),
+    do: {:error, book, invalid_params("node/resolve needs an address (file/module/name/arity/row)")}
+
+  # Fails when a row is in one of the `on` conditions (2026-09-26), so a
+  # command list ending in `row/check` fails -- and `xipe do` exits 1 -- on
+  # a regression: `... -- eval -- row/check on=error,changed`. Reads each
+  # row's current columns, so after an `eval` earlier in the same list it
+  # sees that pass's results. `on` (default `error`): `error` (state isn't
+  # ok: a crash, timeout or skipped reference), `changed` (compare
+  # is changed), `unevaluated` (never evaluated). `call_ids` as row/list.
+  def handle(book, "row/check", params, _ctx) when is_map(params) do
+    on = params |> Map.get("on", ["error"]) |> List.wrap()
+
+    with :ok <- check_conditions(on),
+         {:ok, ids} <- call_ids(book, params) do
+      failed =
+        for id <- ids,
+            row = Book.get(book, :calls, id),
+            reasons = Enum.filter(on, &check_fails?(row, &1)),
+            reasons != [],
+            do: %{"id" => id, "label" => Core.call_label(book, id), "reasons" => reasons}
+
+      case failed do
+        [] ->
+          {:ok, book, %{"checked" => length(ids), "on" => on}}
+
+        _ ->
+          {:error, book,
+           %{
+             "code" => "check_failed",
+             "message" =>
+               "#{length(failed)} of #{length(ids)} row(s): " <>
+                 Enum.map_join(failed, "; ", &"#{&1["id"]} #{&1["label"]} #{Enum.join(&1["reasons"], ",")}"),
+             "data" => %{"failed" => failed}
+           }}
+      end
+    else
+      {:error, error} -> {:error, book, error}
+    end
+  end
+
   def handle(book, method, _params, _ctx) when method in @not_implemented,
     do: {:error, book, %{"code" => "not_implemented", "message" => "#{method}: not implemented yet (Old.md §9 tier map)"}}
 
   def handle(book, method, _params, _ctx),
     do: {:error, book, %{"code" => "unknown_method", "message" => method}}
 
+  @doc """
+  Whether `args` can be a calc row's arguments for node `node_id`: a list of
+  strings, for a node that exists, isn't private, and (when its anykey is
+  an integer) takes that many. Shared by `row/add` and `row/update`'s edit
+  stage (`Pipeline`); `method` prefixes the messages.
+  """
+  @spec check_args(Book.t(), String.t(), term(), String.t()) :: :ok | {:error, map()}
+  def check_args(book, node_id, args, method) do
+    node = Book.get(book, :nodes, node_id)
+
+    cond do
+      not (is_list(args) and Enum.all?(args, &is_binary/1)) ->
+        {:error, invalid_params("#{method} needs args ([string])")}
+
+      node == nil ->
+        {:error, not_found("node", node_id)}
+
+      # a calc row is evaluated by calling the function from the REPL, which
+      # can't reach a private one (Elixir's defp) -- it would only crash there
+      node[:visibility] == "private" ->
+        {:error, invalid_params("#{method}: #{Core.node_label(node)} is private; the REPL can't call it")}
+
+      # only an integer anykey is an argument count (Scanner.Elixir's arity);
+      # another scanner's anykey says nothing about how many args to expect
+      is_integer(node[:anykey]) and length(args) != node.anykey ->
+        {:error,
+         invalid_params("#{method}: #{Core.node_label(node)} takes #{node.anykey} arg(s), got #{length(args)}: #{inspect(args)}")}
+
+      true ->
+        :ok
+    end
+  end
+
   defp invalid_params(message), do: %{"code" => "invalid_params", "message" => message}
+
+  # `call_ids` for row/list and row/check: omitted or empty means every row
+  # (oldest first); given ones must all exist.
+  defp call_ids(book, params) do
+    case params |> Map.get("call_ids", []) |> List.wrap() do
+      [] ->
+        {:ok, book.calls |> Map.keys() |> Enum.sort()}
+
+      ids ->
+        cond do
+          not Enum.all?(ids, &is_binary/1) -> {:error, invalid_params("call_ids must be [string]")}
+          missing = Enum.find(ids, &(Book.get(book, :calls, &1) == nil)) -> {:error, not_found("call", missing)}
+          true -> {:ok, ids}
+        end
+    end
+  end
+
+  defp list_row(book, id) do
+    row = Book.get(book, :calls, id)
+
+    %{
+      "id" => id,
+      "node" => row.node,
+      "label" => Core.call_label(book, id),
+      "args" => row.args,
+      "value" => row[:result],
+      "repr" => row[:repr],
+      "state" => row[:state],
+      "compare" => row[:compare],
+      "error" => row[:error],
+      "eval_count" => row[:eval_count] || 0
+    }
+  end
+
+  defp match_node_id({:nodes, id, _row}), do: id
+  defp match_node_id({:calls, _id, row}), do: row.node
+
+  defp check_conditions(on) do
+    case Enum.find(on, &(&1 not in @check_conditions)) do
+      nil -> :ok
+      bad -> {:error, invalid_params("row/check: unknown condition #{inspect(bad)} (#{Enum.join(@check_conditions, "|")})")}
+    end
+  end
+
+  defp check_fails?(row, "error"), do: row[:state] not in [nil, "ok"]
+  defp check_fails?(row, "changed"), do: row[:compare] == "changed"
+  defp check_fails?(row, "unevaluated"), do: (row[:eval_count] || 0) == 0
   defp not_found(kind, id), do: %{"code" => "not_found", "message" => "unknown #{kind} id: #{id}"}
 
   defp normalize_depth(d) when is_integer(d) and d >= 0, do: {:ok, d}

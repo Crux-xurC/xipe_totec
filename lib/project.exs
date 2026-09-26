@@ -28,25 +28,31 @@ defmodule XipeTotec.Project do
   info.json (`xipe refresh -l`). Each language's own `Repl.Language.scanner/0`
   reads them (`scan_dir/2`) -- nothing here knows which languages exist.
 
+  The surface table is `table_file`'s saved one when given
+  (`SurfaceTable.rows/3`: regenerated and saved first only if it is empty
+  or names a path that is gone), otherwise generated on the spot.
+
   Mix's own files are left out: `mix.exs` (build configuration, not project
   code -- its `use Mix.Project` can't even compile outside a running Mix)
   and everything under `deps/` and `_build/` (third-party sources and build
   output). Only the top level of `dir` is checked for these.
   """
-  @spec sheets(String.t(), Info.t()) :: [%{path: String.t(), language: String.t()}]
-  def sheets(dir, info \\ Info.load()) do
+  @spec sheets(String.t(), Info.t(), Path.t() | nil) :: [%{path: String.t(), language: String.t()}]
+  def sheets(dir, info \\ Info.load(), table_file \\ nil),
+    do: dir |> SurfaceTable.rows(table_file, info) |> sheets_in(info)
+
+  @doc "`sheets/3` over surface-table `rows` already in hand."
+  @spec sheets_in(SurfaceTable.t(), Info.t()) :: [%{path: String.t(), language: String.t()}]
+  def sheets_in(rows, info \\ Info.load()) do
     registered = info["languages"] || []
 
-    for row <- SurfaceTable.generate(dir, [], info["extensions"] || %{}),
+    for row <- rows,
         row["language"] in registered,
         not mix_own_file?(row["path"]),
         do: %{path: row["path"], language: row["language"]}
   end
 
-  @doc """
-  `sheets/1`'s paths, optionally only `language`'s. Elixir's scripts-mode
-  REPL boot `-r`s `find_sheets(root, "elixir")` (via `SourceSanitize`).
-  """
+  @doc "`sheets/3`'s paths (surface table generated on the spot), optionally only `language`'s."
   @spec find_sheets(String.t(), String.t() | nil) :: [String.t()]
   def find_sheets(dir, language \\ nil) do
     for sheet <- sheets(dir), language in [nil, sheet.language], do: sheet.path
@@ -85,12 +91,15 @@ defmodule XipeTotec.Project do
   A language's scanners are tried in its declared order (spec §11.3): the
   first whose `begin/3` accepts reads every file of that language. `opts`
   also takes `:scanner_opts`, handed to every `begin/3` (with `:files`, the
-  language's paths, added).
+  language's paths, and `:next`, the scanners declared after it, added).
+  A scanner that handed some files to the next one (`Scanner.fallbacks/1`)
+  adds `"fallbacks" => [%{"path" =>, "reason" =>}]` to its language's entry.
+  `:table_file` is the project's saved surface table (`sheets/3`).
   """
   @spec scan_dir_report(XipeTotec.Book.t(), String.t(), keyword()) :: map()
   def scan_dir_report(book, dir, opts \\ []) do
     info = Keyword.get_lazy(opts, :info, &Info.load/0)
-    sheets = sheets(dir, info)
+    sheets = sheets(dir, info, Keyword.get(opts, :table_file))
     paths = Enum.map(sheets, & &1.path)
     scanner_opts = Keyword.get(opts, :scanner_opts, [])
 
@@ -130,6 +139,12 @@ defmodule XipeTotec.Project do
         Map.new(picked, fn {language, p} ->
           entry = %{"scanner" => inspect(p.scanner), "skipped" => p.skipped}
           entry = if function_exported?(p.scanner, :describe, 1), do: Map.put(entry, "via", p.scanner.describe(p.ctx)), else: entry
+
+          entry =
+            case function_exported?(p.scanner, :fallbacks, 1) && p.scanner.fallbacks(p.ctx) do
+              [_ | _] = notes -> Map.put(entry, "fallbacks", notes)
+              _ -> entry
+            end
           {language, entry}
         end)
 
@@ -144,12 +159,14 @@ defmodule XipeTotec.Project do
   # used even if it refuses -- a language with no working scanner at all
   # would otherwise silently lose every card on rescan.
   defp pick_scanner(candidates, dir, language, scanner_opts) do
-    Enum.reduce_while(candidates, [], fn scanner, skipped ->
+    candidates
+    |> Enum.with_index(1)
+    |> Enum.reduce_while([], fn {scanner, rest_at}, skipped ->
       Code.ensure_loaded(scanner)
 
       result =
         if function_exported?(scanner, :begin, 3),
-          do: scanner.begin(dir, language, scanner_opts),
+          do: scanner.begin(dir, language, Keyword.put(scanner_opts, :next, Enum.drop(candidates, rest_at))),
           else: {:ok, nil}
 
       case result do

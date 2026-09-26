@@ -43,13 +43,30 @@ defmodule ServeSocketTest do
     XipeTotec.Store.persist_diff(store_file, XipeTotec.Book.new(), nodes, [:nodes])
 
     {:ok, pid} =
-      Project.start_link(%{root: dir, store_file: store_file, programs: %{"toy/negotiate" => ServeSocketTest.ToyDialogue}})
+      Project.start_link(%{
+        root: dir,
+        store_file: store_file,
+        project_id: "042",
+        programs: %{"toy/negotiate" => ServeSocketTest.ToyDialogue}
+      })
 
-    on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
-    {:ok, state: %{initialized: true, capabilities: %{}, dialogue: nil}}
+    on_exit(fn ->
+      if Process.alive?(pid), do: GenServer.stop(pid)
+      File.rm_rf!(dir)
+    end)
+
+    {:ok, dir: dir, state: %{initialized: true, capabilities: %{}, dialogue: nil}}
   end
 
   defp request(method, params, id \\ 1), do: JSON.encode!(%{"jsonrpc" => "2.0", "id" => id, "method" => method, "params" => params})
+
+  test "initialize tells the client which project this server has open", %{dir: dir} do
+    {:reply, {:text, body}, state} =
+      Socket.websocket_handle({:text, request("initialize", %{})}, %{initialized: false, capabilities: nil, dialogue: nil})
+
+    assert state.initialized
+    assert {:ok, %{"result" => %{"project" => %{"id" => "042", "root" => ^dir}}}} = JSON.decode(body)
+  end
 
   test "an ordinary request carries a 01-tagged dialogue envelope and dialogue stays nil", %{state: state} do
     {:reply, {:text, body}, new_state} =

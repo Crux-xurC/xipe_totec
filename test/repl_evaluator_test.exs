@@ -17,7 +17,7 @@ defmodule ReplEvaluatorTest.EchoSender do
 
   def send(message) do
     handle = self()
-    Kernel.send(handle, {handle, {:data, message["ready_pattern"] <> "\n"}})
+    Kernel.send(handle, {handle, {:data, message["ready_pattern"] <> "\nXT_READY\n"}})
     {:ok, handle}
   end
 
@@ -59,7 +59,7 @@ defmodule ReplEvaluatorTest.SilentSender do
 
   def send(message) do
     handle = self()
-    Kernel.send(handle, {handle, {:data, message["ready_pattern"] <> "\n"}})
+    Kernel.send(handle, {handle, {:data, message["ready_pattern"] <> "\nXT_READY\n"}})
     {:ok, handle}
   end
 
@@ -132,7 +132,7 @@ defmodule ReplEvaluatorTest.ToyLanguage do
     @impl true
     def send(message) do
       handle = self()
-      Kernel.send(handle, {handle, {:data, message["ready_pattern"] <> "\n"}})
+      Kernel.send(handle, {handle, {:data, message["ready_pattern"] <> "\nXT_READY\n"}})
       {:ok, handle}
     end
 
@@ -195,6 +195,9 @@ defmodule ReplEvaluatorTest do
     assert row.result == "1"
     assert row.state == "ok"
     assert row.eval_count == 1
+    # one pass is one session: its id is the session a row was evaluated in
+    assert result.session_gen == "pass1"
+    assert row.session == "pass1"
   end
 
   test "a session that never answers is treated as hung: killed, the stuck entry errors, the rest abort" do

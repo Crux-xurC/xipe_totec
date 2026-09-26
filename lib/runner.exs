@@ -5,6 +5,7 @@ Code.require_file("surface_table.exs", __DIR__)
 Code.require_file("pipeline.exs", __DIR__)
 Code.require_file("repl/evaluator.exs", __DIR__)
 Code.require_file("info.exs", __DIR__)
+Code.require_file("project_env.exs", __DIR__)
 
 defmodule XipeTotec.Runner do
   @moduledoc """
@@ -26,16 +27,15 @@ defmodule XipeTotec.Runner do
       of what §16 already specifies for those.
     * `"eval"` is NOT a `Dispatch` method and never will be one here: it
       needs live REPL I/O/timing `Dispatch`'s synchronous
-      Book-in-Book-out contract doesn't accommodate (the same reason the
-      real, *async*, `notify/rowChanged`-streaming §16 method `"eval/run"`
-      stays `Dispatch`'s own `@not_implemented` -- deliberately a
-      different name, not a synonym: `"eval"` here is the synchronous
-      one-shot CLI/batch variant, a different operation with a different
-      result shape, not a stand-in for the eventual async server method).
-      Routed straight to `Repl.Evaluator.run_pass/3` instead.
+      Book-in-Book-out contract doesn't accommodate. Routed straight to
+      `Repl.Evaluator.run_pass/3` instead. It is the one primitive that
+      evaluates anything (Old.md §37): `"eval/run"`/`"row/update"` reach
+      it through `Pipeline`'s `"eval"` stage, and `Serve.Project`'s pass
+      queue runs it for every asynchronous evaluation.
     * any method `Pipeline.handles?/1` says yes to (`pipelines.json`'s own
-      entries -- `"eval/run"`/`"row/update"` today, 2026-09-18) is routed
-      to `Pipeline.run/4`, checked *before* the plain-`Dispatch` case so it
+      entries -- `"eval/run"`/`"row/update"` today) is routed to
+      `Pipeline.run/4`, with this module's own `"eval"` handed in as the
+      `"eval"` stage (`ctx.eval`), checked *before* the plain-`Dispatch` case so it
       never falls through to `Dispatch`'s own `@not_implemented` for these.
       See `Pipeline`'s moduledoc for why these can't just be bigger
       `Dispatch` clauses (same I/O-doesn't-fit-the-pure-contract reasoning
@@ -54,10 +54,19 @@ defmodule XipeTotec.Runner do
   that, is still inert data (unresolved `$0.id` strings and all), matching
   the "コマンドリスト is just data" half of the split. Walks into lists and
   maps too, so `"args" => ["$0.id", "5"]` works. A reference to a command
-  that failed (no result) resolves to `nil`.
+  that failed (no result), or a path that isn't there, resolves to `nil`.
+
+  A path segment that is a number indexes a list (`$0.matches.0.id`), and a
+  segment names a map's string key or, failing that, its atom key (Book
+  rows, e.g. `$0.row.args`).
+
+  Inside a larger string the reference is replaced only as a whole `⟦⟧`
+  cell reference (spec §6.2): `"⟦$0.id⟧"` becomes `"⟦<id>⟧"`, so a row can
+  reference a row added earlier in the same list. One that doesn't resolve
+  to a string is left as written.
   """
 
-  alias XipeTotec.{Book, Core, Dispatch, Info, Pipeline, SurfaceTable}
+  alias XipeTotec.{Book, Core, Dispatch, Info, Pipeline, Project, ProjectEnv, SurfaceTable}
   alias XipeTotec.Repl.Evaluator
 
   @type command :: %{String.t() => term()}
@@ -71,7 +80,12 @@ defmodule XipeTotec.Runner do
   `Evaluator.run_pass/3` as `:cwd`. `opts` are extra `Evaluator.run_pass/3`
   options (`:launch_opts`, `:ctx`, `:sender`, ...), used only for `"eval"`
   commands, plus `:language` (a registered language name) to skip
-  detecting it from `root`'s surface table.
+  detecting it from `root`'s surface table, and `:project_dir` (the
+  project's `tables/project/<id>_<name>/`): `"scan/run"` and `"eval"` read
+  its saved surface table (`SurfaceTable.rows/3`) instead of generating one
+  on every call, and start the project's tools in its environment
+  (`ProjectEnv`). An `"eval"` result then carries that environment's
+  status as `"env"`.
 
   Does not halt on a failing command -- every command in the list runs
   (a reference into a failed command's result just resolves to `nil`,
@@ -110,9 +124,16 @@ defmodule XipeTotec.Runner do
     include_writes = params |> Map.get("include_writes", false) |> truthy?()
 
     case repl_opts(root, opts) do
-      {:ok, repl_opts, cleanup} ->
+      {:ok, repl_opts, cleanup, env_status} ->
         eval_opts = Keyword.merge(repl_opts, cwd: root, call_ids: call_ids, include_writes: include_writes)
-        run_eval(book, call_ids, include_writes, eval_opts, cleanup)
+        {book, outcome} = run_eval(book, call_ids, include_writes, eval_opts, cleanup)
+
+        outcome =
+          if Keyword.get(opts, :project_dir) && outcome.ok?,
+            do: %{outcome | result: Map.put(outcome.result, "env", env_status)},
+            else: outcome
+
+        {book, outcome}
 
       {:error, error} ->
         {book, %{method: "eval", ok?: false, result: nil, error: error}}
@@ -126,14 +147,22 @@ defmodule XipeTotec.Runner do
   # `Pipeline.handles?/1` for every method rather than hardcoding the
   # current two names here: the whole point of the registry file is that
   # this call site doesn't need editing when a third method is added to it.
-  defp run_one(book, root, %{"method" => method, "params" => params}, _opts) do
+  defp run_one(book, root, %{"method" => method, "params" => params}, opts) do
+    ctx = %{root: root, project_dir: Keyword.get(opts, :project_dir)}
+
     if Pipeline.handles?(method) do
-      case Pipeline.run(method, book, params, %{root: root}) do
+      # the "eval" stage comes back into this module's own "eval" with these opts
+      eval = fn book, eval_params ->
+        {book, [outcome]} = run(book, root, [%{"method" => "eval", "params" => eval_params}], opts)
+        {book, outcome}
+      end
+
+      case Pipeline.run(method, book, params, Map.put(ctx, :eval, eval)) do
         {:ok, new_book, result} -> {new_book, %{method: method, ok?: true, result: result, error: nil}}
         {:error, unchanged_book, error} -> {unchanged_book, %{method: method, ok?: false, result: nil, error: error}}
       end
     else
-      case Dispatch.handle(book, method, params, %{root: root}) do
+      case Dispatch.handle(book, method, params, ctx) do
         {:ok, new_book, result} -> {new_book, %{method: method, ok?: true, result: result, error: nil}}
         {:error, unchanged_book, error} -> {unchanged_book, %{method: method, ok?: false, result: nil, error: error}}
       end
@@ -169,36 +198,45 @@ defmodule XipeTotec.Runner do
   # to boot the REPL for the build tool the surface table found. Adapter
   # modules or `:launch_opts` a caller already put in `opts` win (the CLI's
   # `--mix` passes `launch_opts: []`; tests pass a fake `:sender` the same
-  # way). Returns `{:ok, opts, cleanup}` -- `cleanup` removes whatever the
-  # boot needed (scripts-mode's sanitized temp dir) once the pass is over.
+  # way). Returns `{:ok, opts, cleanup, env_status}` -- `cleanup` removes
+  # whatever the boot needed (scripts-mode's sanitized temp dir) once the
+  # pass is over; `env_status` is ProjectEnv's for the project's
+  # environment, which the REPL is started in (added to launch_opts' :env).
   #
   # One pass is one REPL session, so it has to be one language: a project
   # whose surface table names more than one registered language is refused
   # rather than guessed at.
   defp repl_opts(root, opts) do
-    rows = SurfaceTable.generate(root)
+    project_dir = Keyword.get(opts, :project_dir)
+    rows = SurfaceTable.rows(root, project_dir && Path.join(project_dir, "table"))
 
     with {:ok, name} <- pass_language(rows, root, opts),
          {:ok, mod} <- language_module(name) do
       build_tool = Enum.find_value(rows, &(&1["language"] == name && &1["build_tool"]))
 
       {launch_opts, cleanup} =
-        if Keyword.has_key?(opts, :launch_opts),
-          do: {Keyword.fetch!(opts, :launch_opts), fn -> :ok end},
-          else: mod.launch_opts(root, build_tool)
+        if Keyword.has_key?(opts, :launch_opts) do
+          {Keyword.fetch!(opts, :launch_opts), fn -> :ok end}
+        else
+          files = for sheet <- Project.sheets_in(rows), sheet.language == name, do: sheet.path
+          mod.launch_opts(root, build_tool, files)
+        end
 
       adapter = mod.adapter()
+      {env, env_status} = ProjectEnv.resolve(root, project_dir)
+      launch_opts = Keyword.update(launch_opts, :env, env, &Map.merge(env, &1))
 
       opts =
         opts
         |> Keyword.delete(:language)
+        |> Keyword.delete(:project_dir)
         |> Keyword.put(:launch_opts, launch_opts)
         |> Keyword.put_new(:launch_module, adapter.launch)
         |> Keyword.put_new(:eval_template_module, adapter.eval_template)
         |> Keyword.put_new(:scan_module, adapter.scan)
         |> Keyword.put_new(:field_drip_module, adapter.field_drip)
 
-      {:ok, opts, cleanup}
+      {:ok, opts, cleanup, env_status}
     end
   end
 
@@ -253,19 +291,53 @@ defmodule XipeTotec.Runner do
   defp substitute(text, prior_outcomes) when is_binary(text) do
     case Regex.run(~r/^\$(\d+)\.(.+)$/, text) do
       [_, index, path] ->
-        prior_outcomes
-        |> Enum.at(String.to_integer(index))
-        |> case do
-          %{result: result} when is_map(result) -> get_in(result, String.split(path, "."))
-          _ -> nil
-        end
+        lookup(prior_outcomes, index, path)
 
       nil ->
-        text
+        Regex.replace(~r/⟦\$(\d+)\.([^⟧]+)⟧/u, text, fn whole, index, path ->
+          case lookup(prior_outcomes, index, path) do
+            id when is_binary(id) -> "⟦#{id}⟧"
+            _ -> whole
+          end
+        end)
     end
   end
 
   defp substitute(list, prior_outcomes) when is_list(list), do: Enum.map(list, &substitute(&1, prior_outcomes))
   defp substitute(map, prior_outcomes) when is_map(map), do: Map.new(map, fn {k, v} -> {k, substitute(v, prior_outcomes)} end)
   defp substitute(other, _prior_outcomes), do: other
+
+  defp lookup(prior_outcomes, index, path) do
+    case Enum.at(prior_outcomes, String.to_integer(index)) do
+      %{result: result} when is_map(result) -> dig(result, String.split(path, "."))
+      _ -> nil
+    end
+  end
+
+  defp dig(value, []), do: value
+
+  defp dig(map, [key | rest]) when is_map(map) do
+    case Map.fetch(map, key) do
+      {:ok, value} -> dig(value, rest)
+      :error -> map |> Map.get(existing_atom(key)) |> dig_present(rest)
+    end
+  end
+
+  defp dig(list, [key | rest]) when is_list(list) do
+    case Integer.parse(key) do
+      {i, ""} when i >= 0 -> list |> Enum.at(i) |> dig_present(rest)
+      _ -> nil
+    end
+  end
+
+  defp dig(_other, _path), do: nil
+
+  defp dig_present(nil, _rest), do: nil
+  defp dig_present(value, rest), do: dig(value, rest)
+
+  defp existing_atom(key) do
+    String.to_existing_atom(key)
+  rescue
+    ArgumentError -> nil
+  end
 end

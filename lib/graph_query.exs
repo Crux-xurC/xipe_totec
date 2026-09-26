@@ -15,8 +15,7 @@ defmodule XipeTotec.GraphQuery do
 
   `Scanner.scan_links/3` only ever writes `role: "to"` (node -> callee) --
   there is no stored `"from"` role, so "incoming" is always a reverse
-  lookup over `ref`, never a direct table read (the same asymmetry
-  `Core.dep_hash_affected_nodes/2` already relies on).
+  lookup over `ref`, never a direct table read.
 
   Params shape (this module's own design choice -- §16.3 doesn't spell one
   out): `graph/neighbors` takes `{"address": <§6.1 address>, "depth": n,

@@ -69,7 +69,13 @@ defmodule XipeTotec.Info do
       not a single name, so a clash (`.h`, `.pl`, `.cljc`, ...) is kept as
       data rather than resolved here; `SurfaceTable` leaves such files'
       `language` as `nil` (P9)
+    * `info["language_repls"]` -- language → its `repl/0` (`%{"elixir" =>
+      "iex"}`), the surface table's `repl` column
+    * `info["build_tools"]` -- language → its `build_tools/0` priority list,
+      which `SurfaceTable` matches against a project's root to fill the
+      `build_tool` column
 
+  A module without `repl/0`/`build_tools/0` records `nil`/`[]`.
   Does not touch `repls` or `project`.
   """
   @spec refresh_languages(t(), Path.t()) :: t()
@@ -78,14 +84,18 @@ defmodule XipeTotec.Info do
 
     extensions =
       declared
-      |> Enum.flat_map(fn {name, exts} -> Enum.map(exts, &{&1, name}) end)
+      |> Enum.flat_map(fn {name, mod} -> Enum.map(mod.extensions(), &{&1, name}) end)
       |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
       |> Map.new(fn {ext, names} -> {ext, Enum.sort(names)} end)
 
     info
     |> Map.put("languages", declared |> Enum.map(&elem(&1, 0)) |> Enum.sort())
     |> Map.put("extensions", extensions)
+    |> Map.put("language_repls", Map.new(declared, fn {name, mod} -> {name, declared_or(mod, :repl, nil)} end))
+    |> Map.put("build_tools", Map.new(declared, fn {name, mod} -> {name, declared_or(mod, :build_tools, [])} end))
   end
+
+  defp declared_or(mod, fun, default), do: if(function_exported?(mod, fun, 0), do: apply(mod, fun, []), else: default)
 
   @doc """
   Re-lists `lib/repl/eval/scan/<transport>/*.exs` (the two-axis layout
@@ -111,13 +121,13 @@ defmodule XipeTotec.Info do
       else: {:error, :not_registered}
   end
 
-  # `{name, extensions}` per `<name>.exs` under `dir`.
+  # `{name, module}` per `<name>.exs` under `dir`.
   defp list_languages(dir) do
     dir
     |> File.ls!()
     |> Enum.filter(&String.ends_with?(&1, ".exs"))
     |> Enum.sort()
-    |> Enum.map(fn file -> {Path.basename(file, ".exs"), load_language_module(dir, file).extensions()} end)
+    |> Enum.map(fn file -> {Path.basename(file, ".exs"), load_language_module(dir, file)} end)
   end
 
   # Require `file` and return whichever module it defines that exports

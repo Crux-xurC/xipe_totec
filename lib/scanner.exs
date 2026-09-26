@@ -68,7 +68,8 @@ defmodule XipeTotec.Scanner do
   language server). `{:ok, ctx}` -- every `file` handed to the two passes
   then carries it as `file.ctx` -- or `{:error, reason}` to hand the
   language to the next scanner in line. `opts` are `Project.scan_dir/3`'s
-  `:scanner_opts`.
+  `:scanner_opts`, plus `:files` (the language's paths) and `:next` (the
+  scanners declared after this one).
   """
   @callback begin(root :: String.t(), language :: String.t(), opts :: keyword()) :: {:ok, term()} | {:error, String.t()}
 
@@ -78,13 +79,28 @@ defmodule XipeTotec.Scanner do
   @doc "How this scan was carried out, for the scan report (e.g. which way a language server was reached)."
   @callback describe(ctx :: term()) :: String.t()
 
-  @optional_callbacks begin: 3, finish: 1, describe: 1
+  @doc """
+  The files this scan didn't read itself after all, and why, as
+  `[%{"path" => path, "reason" => text}]` -- e.g. `Scanner.Lsp` handing a
+  file whose server-side text differs from the disk to the next scanner
+  (`begin/3`'s `opts[:next]`).
+  """
+  @callback fallbacks(ctx :: term()) :: [%{String.t() => String.t()}]
 
-  @typedoc "One definition as a scanner found it."
+  @optional_callbacks begin: 3, finish: 1, describe: 1, fallbacks: 1
+
+  @typedoc """
+  One definition as a scanner found it. `visibility` is `"public"` for a
+  function the REPL can call from outside its module and `"private"` for
+  one it can't (Elixir's `defp`): a private node still shows up in the
+  reference list, but `row/add` won't make a calc row for it. Macros are
+  not definitions here -- no scanner reports them.
+  """
   @type definition :: %{
           module: String.t(),
           name: String.t(),
           anykey: term(),
+          visibility: String.t(),
           span: non_neg_integer() | nil,
           body_hash: String.t() | nil
         }
@@ -109,6 +125,7 @@ defmodule XipeTotec.Scanner do
           module: def.module,
           name: def.name,
           anykey: def.anykey,
+          visibility: Map.get(def, :visibility),
           span: def.span,
           body_hash: def.body_hash,
           status: "live",

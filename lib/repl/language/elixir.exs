@@ -12,11 +12,17 @@ defmodule XipeTotec.Repl.Language.Elixir do
   @moduledoc "Elixir's `Repl.Language` self-declaration. REPL: `iex`."
   @behaviour XipeTotec.Repl.Language
 
-  alias XipeTotec.Project
   alias XipeTotec.Repl.SourceSanitize
 
   @impl true
   def extensions, do: ["ex", "exs"]
+
+  @impl true
+  def repl, do: "iex"
+
+  # no match: scripts-mode (launch_opts/3's catch-all)
+  @impl true
+  def build_tools, do: [%{"name" => "mix", "markers" => ["mix.exs"]}]
 
   # elixir-ls through tezcatl's /lsp first; Elixir's own parser when no
   # language server is reachable (spec §11.3)
@@ -42,10 +48,10 @@ defmodule XipeTotec.Repl.Language.Elixir do
   # booting the session. `SourceSanitize.sanitize/2` writes defmodule-only
   # copies to a temp dir instead, removed by the returned cleanup.
   @impl true
-  def launch_opts(_root, "mix"), do: {[], fn -> :ok end}
+  def launch_opts(_root, "mix", _files), do: {[], fn -> :ok end}
 
-  def launch_opts(root, _build_tool) do
-    {tmp_dir, files} = SourceSanitize.sanitize(root, Project.find_sheets(root, "elixir"))
+  def launch_opts(root, _build_tool, files) do
+    {tmp_dir, files} = SourceSanitize.sanitize(root, files)
     {[argv: ["iex"], files: files], fn -> File.rm_rf!(tmp_dir) end}
   end
 end

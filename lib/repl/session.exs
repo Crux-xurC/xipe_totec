@@ -9,33 +9,61 @@ defmodule XipeTotec.Repl.Session do
   doesn't change.
   """
 
+  @ready_marker "XT_READY"
+
   @doc """
-  Blocks the calling process until `ready_pattern` appears somewhere in
-  the handle's accumulated output, the process exits first (the "XT_EXIT"
-  marker turns up before `ready_pattern` ever does -- e.g. a bad launch
-  command), or `timeout` elapses with neither.
+  Blocks the calling process until the REPL `message` (`Repl.Launch`)
+  launched is ready for input, in two stages (Old.md §25.3, 2026-09-26):
+
+    1. `message["ready_pattern"]` (the REPL's own banner) appears in the
+       output -- skipped when `nil`
+    2. `message["ready_probe"]` is written with `sender.write/2` and the
+       REPL prints `XT_READY` -- skipped when `nil`
+
+  Fails if the process exits first (the "XT_EXIT" marker turns up -- e.g. a
+  bad launch command or a compile error at boot) or `timeout` (for both
+  stages together) elapses.
   """
-  @spec await_ready(term(), String.t(), timeout()) ::
+  @spec await_ready(module(), term(), map(), timeout()) ::
           :ok | {:error, :timeout} | {:error, {:exited_before_ready, String.t()}}
-  def await_ready(handle, ready_pattern, timeout \\ 10_000), do: scan_ready(handle, ready_pattern, "", timeout)
+  def await_ready(sender, handle, message, timeout \\ 10_000) do
+    deadline = System.monotonic_time(:millisecond) + timeout
 
-  defp scan_ready(handle, ready_pattern, buffer, timeout) do
-    receive do
-      {^handle, {:data, chunk}} ->
-        buffer = buffer <> chunk
+    with {:ok, rest} <- wait_for(handle, message["ready_pattern"], "", deadline) do
+      case message["ready_probe"] do
+        nil ->
+          :ok
 
-        cond do
-          String.contains?(buffer, ready_pattern) ->
-            :ok
+        probe ->
+          sender.write(handle, probe)
 
-          match = Regex.run(~r/XT_EXIT (\S+)/, buffer) ->
-            {:error, {:exited_before_ready, Enum.at(match, 1)}}
+          case wait_for(handle, @ready_marker, rest, deadline) do
+            {:ok, _rest} -> :ok
+            error -> error
+          end
+      end
+    end
+  end
 
-          true ->
-            scan_ready(handle, ready_pattern, buffer, timeout)
+  # `{:ok, output after pattern}` once `pattern` is in the output (`nil`:
+  # right away)
+  defp wait_for(_handle, nil, buffer, _deadline), do: {:ok, buffer}
+
+  defp wait_for(handle, pattern, buffer, deadline) do
+    cond do
+      String.contains?(buffer, pattern) ->
+        [_, rest] = String.split(buffer, pattern, parts: 2)
+        {:ok, rest}
+
+      match = Regex.run(~r/XT_EXIT (\S+)/, buffer) ->
+        {:error, {:exited_before_ready, Enum.at(match, 1)}}
+
+      true ->
+        receive do
+          {^handle, {:data, chunk}} -> wait_for(handle, pattern, buffer <> chunk, deadline)
+        after
+          max(deadline - System.monotonic_time(:millisecond), 0) -> {:error, :timeout}
         end
-    after
-      timeout -> {:error, :timeout}
     end
   end
 

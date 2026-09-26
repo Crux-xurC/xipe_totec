@@ -214,18 +214,40 @@ defmodule XipeTotec.Scanner.Elixir do
   defp modules_in({:__block__, _, stmts}, parent), do: Enum.flat_map(stmts, &modules_in(&1, parent))
   defp modules_in(_ast, _parent), do: []
 
+  # Functions only (Scanner.definition/0): macros and guards are left out.
   defp extract_def_clauses(body, module) do
     body
     |> flatten_block()
     |> Enum.flat_map(fn
-      {kind, meta, [{name, _, args} | _]} when kind in [:def, :defp] and is_atom(name) ->
-        arity = if is_list(args), do: length(args), else: 0
-        [%{module: module, name: to_string(name), arity: arity, anykey: nil, span: span_of(meta), body_hash: body_hash({kind, name, arity, args})}]
+      {kind, meta, [head | _]} when kind in [:def, :defp, :defdelegate] ->
+        case unguarded(head) do
+          {name, _, args} when is_atom(name) ->
+            arity = if is_list(args), do: length(args), else: 0
+
+            [
+              %{
+                module: module,
+                name: to_string(name),
+                arity: arity,
+                anykey: nil,
+                visibility: if(kind == :defp, do: "private", else: "public"),
+                span: span_of(meta),
+                body_hash: body_hash({kind, name, arity, args})
+              }
+            ]
+
+          _ ->
+            []
+        end
 
       _ ->
         []
     end)
   end
+
+  # `def f(x) when x > 0` -- the head is under the `when`
+  defp unguarded({:when, _, [head | _]}), do: head
+  defp unguarded(head), do: head
 
   defp flatten_block({:__block__, _, stmts}), do: stmts
   defp flatten_block(other), do: [other]

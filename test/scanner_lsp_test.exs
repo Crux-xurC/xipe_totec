@@ -16,18 +16,24 @@ defmodule ScannerLspTest.FakeTransport do
   def request(config, "initialize", _params, _timeout),
     do: {:ok, %{"capabilities" => %{"documentSymbolProvider" => true, "callHierarchyProvider" => config[:call_hierarchy] != false}}}
 
-  def request(_config, "textDocument/documentSymbol", %{"textDocument" => %{"uri" => uri}}, _timeout) do
+  # `unsaved: true`: the server holds an editor's buffer of calc.ex with
+  # three lines added at the top, so every position is 3 lines further down
+  # than on disk
+  def request(config, "textDocument/documentSymbol", %{"textDocument" => %{"uri" => uri}}, _timeout) do
+    shift = if config[:unsaved], do: 3, else: 0
+
     {:ok,
      case Path.basename(uri) do
        "calc.ex" ->
          [
            module("Calc", [
-             fun("add/2", "def", 1),
-             fun("add/3", "def", 2),
-             fun("square/1", "def", 3),
-             fun("mul/2", "defp", 4),
-             fun("total/1", "def", 5),
-             module("Inner", [fun("twice/1", "def", 8)])
+             fun("add/2", "def", 1 + shift),
+             fun("add/3", "def", 2 + shift),
+             fun("square/1", "def", 3 + shift),
+             fun("mul/2", "defp", 4 + shift),
+             fun("total/1", "def", 5 + shift),
+             fun("dbl/1", "defmacro", 6 + shift),
+             module("Inner", [fun("twice/1", "def", 8 + shift)])
            ])
          ]
 
@@ -115,9 +121,13 @@ defmodule ScannerLspTest do
 
     labels = report.book.nodes |> Map.values() |> Enum.map(&XipeTotec.Core.node_label/1) |> Enum.sort()
 
-    # nested module named in full; defp included; anykey = arity
+    # nested module named in full; defp included, defmacro not; anykey = arity
     assert labels ==
              ~w(Calc.Inner.twice/1 Calc.add/2 Calc.add/3 Calc.mul/2 Calc.square/1 Calc.total/1 Helper.sq_plus/1)
+
+    visibility = Map.new(report.book.nodes, fn {_id, n} -> {XipeTotec.Core.node_label(n), n.visibility} end)
+    assert visibility["Calc.mul/2"] == "private"
+    assert visibility["Calc.add/2"] == "public"
 
     edges = for l <- Book.all(report.book, :links), do: {label(report.book, l.node), label(report.book, l.ref)}
 
@@ -165,9 +175,40 @@ defmodule ScannerLspTest do
     assert map_size(report.book.nodes) == 7
   end
 
+  test "a file the server sees differently from the disk is read from the disk instead, and reported", %{dir: dir} do
+    report = scan(Book.new(), dir, %{unsaved: true})
+
+    assert report.scanners["elixir"]["scanner"] == "XipeTotec.Scanner.Lsp.Elixir"
+    assert [%{"path" => "lib/calc.ex", "reason" => reason}] = report.scanners["elixir"]["fallbacks"]
+    assert reason =~ "Calc.add is not on line 5 on disk"
+
+    # calc.ex's cards carry the disk's lines; helper.ex still came from the server
+    spans = Map.new(report.book.nodes, fn {_id, n} -> {XipeTotec.Core.node_label(n), n.span} end)
+    assert spans["Calc.add/2"] == 2
+    assert spans["Calc.Inner.twice/1"] == 9
+    assert map_size(spans) == 7
+
+    edges = for l <- Book.all(report.book, :links), do: {label(report.book, l.node), label(report.book, l.ref)}
+    assert {"Helper.sq_plus/1", "Calc.square/1"} in edges
+    assert {"Calc.square/1", "Calc.mul/2"} in edges
+
+    # the file was still opened on the server, so it is closed again
+    closed = for {"textDocument/didClose", uri} <- Process.get(:notified), do: Path.basename(uri)
+    assert "calc.ex" in closed
+  end
+
+  test "a scan whose files all match the disk reports no fallbacks", %{dir: dir} do
+    refute Map.has_key?(scan(Book.new(), dir, %{}).scanners["elixir"], "fallbacks")
+  end
+
   test "the Elixir dialect reads elixir-ls names" do
     assert Dialect.definition(%{"kind" => 12, "detail" => "def", "name" => "add/2"}, ["Calc", "Inner"]) ==
-             %{module: "Calc.Inner", name: "add", anykey: 2}
+             %{module: "Calc.Inner", name: "add", anykey: 2, visibility: "public"}
+
+    assert %{visibility: "private"} = Dialect.definition(%{"kind" => 12, "detail" => "defp", "name" => "mul/2"}, ["Calc"])
+    assert %{visibility: "public"} = Dialect.definition(%{"kind" => 12, "detail" => "defdelegate", "name" => "m/1"}, ["Calc"])
+    assert Dialect.definition(%{"kind" => 12, "detail" => "defmacro", "name" => "dbl/1"}, ["Calc"]) == nil
+    assert Dialect.definition(%{"kind" => 12, "detail" => "defguard", "name" => "is_x/1"}, ["Calc"]) == nil
 
     assert Dialect.definition(%{"kind" => 12, "detail" => "@spec", "name" => "add/2"}, ["Calc"]) == nil
     assert Dialect.definition(%{"kind" => 2, "detail" => "defmodule", "name" => "Calc"}, []) == nil

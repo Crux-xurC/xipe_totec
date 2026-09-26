@@ -35,7 +35,7 @@ defmodule ReplLiveIexTest do
   setup do
     message = Launch.build(cwd: @fixture_dir, argv: ["iex"], files: ["calc.exs"])
     {:ok, handle} = Direct.send(message)
-    assert :ok = Session.await_ready(handle, message["ready_pattern"], 15_000)
+    assert :ok = Session.await_ready(Direct, handle, message, 15_000)
     on_exit(fn -> if Process.alive?(handle), do: Direct.kill(handle) end)
     {:ok, handle: handle, message: message}
   end

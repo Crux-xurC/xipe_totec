@@ -85,6 +85,15 @@ defmodule DispatchTest do
       assert {:ok, _book, %{"row" => %{args: ["1", "2", "3"]}}} = Dispatch.handle(book, "row/add", %{"node" => "n1", "args" => ["1", "2", "3"]}, %{})
     end
 
+    test "rejects a private node: the REPL can't call it" do
+      book = Book.new() |> Core.put_node("n1", %{module: "M", name: "f", anykey: 1, visibility: "private"})
+
+      assert {:error, ^book, %{"code" => "invalid_params", "message" => message}} =
+               Dispatch.handle(book, "row/add", %{"node" => "n1", "args" => ["1"]}, %{})
+
+      assert message =~ "M.f/1 is private"
+    end
+
     test "accepts a 0-arity node with an empty args list" do
       book = Book.new() |> Core.put_node("n0", %{module: "M", name: "g", anykey: 0})
       assert {:ok, _book, %{"row" => %{args: []}}} = Dispatch.handle(book, "row/add", %{"node" => "n0", "args" => []}, %{})
@@ -300,6 +309,79 @@ defmodule DispatchTest do
       book = Book.new()
       assert {:error, ^book, %{"code" => "invalid_params"}} = Dispatch.handle(book, "row/set-result", %{"id" => "c1"}, %{})
       assert {:error, ^book, %{"code" => "invalid_params"}} = Dispatch.handle(book, "row/set-result", %{}, %{})
+    end
+  end
+
+  # 2026-09-26: the calc rows as a table, an address to a node id, and a
+  # check that fails a command list on a regression
+  describe "row/list, node/resolve, row/check" do
+    setup do
+      book =
+        Book.new()
+        |> Core.put_sheet("s1", %{path: "lib/calc.ex"})
+        |> Core.put_node("n1", %{sheet: "s1", module: "Calc", name: "add", anykey: 2})
+        |> Core.put_node("n2", %{sheet: "s1", module: "Calc", name: "square", anykey: 1})
+        |> Core.put_node("n3", %{sheet: "s1", module: "Calc", name: "square", anykey: 2})
+        |> Core.add_call("c1", %{node: "n1", args: ["1", "2"]})
+        |> Core.add_call("c2", %{node: "n2", args: ["3"]})
+        |> Core.add_call("c3", %{node: "n2", args: ["⟦c2⟧"]})
+
+      book =
+        book
+        |> Book.put(:calls, "c1", Map.merge(Book.get(book, :calls, "c1"), %{result: "3", repr: "exact", compare: "same", eval_count: 2}))
+        |> Book.put(:calls, "c2", Map.merge(Book.get(book, :calls, "c2"), %{result: "10", repr: "exact", compare: "changed", eval_count: 2}))
+        |> Book.put(:calls, "c3", Map.merge(Book.get(book, :calls, "c3"), %{state: "eval_error", error: "boom", eval_count: 1}))
+
+      {:ok, book: book}
+    end
+
+    test "row/list returns every row oldest first, with its label and current value", %{book: book} do
+      assert {:ok, ^book, %{"rows" => [r1, r2, r3]}} = Dispatch.handle(book, "row/list", %{})
+      assert %{"id" => "c1", "node" => "n1", "label" => "Calc.add/2", "args" => ["1", "2"], "value" => "3", "state" => "ok", "compare" => "same"} = r1
+      assert %{"id" => "c2", "value" => "10", "compare" => "changed"} = r2
+      assert %{"id" => "c3", "state" => "eval_error", "error" => "boom"} = r3
+    end
+
+    test "row/list narrows to call_ids, in their order; an unknown one is not_found", %{book: book} do
+      assert {:ok, _, %{"rows" => [%{"id" => "c3"}, %{"id" => "c1"}]}} = Dispatch.handle(book, "row/list", %{"call_ids" => ["c3", "c1"]})
+      assert {:error, _, %{"code" => "not_found"}} = Dispatch.handle(book, "row/list", %{"call_ids" => ["nope"]})
+    end
+
+    test "node/resolve names the one node an address matches", %{book: book} do
+      assert {:ok, ^book, %{"id" => "n2", "label" => "Calc.square/1"}} =
+               Dispatch.handle(book, "node/resolve", %{"module" => "Calc", "name" => "square", "arity" => "1"})
+
+      assert {:ok, _, %{"id" => "n1"}} = Dispatch.handle(book, "node/resolve", %{"file" => "lib/calc.ex", "name" => "add"})
+      # a row names its node
+      assert {:ok, _, %{"id" => "n2"}} = Dispatch.handle(book, "node/resolve", %{"row" => "c3"})
+    end
+
+    test "node/resolve: several matches are ambiguous (with candidates), none is not_found", %{book: book} do
+      assert {:error, _, %{"code" => "ambiguous", "data" => %{"candidates" => candidates}}} =
+               Dispatch.handle(book, "node/resolve", %{"name" => "square"})
+
+      assert candidates |> Enum.map(& &1["id"]) |> Enum.sort() == ["n2", "n3"]
+      assert {:error, _, %{"code" => "not_found"}} = Dispatch.handle(book, "node/resolve", %{"name" => "nope"})
+      assert {:error, _, %{"code" => "invalid_params"}} = Dispatch.handle(book, "node/resolve", %{})
+      assert {:error, _, %{"code" => "unsupported_column"}} = Dispatch.handle(book, "node/resolve", %{"type" => "x"})
+    end
+
+    test "row/check fails on a row in an `on` condition (default error)", %{book: book} do
+      assert {:error, ^book, %{"code" => "check_failed", "data" => %{"failed" => [failed]}}} =
+               Dispatch.handle(book, "row/check", %{})
+
+      assert failed == %{"id" => "c3", "label" => "Calc.square/1", "reasons" => ["error"]}
+
+      assert {:error, _, %{"data" => %{"failed" => failed}}} = Dispatch.handle(book, "row/check", %{"on" => ["error", "changed"]})
+      assert Enum.map(failed, & &1["id"]) == ["c2", "c3"]
+    end
+
+    test "row/check passes when no row is in a condition; `on` may be one string", %{book: book} do
+      assert {:ok, ^book, %{"checked" => 1, "on" => ["changed"]}} =
+               Dispatch.handle(book, "row/check", %{"call_ids" => ["c1"], "on" => "changed"})
+
+      assert {:ok, _, %{"checked" => 3}} = Dispatch.handle(book, "row/check", %{"on" => "unevaluated"})
+      assert {:error, _, %{"code" => "invalid_params"}} = Dispatch.handle(book, "row/check", %{"on" => "wrong"})
     end
   end
 

@@ -50,58 +50,22 @@ defmodule ReplEvalTemplateTest do
     assert EvalTemplate.call_expression(entry) == "M.g(#{var} + 1)"
   end
 
-  test "an unsupported+non-pure reference (:binding) resolves to the bound variable name" do
+  test "a :binding placeholder is left as the bare variable name" do
     # Hand-built rather than derived via entry_for/3: Core.plan_recalc/3 no
     # longer schedules an entry whose inputs contain an unresolved
     # `:binding` (2026-09-22, `drop_unresolvable/2` skips the call instead
     # -- see core_test.exs's "...is unresolvable, so the dependent call is
     # skipped" tests). This test now exercises EvalTemplate.call_expression/1's
-    # own handling of a `:binding` input directly, the exact shape
-    # `Core.resolve_ref/4` still produces (it's the occurs-check's fallback
-    # too, see the next test).
+    # own handling of a `:binding` input directly, the shape
+    # `Core.resolve_ref/4` still produces.
     entry = %{
       module: "M",
       name: "f",
       args: ["xt_c5"],
-      inputs: [{:binding, %{placeholder: "xt_c5", var: :xt_c5, gen: 3, ref: "c5"}}]
+      inputs: [{:binding, %{placeholder: "xt_c5", var: :xt_c5, ref: "c5"}}]
     }
 
     assert EvalTemplate.call_expression(entry) == "M.f(xt_c5)"
-  end
-
-  test "an unsupported+pure reference (:inline_call) is re-embedded as the nested call expression" do
-    book =
-      Book.new()
-      |> Core.put_node("n1", pure_node("f"))
-      |> Core.put_node("n2", pure_node("g"))
-      |> Core.add_call("c3", %{node: "n1", args: ["99"], result: "#PID<0.1.0>", repr: "unsupported"})
-      |> Core.add_call("c4", %{node: "n2", args: ["⟦c3⟧"]})
-
-    entry = entry_for(book, "c4", ["c4"])
-    assert EvalTemplate.call_expression(entry) == "M.g(M.f(99))"
-  end
-
-  test "an inline_call cycle expands to a nested call but stops at the occurs-check binding, matching Core's own recursion" do
-    # Hand-built for the same reason as the :binding test above (c10 is
-    # skipped by Core.plan_recalc/3 now, see core_test.exs) but shaped
-    # exactly as Core.resolve_ref/4 would still produce for a c8<->c9
-    # inline_call cycle reached from c10: the same placeholder "xt_c8"
-    # appears both as an :inline_call target and, one level deeper, as the
-    # occurs-check's own :binding fallback -- this exercises
-    # EvalTemplate.expand/5's `expanding` accumulator (this module's own
-    # moduledoc), not just plain substitution.
-    entry = %{
-      module: "M",
-      name: "g",
-      args: ["xt_c8"],
-      inputs: [
-        {:inline_call, %{placeholder: "xt_c8", module: "M", name: "f", args: ["xt_c9"]}},
-        {:inline_call, %{placeholder: "xt_c9", module: "M", name: "g", args: ["xt_c8"]}},
-        {:binding, %{placeholder: "xt_c8", var: :xt_c8, gen: nil, ref: "c8"}}
-      ]
-    }
-
-    assert EvalTemplate.call_expression(entry) == "M.g(M.f(M.g(xt_c8)))"
   end
 
   describe "build/1" do

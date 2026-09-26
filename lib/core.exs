@@ -207,67 +207,21 @@ defmodule XipeTotec.Core do
   end
 
   # ---------------------------------------------------------------------
-  # affected-set / recalc scope (Old.md §4.1-§4.3) -- pure graph
-  # reachability only, no call_hash comparison anywhere in scoping
+  # reachability over the ⟦id⟧ reference graph
   # ---------------------------------------------------------------------
 
-  @doc """
-  Node ids whose dep_hash is now stale: `changed_node_ids` plus every node
-  that (transitively) calls one of them, per the static call graph in
-  `link` rows (fix B in the review: dep_hash, not body_hash -- a node whose
-  own source is untouched but whose callee changed must still be included).
-  """
-  @spec dep_hash_affected_nodes(Book.t(), [String.t()]) :: MapSet.t()
-  def dep_hash_affected_nodes(book, changed_node_ids) do
-    # reverse of the static "node calls ref" edges (role: "to")
-    reverse =
-      book.links
-      |> Map.values()
-      |> Enum.filter(&(&1.role == "to"))
-      |> Enum.group_by(& &1.ref, & &1.node)
-
-    seeds = MapSet.new(changed_node_ids)
-    bfs(seeds, seeds, reverse)
-  end
-
-  @spec calls_for_nodes(Book.t(), Enumerable.t()) :: [String.t()]
-  def calls_for_nodes(book, node_ids) do
-    node_set = MapSet.new(node_ids)
-    for {id, row} <- book.calls, MapSet.member?(node_set, row.node), do: id
-  end
-
-  @doc """
-  affected集合 (§6.6): explicit call-row targets, plus every call using a
-  node whose dep_hash just changed, plus the transitive downstream of all
-  of that via the `⟦id⟧` reference graph. Fix C: rows whose effect excludes
-  them from evaluation are *not* removed from this set here -- downstream
-  of an excluded row still gets scheduled and simply reads that row's
-  stored value (filter_by_effect/3 is what actually decides what runs).
-  """
-  @spec affected_set(Book.t(), [String.t()], [String.t()]) :: MapSet.t()
-  def affected_set(book, explicit_call_ids, changed_node_ids) do
-    from_nodes = calls_for_nodes(book, dep_hash_affected_nodes(book, changed_node_ids))
-    seeds = MapSet.new(explicit_call_ids ++ from_nodes)
-
-    reverse_refs =
-      Enum.reduce(reference_graph(book), %{}, fn {caller, refs}, acc ->
-        Enum.reduce(refs, acc, fn ref, acc -> Map.update(acc, ref, [caller], &[caller | &1]) end)
-      end)
-
-    bfs(seeds, seeds, reverse_refs)
-  end
-
-  defp bfs(frontier, acc, reverse_graph) do
+  # every id reachable from `frontier` along `graph`'s edges, `acc` included
+  defp bfs(frontier, acc, graph) do
     next =
       frontier
-      |> Enum.flat_map(&Map.get(reverse_graph, &1, []))
+      |> Enum.flat_map(&Map.get(graph, &1, []))
       |> MapSet.new()
       |> MapSet.difference(acc)
 
     if MapSet.size(next) == 0 do
       acc
     else
-      bfs(next, MapSet.union(acc, next), reverse_graph)
+      bfs(next, MapSet.union(acc, next), graph)
     end
   end
 
@@ -279,9 +233,8 @@ defmodule XipeTotec.Core do
   already relies on, and the exact "深い方から浅い方へ" order §16.4's
   planned dependency-chain negotiation needs.
 
-  Walks `reference_graph/1` *forward* (call -> what it references) --
-  `affected_set/3` reverses that same graph to walk downstream instead;
-  this is its upstream mirror. Distinct from `GraphQuery.graph/neighbors`,
+  Walks `reference_graph/1` *forward* (call -> what it references).
+  Distinct from `GraphQuery.graph/neighbors`,
   which walks the static `:links` call graph (node calls node, from
   `Scanner`) -- this walks the calc-row dependency graph (call references
   call via `⟦id⟧` in args), a different edge type entirely.
@@ -396,32 +349,38 @@ defmodule XipeTotec.Core do
 
   @doc """
   Build a recalc Plan. `opts`:
-    * `:call_ids` - explicit calc-row targets (e.g. one just edited)
-    * `:changed_node_ids` - nodes whose Scanner-reported dep_hash changed
+    * `:call_ids` - the calc rows to evaluate
     * `:include_writes` - also schedule writes/unknown nodes (still requires
       an explicit `effect/set`, per filter_by_effect/3)
-    * `:restart_session` - forwarded to the Plan as-is (a border-rule decision, §13.2)
 
-  Returns `%{pass_id:, restart_session:, entries:, skipped:, cyclic_ids:}`.
-  `skipped` (new, 2026-09-22) is `[%{call_id:, outcome: {:skipped, ref}}]`,
-  already shaped for `apply_results/3` -- calls dropped by
-  `drop_unresolvable/2` before ever reaching `entries` (see its own
-  moduledoc). Callers should fold `skipped` into `apply_results/3` the same
-  way they fold the REPL's own outcomes; it needs no REPL round trip.
+  Only the given rows are evaluated (2026-09-26, Old.md §36): the Book is
+  a chronological record, and every evaluation in it is one a command
+  asked for. Neither the rows referencing a given row (downstream) nor
+  the rows it references (upstream) are added -- to evaluate a chain,
+  name its rows together (How to use §2.6); a referenced row evaluated in
+  the same pass hands its value over through a session binding.
+
+  A row referencing one whose value the book can't hand over (never
+  evaluated, or `unsupported`) and that isn't in the same pass
+  can't be evaluated: `drop_unresolvable/2` leaves it out as
+  `{:skipped, ref}`.
+
+  Returns `%{pass_id:, entries:, skipped:, cyclic_ids:}`. `skipped` is
+  `[%{call_id:, outcome: {:skipped, ref}, ...}]` -- reported with the
+  pass's results, never written to the book (`apply_result/3` ignores it:
+  nothing was evaluated).
   """
   @spec plan_recalc(Book.t(), String.t(), keyword()) :: map()
   def plan_recalc(book, pass_id, opts \\ []) do
     targets = Keyword.get(opts, :call_ids, [])
-    changed_nodes = Keyword.get(opts, :changed_node_ids, [])
     include_writes = Keyword.get(opts, :include_writes, false)
-    restart_session = Keyword.get(opts, :restart_session, false)
 
     graph = reference_graph(book)
     cyclic = cyclic_ids(graph)
     acyclic_graph = for {id, refs} <- graph, id not in cyclic, into: %{}, do: {id, Enum.reject(refs, &(&1 in cyclic))}
 
-    affected = affected_set(book, targets, changed_nodes) |> Enum.reject(&(&1 in cyclic))
-    scheduled = filter_by_effect(book, affected, include_writes: include_writes)
+    requested = targets |> Enum.uniq() |> Enum.filter(&Book.get(book, :calls, &1)) |> Enum.reject(&(&1 in cyclic))
+    scheduled = filter_by_effect(book, requested, include_writes: include_writes)
     {runnable, skipped} = drop_unresolvable(book, scheduled)
     order = topo_sort(runnable, acyclic_graph)
     in_plan_set = MapSet.new(order)
@@ -430,7 +389,6 @@ defmodule XipeTotec.Core do
 
     %{
       pass_id: pass_id,
-      restart_session: restart_session,
       entries: entries,
       skipped: skipped,
       cyclic_ids: cyclic
@@ -557,7 +515,6 @@ defmodule XipeTotec.Core do
       anykey: node.anykey,
       args: args,
       inputs: Enum.uniq(inputs),
-      bind_as: if(node.effect != "pure", do: binding_name(id)),
       basis: basis,
       limits: %{timeout: 5_000, max_heap_words: 50_000_000}
     }
@@ -571,11 +528,11 @@ defmodule XipeTotec.Core do
   # token + a typed `inputs` entry describing what belongs there -- it
   # never builds a call expression itself (that's target-language syntax,
   # the REPL adapter's job, §12.2).
-  defp resolve_refs(book, text, in_plan_set, visiting \\ MapSet.new()) do
+  defp resolve_refs(book, text, in_plan_set) do
     refs_in_args([text])
     |> Enum.reduce({text, []}, fn ref, {text, inputs} ->
       token = "⟦#{ref}⟧"
-      {replacement, more_inputs} = resolve_ref(book, ref, in_plan_set, visiting)
+      {replacement, more_inputs} = resolve_ref(book, ref, in_plan_set)
       {String.replace(text, token, replacement), more_inputs ++ inputs}
     end)
   end
@@ -587,25 +544,19 @@ defmodule XipeTotec.Core do
   # A plan-external ref with a stored exact/binary repr is embedded as its
   # own literal canonical text -- pure string substitution.
   #
-  # A plan-external "unsupported + pure" ref can't be embedded as a value
-  # (there isn't one worth reproducing) and doesn't need a live session
-  # binding either, since re-running a pure call is safe -- instead its
-  # own call expression is re-embedded (§6.3), recursively resolving that
-  # call's own args the same way. Core only hands back the pieces
-  # (module/name/args) as an `inline_call` input; building the actual
-  # call-syntax text from them is the REPL adapter's job.
-  #
-  # Everything else (unsupported + non-pure, a dangling/unknown ref, or a
-  # ref already being expanded on this same recursion path -- `visiting`
-  # is an occurs-check: static ⟦id⟧-cycle detection upstream only guards
-  # scheduling, not this Book-driven inline_call walk, so without it a
-  # cyclic pair of unsupported+pure calls would recurse forever here)
-  # falls back to a session-variable binding.
-  defp resolve_ref(book, ref, in_plan_set, visiting) do
+  # Everything else (a plan-external row whose value the book can't hand
+  # over -- never evaluated, or unsupported -- or a dangling/unknown ref) is a `:binding` to a variable no earlier entry of the pass sets:
+  # drop_unresolvable/2 turns the row into `{:skipped, ref}` before it
+  # reaches the REPL. The REPL session lives for one pass only, so no
+  # binding survives from another. An unsupported value from a pure
+  # function used to be handed over by re-embedding its call expression;
+  # that ran the referenced function without a record of it, so since
+  # 2026-09-26 (Old.md §36) it is left to the caller to evaluate that row
+  # in the same pass.
+  defp resolve_ref(book, ref, in_plan_set) do
     var = binding_name(ref)
     placeholder = Atom.to_string(var)
     ref_call = Book.get(book, :calls, ref)
-    ref_node = ref_call && Book.get(book, :nodes, ref_call.node)
 
     cond do
       MapSet.member?(in_plan_set, ref) ->
@@ -614,23 +565,8 @@ defmodule XipeTotec.Core do
       ref_call && ref_call.repr in ["exact", "binary"] ->
         {ref_call.result, []}
 
-      ref_call && ref_call.repr == "unsupported" && ref_node && ref_node.effect == "pure" &&
-          not MapSet.member?(visiting, ref) ->
-        {inline_args, inline_inputs} =
-          Enum.map_reduce(ref_call.args, [], fn arg, acc ->
-            {new_arg, more} = resolve_refs(book, arg, in_plan_set, MapSet.put(visiting, ref))
-            {new_arg, acc ++ more}
-          end)
-
-        entry =
-          {:inline_call,
-           %{placeholder: placeholder, module: ref_node.module, name: ref_node.name, args: inline_args}}
-
-        {placeholder, [entry | inline_inputs]}
-
       true ->
-        gen = ref_call && ref_call[:session]
-        {placeholder, [{:binding, %{placeholder: placeholder, var: var, gen: gen, ref: ref}}]}
+        {placeholder, [{:binding, %{placeholder: placeholder, var: var, ref: ref}}]}
     end
   end
 
@@ -688,11 +624,9 @@ defmodule XipeTotec.Core do
       :max_heap ->
         Book.put(book, :calls, id, Map.merge(row, Map.merge(bump, %{state: "eval_error", error: "max_heap"})))
 
-      {:skipped, upstream_id} ->
-        Book.put(book, :calls, id, Map.merge(row, %{state: "ref_error", error: "upstream #{upstream_id} did not evaluate"}))
-
-      {:lost, ref} ->
-        Book.put(book, :calls, id, Map.merge(row, %{state: "lost", error: "missing binding for #{ref}"}))
+      # not evaluated: nothing to record (the book only holds evaluations)
+      {:skipped, _upstream_id} ->
+        book
 
       :aborted ->
         book

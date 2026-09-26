@@ -42,55 +42,7 @@ defmodule CoreTest do
     end
   end
 
-  describe "dep_hash_affected_nodes/2 (fix B: dep_hash, not body_hash, propagation)" do
-    test "a node that calls a changed node is included even though its own body is untouched" do
-      book =
-        Book.new()
-        |> Book.put(:links, "l1", %{node: "n1", role: "to", ref: "n2", clause: nil, guard: nil})
-
-      assert Core.dep_hash_affected_nodes(book, ["n2"]) == MapSet.new(["n1", "n2"])
-    end
-
-    test "propagates transitively (n1 -> n2 -> n3, n3 changed)" do
-      book =
-        Book.new()
-        |> Book.put(:links, "l1", %{node: "n1", role: "to", ref: "n2"})
-        |> Book.put(:links, "l2", %{node: "n2", role: "to", ref: "n3"})
-
-      assert Core.dep_hash_affected_nodes(book, ["n3"]) == MapSet.new(["n1", "n2", "n3"])
-    end
-
-    test "an unrelated node is not included" do
-      book = Book.new() |> Book.put(:links, "l1", %{node: "n1", role: "to", ref: "n2"})
-      assert Core.dep_hash_affected_nodes(book, ["n9"]) == MapSet.new(["n9"])
-    end
-  end
-
-  describe "affected_set/3" do
-    test "includes explicit targets plus their downstream (via ⟦id⟧), not their upstream" do
-      book =
-        Book.new()
-        |> Core.add_call("c1", %{node: "n1", args: ["1"]})
-        |> Core.add_call("c2", %{node: "n2", args: ["⟦c1⟧ + 1"]})
-
-      assert Core.affected_set(book, ["c1"], []) == MapSet.new(["c1", "c2"])
-      assert Core.affected_set(book, ["c2"], []) == MapSet.new(["c2"])
-    end
-
-    test "a call using a dep_hash-affected node is pulled in even without being an explicit target" do
-      # n0 calls n1; n1 changed -- n0's dep_hash goes stale too (fix B), and
-      # c1 (which uses n0, not n1) must be scheduled even though c1 never
-      # references n1 directly.
-      book =
-        Book.new()
-        |> Core.add_call("c1", %{node: "n0", args: []})
-        |> Book.put(:links, "l1", %{node: "n0", role: "to", ref: "n1"})
-
-      assert Core.affected_set(book, [], ["n1"]) == MapSet.new(["c1"])
-    end
-  end
-
-  describe "upstream_chain/2 (Old.md §16.3/§16.4, the mirror of affected_set/3's downstream walk)" do
+  describe "upstream_chain/2 (Old.md §16.3/§16.4)" do
     test "a straight chain c1 -> c2 -> c3 comes back deepest-first, self included" do
       book =
         Book.new()
@@ -106,7 +58,7 @@ defmodule CoreTest do
       assert Core.upstream_chain(book, ["c1"]) == ["c1"]
     end
 
-    test "does not include downstream callers, unlike affected_set/3" do
+    test "does not include downstream callers" do
       book =
         Book.new()
         |> Core.add_call("c1", %{node: "n1", args: ["1"]})
@@ -250,7 +202,10 @@ defmodule CoreTest do
       assert arg == "#{placeholder} + 1"
     end
 
-    test "a plan-external unsupported+pure reference is re-embedded as an inline_call, recursively resolving its own args",
+    # 2026-09-26 (Old.md §36): an unsupported value from a pure function used
+    # to be handed over by re-embedding its call; that ran f without a
+    # record, so the row referencing it must now be evaluated together with it
+    test "a plan-external unsupported+pure reference is not re-run behind the scenes: the dependent call is skipped",
          %{book: book} do
       book =
         book
@@ -258,10 +213,12 @@ defmodule CoreTest do
         |> Core.add_call("c4", %{node: "n2", args: ["⟦c3⟧"]})
 
       plan = Core.plan_recalc(book, "pass1", call_ids: ["c4"])
-      assert [%{call_id: "c4", args: [arg], inputs: inputs}] = plan.entries
+      assert plan.entries == []
+      assert [%{call_id: "c4", outcome: {:skipped, "c3"}}] = plan.skipped
 
-      assert [{:inline_call, %{module: "M", name: "f", args: ["99"], placeholder: placeholder}}] = inputs
-      assert arg == placeholder
+      # named together, c3 runs first and hands its value over in the pass
+      plan = Core.plan_recalc(book, "pass1", call_ids: ["c4", "c3"])
+      assert [%{call_id: "c3"}, %{call_id: "c4", inputs: [{:in_plan, %{ref: "c3"}}]}] = plan.entries
     end
 
     # These three used to assert that a plan-external `:binding` fallback
@@ -272,7 +229,7 @@ defmodule CoreTest do
     # marker can print). `drop_unresolvable/2` (2026-09-22) now catches this
     # at plan-build time and skips the call instead of scheduling a doomed
     # entry -- see its moduledoc in `core.exs`.
-    test "a plan-external unsupported+non-pure reference is unresolvable, so the dependent call is skipped",
+    test "a plan-external unsupported+non-pure reference leaves the dependent call skipped unless evaluated with it",
          %{book: book} do
       book =
         book
@@ -283,9 +240,29 @@ defmodule CoreTest do
       plan = Core.plan_recalc(book, "pass1", call_ids: ["c6"])
       assert plan.entries == []
       assert [%{call_id: "c6", outcome: {:skipped, "c5"}}] = plan.skipped
+
+      # named together and allowed to run: c5's fresh value is passed on
+      plan = Core.plan_recalc(book, "pass1", call_ids: ["c6", "c5"], include_writes: true)
+      assert [%{call_id: "c5"}, %{call_id: "c6", inputs: [{:in_plan, %{ref: "c5"}}]}] = plan.entries
+      assert plan.skipped == []
     end
 
-    test "an inline_call cycle (a reaches back into itself through unsupported+pure refs) is unresolvable via the occurs-check binding, so the call is skipped",
+    # 2026-09-26 (Old.md §36): the book records only evaluations a command
+    # asked for -- no row is added to the plan on its own
+    test "only the requested rows are planned: neither the rows referencing them nor the ones they reference", %{book: book} do
+      book = Core.add_call(book, "c20", %{node: "n2", args: ["⟦c2⟧"]})
+
+      # c2 references c1 (exact, embedded) and c20 references c2: only c2 runs
+      plan = Core.plan_recalc(book, "pass1", call_ids: ["c2"])
+      assert Enum.map(plan.entries, & &1.call_id) == ["c2"]
+
+      # c20 alone: c2 was never evaluated, so there is nothing to hand over
+      plan = Core.plan_recalc(book, "pass1", call_ids: ["c20"])
+      assert plan.entries == []
+      assert [%{call_id: "c20", outcome: {:skipped, "c2"}}] = plan.skipped
+    end
+
+    test "a reference into an unsupported cycle is skipped",
          %{book: book} do
       book =
         book
@@ -293,11 +270,8 @@ defmodule CoreTest do
         |> Core.add_call("c9", %{node: "n2", args: ["⟦c8⟧"], result: "#PID<0.4.0>", repr: "unsupported"})
         |> Core.add_call("c10", %{node: "n2", args: ["⟦c8⟧"]})
 
-      # c8 <-> c9 form a static ⟦id⟧ cycle, so they're excluded from
-      # scheduling -- c10 (not itself cyclic) reaches into them via
-      # inline_call, but the occurs-check's own binding fallback for the
-      # repeated c8 is just as unresolvable as any other plan-external
-      # binding (c8 never runs either), so c10 is skipped too.
+      # c8 <-> c9 form a static ⟦id⟧ cycle, so they're never scheduled;
+      # c8's unsupported value can't be handed over, so c10 is skipped.
       plan = Core.plan_recalc(book, "pass1", call_ids: ["c10"])
       assert plan.entries == []
       assert [%{call_id: "c10", outcome: {:skipped, "c8"}}] = plan.skipped
@@ -506,11 +480,10 @@ defmodule CoreTest do
       assert row3.compare == "changed"
     end
 
-    test ":skipped/:lost/:aborted do not bump eval_count", %{book: book, ctx: ctx} do
-      for outcome <- [{:skipped, "up1"}, {:lost, "up1"}, :aborted] do
+    test ":skipped/:aborted are not written to the book (nothing was evaluated)", %{book: book, ctx: ctx} do
+      for outcome <- [{:skipped, "up1"}, :aborted] do
         result = %{call_id: "c1", outcome: outcome, compare: "skipped", evaluated_at: nil, session_gen: 1}
-        row = Core.apply_results(book, ctx, [result]) |> Book.get(:calls, "c1")
-        assert row.eval_count == 0
+        assert Core.apply_results(book, ctx, [result]) == book
       end
     end
 

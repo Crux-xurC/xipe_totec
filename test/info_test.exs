@@ -29,6 +29,9 @@ defmodule InfoTest do
 
     assert refreshed["languages"] == ["elixir"]
     assert refreshed["extensions"] == %{"ex" => ["elixir"], "exs" => ["elixir"]}
+    # each language's REPL and build-tool priority list (2026-09-26)
+    assert refreshed["language_repls"] == %{"elixir" => "iex"}
+    assert refreshed["build_tools"] == %{"elixir" => [%{"name" => "mix", "markers" => ["mix.exs"]}]}
     assert refreshed["repls"] == ["placeholder"]
   end
 
@@ -44,6 +47,9 @@ defmodule InfoTest do
 
     assert refreshed["languages"] == ["c", "cpp"]
     assert refreshed["extensions"] == %{"c" => ["c"], "cpp" => ["cpp"], "h" => ["c", "cpp"]}
+    # declaring no repl/0 or build_tools/0 records nil / []
+    assert refreshed["language_repls"] == %{"c" => nil, "cpp" => nil}
+    assert refreshed["build_tools"] == %{"c" => [], "cpp" => []}
   end
 
   test "language_module/3 resolves only a registered language to its declaring module" do
@@ -71,7 +77,7 @@ defmodule InfoTest do
 
     # elixir-ls first, Elixir's own parser when no language server is reachable
     assert mod.scanner() == [XipeTotec.Scanner.Lsp.Elixir, XipeTotec.Scanner.Elixir]
-    assert {[], cleanup} = mod.launch_opts("/nowhere", "mix")
+    assert {[], cleanup} = mod.launch_opts("/nowhere", "mix", [])
     assert cleanup.() == :ok
   end
 

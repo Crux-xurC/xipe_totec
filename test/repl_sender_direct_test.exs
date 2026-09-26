@@ -70,6 +70,28 @@ defmodule ReplSenderDirectTest do
              })
   end
 
+  # 2026-09-26: a spawn that erlexec refuses used to take the caller down
+  # with it (the failing GenServer's exit signal over the link), so a bad
+  # launch crashed `xipe eval` instead of reporting launch_failed
+  test "a spawn failure is a clean error and leaves the caller alive, not trapping exits" do
+    trapping = Process.flag(:trap_exit, false)
+
+    for _ <- 1..3 do
+      assert {:error, {:spawn_failed, _reason}} =
+               Direct.send(%{
+                 "kind" => "repl/launch",
+                 "argv" => ["sh", "-c", "true"],
+                 # a non-string value: erlexec refuses the spawn itself
+                 "env" => %{"XT_BAD" => 1},
+                 "cwd" => System.tmp_dir!()
+               })
+    end
+
+    assert Process.info(self(), :trap_exit) == {:trap_exit, false}
+    refute_received {:EXIT, _, _}
+    Process.flag(:trap_exit, trapping)
+  end
+
   test "with_files/2 inserts one -r pair per file, ahead of the rest of argv" do
     assert Direct.with_files(["--sname", "x", "--cookie", "y"], ["a.exs", "lib/b.exs"]) ==
              ["-r", "a.exs", "-r", "lib/b.exs", "--sname", "x", "--cookie", "y"]

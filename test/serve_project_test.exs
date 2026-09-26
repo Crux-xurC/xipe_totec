@@ -28,7 +28,7 @@ defmodule ServeProjectTest.GatedSender do
 
   def send(message) do
     handle = self()
-    Kernel.send(handle, {handle, {:data, message["ready_pattern"] <> "\n"}})
+    Kernel.send(handle, {handle, {:data, message["ready_pattern"] <> "\nXT_READY\n"}})
     {:ok, handle}
   end
 
@@ -162,12 +162,78 @@ defmodule ServeProjectTest do
     refute_receive {:xipe_out, _more}, 50
   end
 
+  test "scan/run runs off the server: other requests are answered while it runs, and an effect/set made meanwhile survives it",
+       %{dir: dir} do
+    # Scanner.Elixir compiles each defmodule for its links, so this module's
+    # body holds the scan until the test says :go -- only while the gate is set
+    File.write!(Path.join(dir, "lib/slow.ex"), """
+    defmodule ServeScanSlow do
+      case :persistent_term.get({ServeProjectTest, :scan_gate}, nil) do
+        nil -> :ok
+        test -> send(test, {:scanning, self()}); receive do: (:go -> :ok)
+      end
+
+      def f(x), do: x
+    end
+    """)
+
+    assert {:ok, %{"paths" => ["lib/slow.ex"]}} = Project.request("scan/run", %{})
+    {:ok, %{"matches" => [%{"id" => node_id}]}} = Project.request("card/get", %{"module" => "ServeScanSlow", "name" => "f"})
+
+    :persistent_term.put({ServeProjectTest, :scan_gate}, self())
+    on_exit(fn -> :persistent_term.erase({ServeProjectTest, :scan_gate}) end)
+    scan = Task.async(fn -> Project.request("scan/run", %{}) end)
+    assert_receive {:scanning, compiling}, 5_000
+
+    assert {:ok, _} = Project.request("effect/set", %{"id" => node_id, "effect" => "pure"})
+
+    send(compiling, :go)
+    assert {:ok, %{"paths" => ["lib/slow.ex"]}} = Task.await(scan)
+
+    assert {:ok, %{"matches" => [%{"id" => ^node_id, "node" => %{effect: "pure"}}]}} =
+             Project.request("card/get", %{"module" => "ServeScanSlow", "name" => "f"})
+  end
+
+  @tag capture_log: true
+  test "a scan that crashes is answered with an error and the server keeps running", %{dir: dir} do
+    # an unreadable source file makes Project.scan_dir_report/3's File.read! raise
+    unreadable = Path.join(dir, "lib/locked.ex")
+    File.write!(unreadable, "defmodule Locked do\nend\n")
+    File.chmod!(unreadable, 0o000)
+    on_exit(fn -> File.chmod(unreadable, 0o600) end)
+
+    assert {:error, %{"code" => "scan_failed"}} = Project.request("scan/run", %{})
+    assert {:ok, %{"matches" => [_]}} = Project.request("card/get", %{"module" => "M", "name" => "f1"})
+  end
+
   test "row/update routes through Pipeline, not Dispatch's own @not_implemented" do
-    # same proof as RunnerTest's equivalent case: Dispatch's own
-    # @not_implemented has no concept of "stages", so a message naming a
-    # stage can only have come from Pipeline
-    assert {:error, %{"code" => "not_implemented", "message" => row_update_message}} = Project.request("row/update", %{})
-    assert row_update_message =~ "\"edit\""
+    # Dispatch's own @not_implemented would answer not_implemented; this
+    # message comes from the pipeline's edit stage
+    assert {:error, %{"code" => "invalid_params", "message" => message}} = Project.request("row/update", %{})
+    assert message =~ "row/update needs id"
+  end
+
+  # 2026-09-26 (Old.md §37): the edit is applied (and broadcast) at once,
+  # the evaluation of that row alone goes to the pass queue
+  @tag :gated_eval
+  test "row/update edits at once and queues an eval of that row only", %{store_file: store_file} do
+    call_id = pure_call(["1"])
+    {:ok, %{"id" => other}} = Project.request("row/add", %{"node" => "n1", "args" => ["⟦#{call_id}⟧"]})
+    :ok = Project.attach(self())
+
+    assert {:ok, %{"id" => ^call_id, "row" => %{args: ["4"]}, "pass_id" => pass_id, "status" => "started"}} =
+             Project.request("row/update", %{"id" => call_id, "args" => ["4"]})
+
+    assert %{"id" => ^call_id, "row" => %{"args" => ["4"]}} = next_notify("notify/rowChanged")
+    assert XipeTotec.Store.load(store_file).calls[call_id].args == ["4"]
+
+    assert_receive {:gate, pass_pid, ^call_id}, 2_000
+    send(pass_pid, :go)
+
+    assert %{"pass_id" => ^pass_id, "ok" => true, "result" => %{"results" => [%{"call_id" => ^call_id}]}} =
+             next_notify("notify/passCompleted")
+
+    assert XipeTotec.Store.load(store_file).calls[other].eval_count == 0
   end
 
   defp pure_call(args) do
@@ -209,6 +275,23 @@ defmodule ServeProjectTest do
              next_notify("notify/passCompleted")
 
     assert XipeTotec.Store.load(store_file).calls[call_id].result == "1"
+  end
+
+  @tag :gated_eval
+  test "a pass records the root's git commit, read when the pass starts", %{dir: dir, store_file: store_file} do
+    git = fn args -> {out, 0} = System.cmd("git", ["-c", "user.name=t", "-c", "user.email=t@t" | args], cd: dir); String.trim(out) end
+    git.(["init", "-q"])
+    git.(["commit", "-q", "--allow-empty", "-m", "x"])
+    sha = git.(["rev-parse", "HEAD"])
+
+    call_id = pure_call(["1"])
+    :ok = Project.attach(self())
+    {:ok, %{"pass_id" => pass_id}} = Project.request("eval", %{"call_ids" => [call_id]})
+    assert_receive {:gate, pass_pid, ^call_id}, 2_000
+    send(pass_pid, :go)
+    assert %{"pass_id" => ^pass_id, "ok" => true} = next_notify("notify/passCompleted")
+
+    assert XipeTotec.Store.load(store_file).calls[call_id].commit == sha
   end
 
   @tag :gated_eval

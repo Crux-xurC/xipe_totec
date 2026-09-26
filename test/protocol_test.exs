@@ -68,7 +68,6 @@ defmodule ProtocolTest do
         call.("c3", {:error, {:compile_error, "undefined variable"}}),
         call.("c4", :timeout),
         call.("c5", {:skipped, "c0"}),
-        call.("c6", {:lost, "xt_c0"}),
         call.("c7", :aborted)
       ],
       "not_run" => []
@@ -82,7 +81,6 @@ defmodule ProtocolTest do
              %{"status" => "crash", "reason" => ~s({:compile_error, "undefined variable"})},
              %{"status" => "timeout"},
              %{"status" => "skipped", "upstream" => "c0"},
-             %{"status" => "lost", "ref" => "xt_c0"},
              %{"status" => "aborted"}
            ]
 

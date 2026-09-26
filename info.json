@@ -1,1 +1,1 @@
-{"extensions":{"ex":["elixir"],"exs":["elixir"]},"languages":["elixir"],"project":null,"repls":[{"repl":"iex","transport":"direct"}]}
+{"build_tools":{"elixir":[{"markers":["mix.exs"],"name":"mix"}]},"extensions":{"ex":["elixir"],"exs":["elixir"]},"language_repls":{"elixir":"iex"},"languages":["elixir"],"project":null,"repls":[{"repl":"iex","transport":"direct"}]}

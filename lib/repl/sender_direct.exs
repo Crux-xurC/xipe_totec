@@ -1,4 +1,5 @@
 Code.require_file("sender.exs", __DIR__)
+Code.require_file("../project_env.exs", __DIR__)
 
 defmodule XipeTotec.Repl.Sender.Direct do
   @moduledoc """
@@ -50,7 +51,9 @@ defmodule XipeTotec.Repl.Sender.Direct do
   @impl XipeTotec.Repl.Sender
   def send(%{"kind" => "repl/launch", "argv" => [exe | args], "env" => env, "cwd" => cwd} = message)
       when is_binary(exe) and is_list(args) and is_map(env) and is_binary(cwd) do
-    case System.find_executable(exe) do
+    # a PATH in env (the project's environment, ProjectEnv) is where the
+    # project's own REPL is found
+    case XipeTotec.ProjectEnv.find_executable(exe, env) do
       nil ->
         {:error, {:executable_not_found, exe}}
 
@@ -58,12 +61,43 @@ defmodule XipeTotec.Repl.Sender.Direct do
         files = Map.get(message, "files", [])
         spawn_args = with_files(args, files)
         argv = Enum.map([path | spawn_args], &String.to_charlist/1)
-        exec_env = Enum.map(env, fn {k, v} -> {String.to_charlist(k), String.to_charlist(v)} end)
-        GenServer.start_link(__MODULE__, {argv, cwd, exec_env, self()})
+        # binaries, not charlists: erlexec refused a flake's environment
+        # (ProjectEnv: empty values, UTF-8 text such as a shellHook) passed
+        # as charlists, and accepts the same values as binaries (checked
+        # 2026-09-26)
+        exec_env = Map.to_list(env)
+        start_linked({argv, cwd, exec_env, self()})
     end
   end
 
   def send(other), do: {:error, {:unsupported_message, other}}
+
+  # GenServer.start_link/2, except that a spawn failure comes back only as
+  # `{:error, {:spawn_failed, reason}}`. init/1 stopping makes the new
+  # process exit, and that exit signal would otherwise take the caller (the
+  # CLI, a server's pass process) down with it -- it is caught here, for
+  # the duration of the start only, and discarded.
+  defp start_linked(arg) do
+    trapping = Process.flag(:trap_exit, true)
+
+    try do
+      case GenServer.start_link(__MODULE__, arg) do
+        {:ok, pid} ->
+          {:ok, pid}
+
+        {:error, reason} ->
+          receive do
+            {:EXIT, _pid, _} -> :ok
+          after
+            0 -> :ok
+          end
+
+          {:error, reason}
+      end
+    after
+      Process.flag(:trap_exit, trapping)
+    end
+  end
 
   # See ../sender_direct.exs (Port version)'s own note, still true here:
   # a handle can legitimately already be gone by the time write/2,

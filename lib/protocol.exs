@@ -82,7 +82,7 @@ defmodule XipeTotec.Protocol do
   (`{:ok, %{...}}`, `:timeout`, `{:skipped, id}`, ...). The CLI prints those
   terms directly, so they are converted here, at the wire, rather than in
   `Runner`: each outcome becomes a map with a `"status"` named like the
-  CLI's own labels (`ok`/`crash`/`timeout`/`max_heap`/`skipped`/`lost`/
+  CLI's own labels (`ok`/`crash`/`timeout`/`max_heap`/`skipped`/
   `aborted`) plus that outcome's own fields.
   """
   @spec wire_result(map() | nil) :: map() | nil
@@ -108,7 +108,6 @@ defmodule XipeTotec.Protocol do
     do: %{"status" => "crash", "reason" => if(is_binary(reason), do: reason, else: inspect(reason))}
 
   defp wire_outcome({:skipped, upstream}), do: %{"status" => "skipped", "upstream" => upstream}
-  defp wire_outcome({:lost, ref}), do: %{"status" => "lost", "ref" => ref}
   defp wire_outcome(status) when status in [:timeout, :max_heap, :aborted], do: %{"status" => Atom.to_string(status)}
 
   @doc "Encode a server -> client push with no reply expected (`notify/*`)."
