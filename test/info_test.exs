@@ -27,11 +27,20 @@ defmodule InfoTest do
     info = %{"languages" => [], "repls" => ["placeholder"], "project" => nil}
     refreshed = Info.refresh_languages(info)
 
-    assert refreshed["languages"] == ["elixir"]
-    assert refreshed["extensions"] == %{"ex" => ["elixir"], "exs" => ["elixir"]}
+    assert refreshed["languages"] == ["elixir", "haskell", "ocaml"]
+    assert refreshed["extensions"] == %{"ex" => ["elixir"], "exs" => ["elixir"], "hs" => ["haskell"], "ml" => ["ocaml"]}
     # each language's REPL and build-tool priority list (2026-09-26)
-    assert refreshed["language_repls"] == %{"elixir" => "iex"}
-    assert refreshed["build_tools"] == %{"elixir" => [%{"name" => "mix", "markers" => ["mix.exs"]}]}
+    assert refreshed["language_repls"] == %{"elixir" => "iex", "haskell" => "ghci", "ocaml" => "ocaml"}
+
+    assert refreshed["build_tools"] == %{
+             "elixir" => [%{"name" => "mix", "markers" => ["mix.exs"]}],
+             "haskell" => [
+               %{"name" => "stack", "markers" => ["stack.yaml"]},
+               %{"name" => "cabal", "markers" => ["*.cabal", "cabal.project"]}
+             ],
+             "ocaml" => [%{"name" => "dune", "markers" => ["dune-project"]}]
+           }
+
     assert refreshed["repls"] == ["placeholder"]
   end
 
@@ -85,7 +94,11 @@ defmodule InfoTest do
     info = %{"languages" => ["placeholder"], "repls" => [], "project" => nil}
     refreshed = Info.refresh_repls(info)
 
-    assert refreshed["repls"] == [%{"transport" => "direct", "repl" => "iex"}]
+    assert refreshed["repls"] == [
+             %{"transport" => "direct", "repl" => "ghci"},
+             %{"transport" => "direct", "repl" => "iex"},
+             %{"transport" => "direct", "repl" => "ocaml"}
+           ]
     assert refreshed["languages"] == ["placeholder"]
   end
 end

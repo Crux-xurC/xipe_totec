@@ -16,7 +16,7 @@ Xipe Totecは対象プロジェクトのREPLへ人間が手で式を打ち込ん
 
 - **`XipeTotec.Repl.Language`（`lib/repl/language.exs`、2026-09-24、`Old.md` §34）**: 言語ごとの自己申告。`lib/repl/language/<name>.exs`に1言語1モジュールを置き、ファイル名が言語名になる（`elixir.exs`→`"elixir"`）。申告するのは`extensions/0`（拡張子の一覧）・`repl/0`（REPL の名前、surface table の`repl`列）・`build_tools/0`（ビルドツールの優先順位表 `[%{"name", "markers"}]`、2026-09-26）・`scanner/0`・`adapter/0`・`launch_opts/3`（`build_tool`の名前と、その言語のファイル一覧を受け取る）。**新しい言語を足すときは、4つの算出プログラムに加えてこのファイルも書く**
 - **`XipeTotec.Info`（`lib/info.exs`）**: xipe_totec自身の`info.json`（対象プロジェクト側ではない）を読み書きする。`xipe refresh -l`が`lib/repl/language/*.exs`を読み込んで`extensions/0`・`repl/0`・`build_tools/0`を呼び、`languages`（言語名）・`extensions`（拡張子→申告した言語のリスト）・`language_repls`・`build_tools`を書く。**ファイルを置いただけでは効かず、`xipe refresh -l`を叩いて初めて登録される**（P4）
-- **`XipeTotec.SurfaceTable`（`lib/surface_table.exs`）**: 対象プロジェクトのファイルツリーを走査し、`language`/`repl`/`build_tool`を判定するテーブル。`language`は`info.json`の`extensions`から引く。1言語だけが申告した拡張子はその言語、どの言語も申告していないか**2つ以上の言語が申告した拡張子は`nil`**（P9、判定できないものは判定できないと示す）。`repl`/`build_tool`は今のところElixir＋`mix`の分だけ（`mix.exs`の有無の直接チェック）
+- **`XipeTotec.SurfaceTable`（`lib/surface_table.exs`）**: 対象プロジェクトのファイルツリーを走査し、`language`/`repl`/`build_tool`を判定するテーブル。`language`は`info.json`の`extensions`から引く。1言語だけが申告した拡張子はその言語、どの言語も申告していないか**2つ以上の言語が申告した拡張子は`nil`**（P9、判定できないものは判定できないと示す）。`repl`/`build_tool`は各言語の`Repl.Language`の申告（`repl/0`・`build_tools/0`）から決まる（Elixir＋`mix`、OCaml＋`dune`）
 - **まだ申告に無いもの（計画のみ）**: `embody`の有無（§30）。実装されたら`Repl.Language`のcallbackとして足す。Nix の環境は言語ではなくプロジェクト単位の層（`ProjectEnv`）なので、申告には含めない。あわせて、起動完了の検出を固定の`XT_READY`マーカーへ移す計画もある（§25.3。`Launch`相当のモジュールの`ready_pattern`に関わる）。最新の実装状況は`README.md`の「いまどこまで動くか」、残作業は`課題.md`の「多言語対応」節を確認すること
 
 ## ディレクトリ構成

@@ -27,7 +27,9 @@ nix develop
 | cowboy・gun・erlexec | WebSocket サーバー、tezcatl の `/lsp` への接続、REPL の起動 |
 | elixir-ls | スキャンで使う言語サーバー（tezcatl が無くても自分で起動する） |
 
-対応言語は `info.json` に登録されたものだけで、いまは Elixir（`.ex`/`.exs`）だけ。
+対応言語は `info.json` に登録されたものだけで、いまは Elixir（`.ex`/`.exs`）・OCaml（`.ml`）・Haskell（`.hs`）。
+OCaml・Haskell を評価するには、対象の環境（flake、§4.3）か PATH に `ocaml`・`ghci` が要る。各言語の
+`embody`（別リポジトリ `~/my_app/embody`）も要る（§9.1）。
 `lib/repl/language/` に言語を足したときだけ `xipe refresh -l` を打つ（§9）。
 
 ---
@@ -212,7 +214,7 @@ $ xipe eval
 | `xipe start [<dir>] [--port N] [--lsp <url>] [--fs-root <dir>]` | WebSocket サーバーとして常駐する（§6）。`xipe serve` は別名 |
 | `xipe config [<dir>] [key=value...]` | プロジェクトごとの設定を見る・変える（§4.3） |
 | `xipe refresh -l\|-r\|-a` | xipe_totec 自身の `info.json` を更新する（§9） |
-| `xipe help` / `xipe version` | |
+| `xipe help [<command>]` / `xipe version` | `help` は1行1コマンド（`コマンド: 説明  引数`）の一覧。`<command>` を付けるとその説明 |
 
 コマンド列の中に失敗したものが1つでもあると、終了コードは1になる。
 
@@ -418,6 +420,44 @@ row/set-result  ok  %{"id" => "01M3D3ZFCV7ZRHV9TSRVETQEE9", "result" => "4"}
   指定した行までを評価して終わる。`n` なら1段浅い方へ進む
 - 全部 `n` で答えると何も実行しない
 - 評価される段は `writes` も含む（ただし分類済みであること）
+- tezcatl の対話窓からは `dialogue depends <call_id>` で始め、次の行で `y <値>` / `n` と答える
+- `quit dialogue` で途中でやめられる
+
+### 5.1 検索（`xipe search`）
+
+表を順に絞り込む対話。1つのプロセスの中でリスト（と `x`）を持ち続けるので、`xipe search` で
+プロンプト（`search>`）に入り、ターンを打つ。最初のターンは `xipe search` の後ろに書いてもよい。
+tezcatl の対話窓では `search` で始め、1行が1ターン。
+
+```
+$ xipe search -s path lib/calc.ex path
+1件ヒットしました。（path: [lib/calc.ex]）
+search> -e path list id
+2件ヒットしました。（id: [01M3…, 01M3…]）
+search> get id -2
+検索結果の2番目の要素のIDを取得しました: 01M3…（以降 x と書けます）
+search> eval x
+  eval call 01M3…  ok       repr=exact  9  compare=none
+search> -e view id id name args result
+…
+検索を終了しますか？y/n
+search> y
+```
+
+| ターン | 動き |
+|---|---|
+| `-s\|-e <列> <値> [<取り出す列>]` | `<列>` が `<値>` の行の `<取り出す列>`（既定 `id`）をリストにして保持する |
+| `-s\|-e <列> list <取り出す列>` | 保持中のリストの値ごとに `<列>` を探す（リストを置き換える） |
+| `-s\|-e view <列> [<表示する列>...]` | リストの値に合う行を表示し、終えるかを聞く（`y` で終了、`n` で続ける） |
+| `get id [-n]` | リストの n 番目（1から）を `x` として保持する。無ければ `No match data` |
+| `quit dialogue` | 終える |
+| それ以外 | 普通のコマンドとして実行する（対話は続く）。`x`（`id=x`・`call_ids=[x]`・`⟦x⟧` も）は保持した id に置き換える |
+
+- `-s` は surface table（列: `id path depth language repl build_tool`）、`-e` は `eval_table`
+  （計算行に関数と `path` を横付けした表。列は `-h` で出る）
+- 値は完全一致。`~<値>` で部分一致（`-e args ~⟦<id>⟧ id` でその行を参照している行）、`-` で空の
+  セル（`-e module -` で関数が消えた行）。数値は文字として比べる。10件を超えると先頭10件と件数
+- 検索そのものは何も書き換えない。書き換えるのは、検索の中で打った普通のコマンドだけ
 
 ---
 
@@ -462,7 +502,34 @@ WebSocket（パス `/`）に JSON-RPC 2.0 のテキストを1フレーム1メッ
 - 行やカードが変わるたびに `notify/rowChanged`・`notify/nodeChanged` が届く
 - 応答には JSON-RPC の通常の欄に加えて、`from`（常に `null`）と `dialogue` が付く
 
-### 6.2 tezcatl から使う
+### 6.2 `input` ── 1行をそのまま送る（tezcatl の対話窓）
+
+`{"method":"input","params":{"text":"<打った1行>"}}`。行の意味は Xipe Totec が決める。
+tezcatl の対話窓はすべての行をこの形で送り、中身を解釈しない。
+
+- 行の書き方は端末で `xipe` に続けて打つものと同じ（先頭の `xipe` はあってもよい）。
+  `help [<command>]`・`version`・`show`・`scan`・`eval [id...] [--include-writes]`・
+  `do <method> ... [-- <method> ...]`。method 名から始めた行は `do` を省いたものとして読む。
+  引用符（`'id=$0.id'`）はシェルと同じく外す
+- 端末が要るコマンド（`choice project`・`table generate`・`start`・`config`・`refresh`・
+  `dialogue depends`）は `input_error` で断る
+- 返事の `dialogue.text` に、CLI が出すのと同じ行が入る。コマンドなら `result.outcomes` に
+  コマンドごとの `method`・`ok`・`result`・`error` も入る。読めない行は `input_error`
+- 評価（`eval`・`eval/run`・`row/update`）を含む行は、その評価が終わるのを待ってから次の
+  コマンドへ進み、全部終わってから1回だけ返事をする（`... -- eval ... -- row/check` が CLI と
+  同じ意味になる）。待っている間も、その接続のほかの要求には応える
+- 対話（例: 依存チェーン交渉）を保持している間は、次の行がその答えになる
+
+```
+→ {"jsonrpc":"2.0","id":3,"method":"input","params":{"text":"help"}}
+← {"jsonrpc":"2.0","id":3,"result":{},"from":null,
+   "dialogue":{"hold":false,"via_repl":false,"text":"help: コマンドの一覧（…）  [<command>]\n…\nrow/add: 計算行を作る  node=<node id> args=[...]\n…"}}
+```
+
+`help` の1行は「最初の `:` の前がコマンド、後ろが説明と引数」。tezcatl ではこの行をヤンクして
+辞書パネルで `p` を押すと、コマンドが補完の候補になる。
+
+### 6.3 tezcatl から使う
 
 基本は tezcatl が `xipe start` を `<dir>` なしで起動する（対象は選択中のプロジェクト）。
 対象を決めるのは Xipe Totec 側で、tezcatl は窓にすぎない。先に `xipe choice project` で
@@ -524,6 +591,55 @@ xipe refresh -a     # 両方
 それぞれの関数の言語（surface table の `language`）ごとに分けられ、言語ごとの REPL で並行して
 評価される。言語の違う行を `⟦id⟧` で参照している行は評価されず、`not run` と理由が出る（値の
 書き方が言語ごとに違い、まだ変換しないため）。
+
+### 9.1 OCaml（2026-09-27）
+
+- 評価は素の `ocaml` トップレベルで行う。`embody.ml`（別リポジトリ `~/my_app/embody/`。xipe_totec の隣が
+  既定で、`XIPE_TOTEC_EMBODY_DIR` で変えられる。無いと各行が `Unbound module Embody` の crash になる）を読み込み、
+  各行の呼び出しを必ずこれで包む。対象の `.ml` は1ファイル1モジュール（`geometry.ml` は
+  `Geometry`）として読み込む。トップレベルの式と `let ()`/`let _` は実行しない。ファイル間の
+  依存の順は、失敗したものを後で読み直して決める
+- 計算行の引数は OCaml のソースで書く（`args=[Geometry.Circle 2.]`）。呼び出しは
+  `M.f (a) (b)`（引数ごとに括弧）。引数なしは値そのもの（`M.origin`）。`unit` を取る関数は
+  `args=[()]`
+- `repr`: 表示された値をもう一度評価して `=` で等しければ `exact`。関数（`<fun>`）、循環
+  （`<cycle>`）、インラインレコードなど読み戻せないものは `unsupported`。`binary` は無い。
+  `type` は OCaml の型そのもの（`Geometry.shape list`）
+- 結果の例: 例外は `crash  Exception: Failure "hd".`、型エラーは OCaml の文言そのまま、
+  時間切れは `timeout`（1件ずつ SIGALRM）。メモリの上限は無く、固まればトップレベルごと落とす
+- スキャン（`Scanner.Ocaml`）はテキストから読む: 行頭のトップレベルの `let`/`let rec`/`and` が
+  関数（`anykey` は空、同名は後ろのもの）。入れ子のモジュールの中はまだ読まない。呼び出し関係は
+  `Mod.name` と同じファイルの名前の出現から推定する
+- **dune のプロジェクト**（根に `dune-project`、Old.md §43）: 依存するライブラリ（`str` や、`OCAMLPATH` で
+  見える外部パッケージ）は `dune ocaml top` から読み込む。プロジェクト自身のコードはソースから（副作用なし）。
+  ライブラリの外からの書き方（`Mylib.Words.count`）も使える（`dune` ファイルの `(library (name mylib))` から
+  別名を作る）。評価のたびに dune がプロジェクトをビルドする（対象に `_build/` ができる）。dune と依存は
+  対象の環境（flake）に要る
+- 未対応: ppx を使うファイル（ソースをそのまま読むため）、同じ名前のファイルが2つある構成、
+  1つの `dune` ファイルに複数のライブラリ（別名を作らない）。言語サーバー（ocamllsp）は使わない
+  （`callHierarchy` が無い、Old.md §42.4）
+
+### 9.2 Haskell（2026-09-27）
+
+- 評価は GHCi（`ghci -v0 -fdefer-type-errors …`）で行う。`embody.hs`（`~/my_app/embody/`）と対象の `.hs` を
+  `:load` し、各モジュールを `*M` でスコープに入れる。export されていない関数も `M.f` で呼べる。`main` は走らない
+- モジュールは各ファイルの `module X` の行から（無ければ `Main`）。`src/Geo/Shape.hs` の `Geo.Shape` なら `src` を
+  探索パスに入れる。`Main` のファイルが2つ以上あると一緒に読めないので、そのときは `Main` を読まない
+- 計算行の引数は Haskell のソースで書く（`args=["x"]`、`args=[[] :: [Int]]`）。呼び出しは `M.f (a) (b)`、
+  引数なしは値そのもの
+- `repr`: `Read`・`Show`・`Eq` があり `show` が読み戻せて等しければ `exact`（`Map` も）。`Show` だけなら `show` を
+  2000文字で切った `unsupported`（無限リストも返る）。`Show` が無ければ型を表示にした `unsupported`
+  （関数 `Int -> Int`、`IO [Char]` は実行しない）。`type` は値の型（`[Shape]`、`Map [Char] Int`）
+- 失敗: 例外・型エラーは GHC の文言の `crash`。呼び出しの構文エラーは `crash … Variable not in scope: xt_<id>`
+  （本来の構文エラーの文言は REPL の出力に出る）。時間切れは `timeout`
+- スキャン（`Scanner.Haskell`）はテキストから: 行頭のトップレベルの定義（複数の節は1つ、型シグネチャ・演算子・
+  宣言は除く）。呼び出し関係は `M.f`（`import … as N` の別名も）、同じモジュールの名前、修飾なしの import の名前から
+- **cabal・stack のプロジェクト**（根に `*.cabal`/`cabal.project`、`stack.yaml`、Old.md §47）: GHCi を
+  `cabal exec --offline --`（その前に `cabal build --offline all`）・`stack exec --` の下で起動し、依存パッケージを
+  見えるようにする。プロジェクト自身のモジュールは、ライブラリも実行ファイルもテストもソースから読む。依存パッケージは
+  あらかじめ使える状態であること（nix の `ghcWithPackages`、事前のビルドなど。`--offline` なので評価中に取りに
+  行かない）。対象に `dist-newstyle/`・`.stack-work/` ができる
+- 未対応: `IO` を返す関数の実行
 
 ---
 

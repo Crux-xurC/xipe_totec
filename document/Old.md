@@ -1554,3 +1554,349 @@ xipe_totecから見た手順は両言語で同じ。関数Aを見たいときは
 - テスト用の差し替え口`:info`（info.jsonの代わり）・`:language_modules`（言語名 → モジュール）を`Runner`に足した（`Project.scan_dir`の`:info`と同じ扱い）
 - テスト: `runner_test`に3件（Elixirと架空の言語`.toy`が混ざるプロジェクトで、言語ごとの評価・言語をまたぐ参照の`not_run`・同じ言語の中の参照、片方の言語のREPLが起動できないとき、片方の言語だけを指定したとき他方のREPLは起動しない）。`./test/run.sh` 370件、0 failures。`test/live` 12件、0 failures。CLIで言語が1つのプロジェクトの`xipe eval`・`row/update`が従来どおり動くことを確認
 - 文書: How to use §9、動作原理.md、課題.md、`next_step.md` §2.2・§2.6・§3
+
+## 40. `input` method と1行1コマンドの `help` ── tezcatl の対話窓の受け口（2026-09-27、`~/my_app/tezcatl`セッション）
+
+tezcatl 側で対話窓（`panels/skins/xipe.html`）と汎用の辞書ができ、打った1行を解釈せず `input` `{"text": "<行>"}`
+だけで送る形に決まった（tezcatl `D-xipe対話窓`・`D-辞書`、crux 2026-09-27）。Xipe Totec 側に要るのは、
+その1行を受ける `input` と、辞書に登録できる形の `help`（`課題.md` §2 に記録してあった2点）。
+
+### 40.1 決めたこと
+
+- **1行の書き方は CLI と同じ**: 端末で `xipe` に続けて打つもの（先頭の `xipe` は可）。`help [<command>]`・
+  `version`・`show`・`scan`・`eval [id...] [--include-writes]`・`do <method> … [-- <method> …]`。method 名から
+  始まる行は `do` を省いたものとして読む（`/` を含む語、または `Methods` にある名前）。`'…'`・`"…"` はシェルと
+  同じく外す（端末からの写しがそのまま通る）。`<dir>`・`--dir`・`--mix` は取らない（対象は開いている
+  プロジェクト）
+- **端末が要るコマンドは断る**: `choice project`・`table generate`・`start`/`serve`・`config`・`refresh`・
+  `dialogue depends`（プロジェクトを選ぶ・起動する・xipe_totec 自身のファイルを書く。`dialogue depends` は
+  サーバーに対話プログラムが無い間、`課題.md` §2）。`input_error` で「端末で xipe … として」と返す
+- **`help` は1行1コマンド**: `<コマンド>: <説明>  <引数>`。見出しも折り返しも無い。コマンド名に `:` を含めない
+  （tezcatl の辞書は最初の `:` の前を語にする）。CLI の `xipe help` と対話窓の `help` は同じ表から出す。
+  対話窓の一覧は窓で使えるものだけ（端末が要るコマンドは載せない）。`"eval"` 疑似 method は `eval` コマンドと
+  重なるので載せない。未実装の method も載せない。これまでの長い説明は `help <command>` で出す
+- **表は1か所**: CLI コマンドは `lib/help.exs`（名前・引数・一行の説明・長い説明・窓で使えるか）、method は
+  `Methods` に `args`/`summary` を足した。`help_test` が、実装済みの method に説明が無ければ落ちる
+- **返事は CLI と同じ行**: `dialogue.text` に CLI が出す行（`OutcomeText`・`Show`・`Help`。`main.exs` から
+  `lib/` へ移し、CLI もそこから出す）。コマンドなら `result.outcomes`（コマンドごとの `method`・`ok`・`result`・
+  `error`）。コマンドの失敗は返事全体の失敗にしない（CLI と同じく残りも走り、行に error が出る）。読めない行
+  だけ `error`（`input_error`）
+- **評価を待つ**: 1行のコマンドは1つずつ `Serve.Project` の普通の要求として流す。評価（`eval`・`eval/run`・
+  `row/update`）は評価回のキューに入り、その行は評価の終わりを待ってから次へ進む。`… -- eval … -- row/check`
+  が CLI と同じ意味になるため。待つのは別プロセスで、接続（tezcatl の窓どうしが共有する）はほかの要求に応える
+  - `Serve.Project.request_dialogue/5` の `watch:` で、評価回の終わりを `{:xipe_pass_done, pass_id, outcome}`
+    として受け取る。評価回をキューに入れるのと同じ呼び出しで登録するので、すぐ終わる評価でも取りこぼさない
+  - `$<n>.<path>` は `Runner.substitute_command/2`（`Runner.run/4` と同じ解決）
+- **対話**: 対話を保持している間は、次の行がその答え（コマンドに見える行も）。行 → 答えの params は
+  `Dialogue` の任意の callback `parse_answer/1`（無ければ `%{"text" => 行}`）。`Dialogue.Depends` の `y <値>`/`n`
+  の読み方を CLI から移し、CLI もこれを使う。1行の途中のコマンドが対話を始めたら、その行はそこで終わる
+- `input` は `Methods` に載せない（`initialize`・`subscribe` と同じく `Serve.Socket` が扱う）
+
+### 40.2 確かめたこと
+
+- テスト: `help_test`（5件）・`input_test`（8件）・`serve_input_test`（10件、即答の偽 Sender で評価の待ちと
+  `$` 参照、対話の保持と答え、`show`、端末が要るコマンド）・`dialogue_depends_test` に1件。
+  `./test/run.sh` 41ファイル・399件、0 failures
+- tezcatl の E2E（隔離したポートで本物の Xipe Totec の写し）: 新しい `test/e2e/xipe_input.mjs`（14項目）──
+  `help` の行、ヤンクして辞書へ `p`、`row/li` から `row/list` の補完、`show`、コマンド列、`eval` が評価を待って
+  `add(1,2) = 3` を出す、`choice project` を断る。既存の `xipe_skin`（偽・本物）・`xipe_rows`・`xipe_cards` も通る
+
+## 41. `eval_table` と検索（`xipe search`）、対話プログラムの一覧をサーバーへ（2026-09-27、`~/my_app/tezcatl`セッション）
+
+`next_step.md` §3「次の再開は `eval_table` を実現するところから」（crux、2026-09-26）と、決定済みの検索（§1.1）の実装。
+あわせて tezcatl の G8（サーバーに対話プログラムが無い）と §17.3（WebSocket 側の複数ターン対話）を片付けた。
+
+### 41.1 `eval_table`
+
+- 新しい保存先ではなく、`calls` に関数（`module`・`name`・`anykey`・`effect`・`visibility`）とファイル（`path`）を
+  横付けした読み取り用の見え方（`lib/eval_table.exs`、`EvalTable.rows/1`）。`課題.md` §1-5 の「`calls` と重なる
+  のでは」への答え。列名は Book のまま（`result`。`row/list` の `value` とは違う）。関数が消えた行は横付けの列が空
+- WebSocket へ出す method はまだ作っていない（tezcatl の表・カード一覧・ジャンプで要るときに足す）
+
+### 41.2 検索（`Dialogue.Search`）
+
+§1.1 の決定どおり。実装で補ったこと:
+
+- `-s|-e <列> <値> [<取り出す列>]` の取り出す列は省けば `id`（例の `-e module -` が3語のため）。`list` 形にも
+  取り出す列を書く（例の `-e path list id` のとおり）。`-` は空のセル。リストの列（`args`）は要素を `, ` で
+  つないだ文字列として比べる。取り出した値は重複を除いてリストにする（件数は当たった行の数）
+- `view` の表示する列を省くと全列。`view` の後は「検索を終了しますか？y/n」。それ以外の行が来たら問いは
+  取り下げて、その行を普通のターンとして読む
+- `x` の置き換えは、語・値（`id=x`）・リストの要素（`call_ids=[x]`）・参照（`⟦x⟧`）の位置だけ。語の一部
+  （`effect=...`、`n2`）は置き換えない。`get id` の前に `x` を使うと、そう言って実行しない
+- surface table は保存済みのものをそのまま読む（作り直さない・保存しない。無ければメモリ上で作る）。
+  検索は何も書かない
+- 一覧の表示は `N件ヒットしました。（<列>: [先頭10件]（ほか M 件））`
+
+### 41.3 対話プログラムの約束を広げた（`Dialogue`・`InOut`）
+
+- **読み取り用の文脈**: `start/2`・`answer/3` を実装した対話プログラムには、`InOut` が `ctx`（`book`・`root`・
+  `project_dir`）を渡す。これまでの `start/1`・`answer/2` もそのまま動く。Book を変えるのは、これまでどおり
+  コマンドだけ（「対話プログラムは Book に触らない」§19 は、書かない、という意味で守られる）
+- **`{:pass, state, line}`**: 「この行を普通のコマンドとして実行し、対話は保持したまま」。§1.1 の「検索以外の
+  コマンドも、対話を保持したまま通せる」の実体。実行するのは駆動側（CLI のプロンプト、`Serve.Input`）で、
+  `InOut` は `outcome.run = {:line, line}` として返すだけ
+- **`defer_commands: true`**: `:done` のコマンド（`dialogue depends` の `y <値>` の `row/set-result`＋`eval`）を
+  `InOut` の中で走らせず、`outcome.run = {:commands, …}` で返す。サーバーでは `Serve.Project` の中で評価すると
+  GenServer が評価の間止まるため、`Serve.Input` はこれを付けて、評価回のキューに流す。CLI は付けない（従来どおり）
+- **`dialogue/quit`**: どの対話も終える（`quit dialogue`、§1.1「対話一般の終了コマンド」）。行 → 要求は
+  `Dialogue.line_request/2`
+- **一覧は1か所**: `InOut.programs/0` = `dialogue/depends`・`dialogue/search`。CLI もサーバーもここから使う
+  （tezcatl G8）。`dialogue depends` は `call_id` だけで始められる（連鎖は `Depends.chain/2` が文脈の Book から
+  組み立てる。CLI は従来どおり `chain` を渡す）
+
+### 41.4 入口
+
+- CLI: `xipe search [<最初のターン>]`（`search>` のプロンプト。EOF でも終わる）。ターンのたびに Book の差分を保存
+- 対話窓: `search [<最初のターン>]`・`dialogue depends <call_id>`・`quit dialogue`（`Input`、`help` の表にも追加。
+  `dialogue depends` は窓で使えるコマンドになった）
+- 1行の途中のコマンドが対話を始めたら、その行はそこで終わる（§40 と同じ）。そのとき始まった対話が最初の
+  ターンで `:pass` を返しても、その行は実行しない（次の行で打つ）
+
+### 41.5 確かめたこと
+
+- テスト: `dialogue_search_test`（9件、`eval_table` の横付け・§1.1 の使いどころの例・`x`・`InOut` 経由の
+  開始／`:pass`／`quit dialogue`・`dialogue depends` の `call_id` 開始）、`serve_input_test` に2件（窓からの
+  検索の一連、窓からの `dialogue depends` の評価が評価回を通る）、`input_test` に1件。`./test/run.sh`
+  42ファイル・411件、0 failures
+- CLI（作業用の写し）: `xipe search -h` からのターン一式（`-s path … path` → `-e path list id` → `get id -2` →
+  `row/list call_ids=[x]` → `view` → `n` → `eval x` → `quit dialogue`）、結果が Book に残ること。
+  `xipe dialogue depends` が従来どおり動くこと
+- tezcatl E2E `xipe_input.mjs` に検索（`search -e name square` → `get id` → `eval x` = 9 → `quit dialogue`）を追加、
+  17項目すべて ok。既存のシナリオも ok
+
+## 42. OCaml の実装 ── 素の `ocaml` トップレベル＋`embody.ml`、テキストから読む Scanner（2026-09-27、`~/my_app/tezcatl`セッション）
+
+着手順を変えて OCaml を先にした（crux「実機確認もできているしね」、`next_step.md` §2.4）。§38 の設計（対象を知らない
+固定の `embody.ml` が、式のテキストをトップレベル自身の仕組みで評価し、表示を受け取る）を実装した。
+
+### 42.1 実機で確かめてから決めたこと（OCaml 5.5.0、`nix shell nixpkgs#ocaml`）
+
+- **トップレベル自身の `Toploop` だけを使う**: §38 の試作は `Location` なども使っていたが、素の `ocaml` には
+  コンパイラ部品の実装が入っておらず（`Reference to undefined compilation unit Location`）、`ocamlcommon.cma` を
+  読むと動くものの、それは**別の写し**で、型エラーがトップレベルの文言にならなかった（`Typecore.Error (_, _, _)`）。
+  `Toploop.use_input`（文字列を打ったのと同じに扱う）なら、エラーの報告もトップレベル自身が行う
+- **読み込みの安全化（scripts-mode）**: `Toploop.parse_use_file` で位置を得て、トップレベルの式と
+  `let ()`/`let _` を空白で塗りつぶした写しを `mod_use_input` で読む（改行は残すので行番号は元のまま）。
+  トップレベルの副作用は走らない（確認済み）。§38.2 の「`#mod_use` はトップレベルの `let () = …` を実行する」への対処
+- **依存の順**: アルファベット順で読み、失敗したファイルは他を読んだ後にもう一度（進まなくなるまで）。
+  `ocamldep` を使わずに済む
+- **時間の上限**: `Unix.setitimer` の SIGALRM で `Embody.Timeout` を上げる（無限ループが1秒で止まった）。
+  **メモリの上限は持たない**（固まればトップレベルごと落とす、`Evaluator` の既存の経路）
+- **SIGINT**: 評価中の句だけが止まり（`Interrupted.`）、トップレベルはその後も読む → `interruptible: true`
+- **repr**: 表示（`val xt_<id> : <型> = <値>`）の値をもう一度評価して `=` で等しければ `exact`、それ以外は
+  `unsupported`。普通のレコード・ヴァリアント・option・リストは `exact`。**インラインレコード**
+  （`Rect of { w; h }`）の表示 `Target.Rect {Target.w = 1; …}` は OCaml のソースとして読めない
+  （`Unbound record field Target.w`）ので `unsupported`。`binary` は作っていない（`Marshal` で作れる見込み）
+- **compare**: 前回の値（`exact` のときだけ）を評価して `=` で比べる。浮動小数点の許容誤差は無い
+- 出力: 時間切れは `XT_ERROR_<id> timeout`、例外は `crash Exception: Failure "hd".`、型エラー・構文エラーは
+  トップレベルの文言（位置と `^^^` 付き、改行は `\n`）
+
+### 42.2 部品
+
+| 部品 | ファイル | 中身 |
+|---|---|---|
+| `embody` | `lib/repl/ocaml/embody.ml`（2026-09-27 に `~/my_app/embody/` へ移した、§44） | `Embody.run id var timeout text prev`（評価・型・repr・compare・マーカー）、`Embody.load_all dir files` |
+| 言語の申告 | `lib/repl/language/ocaml.exs` | 拡張子 `ml`、REPL `ocaml`、ビルドツール `dune`（`dune-project`、判定だけ）、`launch_opts/3` は一時ディレクトリに初期化ファイルを書く |
+| launch | `lib/repl/ocaml/launch.exs` | `ocaml -init <初期化ファイル>`、バナー無し・`ready_probe`・`#quit;;`・interruptible。`message["files"]` は使わない（`Sender.Direct` はそれを iex の `-r` にするため） |
+| eval_template | `lib/repl/ocaml/eval_template.exs` | 1行につき `Embody.run "<id>" "xt_<id>" <ms> "<let xt_<id> = M.f (a) (b);;>" <prev>;;`。呼び出しは文字列で渡るので、引数が閉じていなくてもトップレベルが続きを待つ状態にならない |
+| Eval.Scan / FieldDrip | `lib/repl/eval/scan/direct/ocaml.exs`・`lib/repl/eval/field_drip/ocaml.exs` | iex と同じ（`XT_EXIT` の除去、`key=value` の本文）。委譲 |
+| Scanner | `lib/scanner/ocaml.exs` | テキストから: 行頭の `let`/`let rec`/`and`（`type` の `and` は除く）、コメント・文字列・文字リテラルは塗りつぶす、ファイル名がモジュール名、`anykey` は `nil`、同名は後ろのもの、すべて `public`。呼び出し関係は `Mod.name` と同じファイルの名前の出現からの推定（自分自身は除く） |
+
+- `info.json` に登録した（`xipe refresh -a`）
+- テスト: `test/ocaml_adapter_test.exs`（11件、OCaml 不要）、`test/live/repl_ocaml_test.exs`（5件、`ocaml` が
+  PATH に無ければ除外）、fixture `test/fixtures/ocaml_sample/`（`area.ml` が `geometry.ml` を使う、`geometry.ml` に
+  トップレベルの副作用）
+- 既存のテストへの影響: `runner_test` の評価のテストは `.`（xipe_totec 自身）をプロジェクトとして評価しており、
+  OCaml の fixture が入ったことで言語が2つになり、ファイルを持たないテスト用の行の言語が決まらなくなった。
+  `language: "elixir"` を明示した。`info_test` は登録される言語・REPL の一覧を更新
+- `./test/run.sh` 43ファイル・422件、`test/live` の iex 12件・ocaml 5件、すべて通過。CLI（作業用の写し）で
+  scan → row/add → eval を2回（compare が same）確認
+
+### 42.3 残り
+
+- ~~dune のプロジェクト~~ → §43
+- ~~ocamllsp の dialect~~ → 見送り（§42.4）
+- 同じ名前のファイルが別のディレクトリに2つある構成（モジュール名と写しの置き場所が衝突する）
+- `binary` の repr、`compare` の浮動小数点の許容誤差、1件ごとのメモリの上限
+- 言語をまたぐ参照の変換（`next_step.md` §2.6）。`type` 列には OCaml の型がそのまま入るので、変換の割り当ての鍵に使える
+
+### 42.4 ocamllsp は使わない（crux、2026-09-27）
+
+dialect（`Scanner.Lsp.Ocaml`）を作る前に、ocaml-lsp-server 1.27.0（OCaml 5.5.0）を実機で確かめた:
+
+| 機能 | 結果 |
+|---|---|
+| `documentSymbol` | 使える。トップレベルの値は kind 13、入れ子のモジュールは kind 2 の入れ物。`let ()`・トップレベルの式・型は値として出ない |
+| `callHierarchy` | **非対応**（能力に `callHierarchyProvider` が無く、要求すると `Request not supported yet!`）。`Scanner.Lsp` は呼び出し関係をこれで取るので、そのままでは OCaml の link が1本も付かない |
+| `references` | 同じファイルの中は取れる。ファイルをまたぐ参照は dune でビルドしても取れず、索引（`dune build @ocaml-index`）が要る。それを作る `ocaml-index` は nixpkgs に無い（merlin 5.8 にも同梱されていない、opam では入る） |
+
+**決定（crux）**: 「要はファイル中に記述された関数同士の依存関係さえ分かれば良い」。それはテキストで読む
+`Scanner.Ocaml` が満たしている（同じファイルの名前の出現と `Mod.name`）ので、ocamllsp の dialect は作らない。
+入れ子のモジュールの中の定義はカードにならないままで、要るようになったら `Scanner.Ocaml` 側で読む。
+
+## 43. OCaml の dune 対応 ── 依存は `dune ocaml top` から、自分のコードはソースから、ライブラリ名は別名で（2026-09-27、`~/my_app/tezcatl`セッション）
+
+dune はビルドツールの項目（next_step §2.3: REPL は素の `ocaml` のまま、ビルドツールは起動の仕方だけを変える）。
+`Repl.Language.Ocaml.launch_opts/3` の build_tool が `dune` のとき、初期化ファイルに2つを足す。
+
+### 43.1 実機で確かめたこと（OCaml 5.5.0、dune 3.23.1）
+
+- `dune ocaml top` は（プロジェクトをビルドしてから）`#directory`/`#load` を出す。依存するライブラリ（`str`、
+  `OCAMLPATH` で見える外部パッケージ `yojson` 3.0.0）の行と、**プロジェクト自身のライブラリ**（`_build/…/mylib.cma`）の
+  行が混ざる。自身の `.cma` を読むと、そのトップレベルの副作用（`let () = print_endline …`）が走る
+- そこで、プロジェクトの根の下を指す行を除いた依存だけを読み、自身のコードはこれまでどおりソースから副作用なしで
+  読む（`Embody.dune_deps`）。`dune ocaml top` は `embody` がトップレベルの中から実行する（`Unix.open_process_in`）
+  ので、対象の環境（flake の dune・`OCAMLPATH`）で動く
+- dune のライブラリは既定で包まれる（外からは `Mylib.Words`）。ソースから読んだモジュールは `Words` なので、
+  `module Mylib = struct module Words = Words module Stats = Stats end` を定義する。定義は読み込みの再試行の
+  合間に、メンバーがそろったものから（`Embody.load_all ~aliases`）。`bin/main.ml`（`Mylib.Words.count` を使う）は
+  1回目に失敗し、別名の後で読めた
+- 外部パッケージを使う関数（`Yojson.Safe.to_string`）も評価でき、多相ヴァリアントの型・値も取れた
+
+### 43.2 決めたこと
+
+- 別名は `dune` ファイルの `(library (name X))` とそのディレクトリのファイルから Elixir 側で作る
+  （`Repl.Language.Ocaml.dune_aliases/2`）。作らないもの: `(wrapped false)`、ライブラリ自身の `x.ml` がある
+  （それが入口のモジュール）、1つの `dune` ファイルに複数のライブラリ（`(modules …)` の振り分けを読まない）
+- カード（スキャン）のモジュール名はファイル名のまま（`Words`）。`Mylib.Words.count` と書かれた呼び出しは、
+  `Words.count` の部分で解決される
+- `dune ocaml top` が失敗（ビルドエラーなど）しても、自身のソースの読み込みは続ける（`XT_LOAD_FAILED` を出す）
+- **対象プロジェクトに `_build/` ができる**（dune のビルド）。elixir-ls の `.elixir_ls/` と同じく、
+  「対象には何も書かない」原則からのずれとして記録する
+
+### 43.3 確かめたこと・残り
+
+- テスト: `ocaml_adapter_test` に4件（別名、作らない3つの場合、初期化ファイル、`launch_opts` の dune）、
+  `test/live/repl_ocaml_test.exs` に dune の1件（fixture を一時ディレクトリへ写して動かす。`dune` が無ければ除外）。
+  fixture `test/fixtures/ocaml_dune/`（`lib/` が `str` を使う包まれたライブラリ、`bin/main.ml` が `Mylib.Words` を使う）。
+  `./test/run.sh` 43ファイル・426件、live の ocaml 6件、すべて通過。CLI（作業用の写し）で `table generate` が
+  `build_tool=dune` と判定し、評価と link（`greet → count` など）が付くこと
+- 同じ回に、`serve_input_test` の後始末の競合（サーバーがテストのプロセスと一緒に止まる間の `GenServer.stop`）を直した
+- 残り: ppx を使うファイル（ソースをそのまま読むので前処理されない）、同名のファイル、複数ライブラリの `dune` ファイル
+
+## 44. embody を別リポジトリへ（`~/my_app/embody/`）と、Haskell の準備（2026-09-27、`~/my_app/tezcatl`セッション）
+
+crux の方針: `embody.ml`・`embody.hs` は公開にあたり別リポジトリにする。Haskell に入る前の準備として:
+
+- `~/my_app/embody/` を作った（flake などのビルド設定は持たない）。中身は共用の説明 `ReadMe.md`（embody とは何か、
+  全言語共通の出力の約束、言語ごとの読み込み方と状態）、`embody.ml`（xipe_totec の `lib/repl/ocaml/` から移した。
+  冒頭のコメントを独立したリポジトリ向けに書き直した）、`embody.hs`（スタブ。§30.3 の `observe`・`cut` の型だけ。
+  `observe` は「未実装」の `XT_ERROR_<id> crash` 行を返す。`ghc -Wall -fno-code` で警告なし）
+- xipe_totec は `Repl.Ocaml.Launch.embody_path/0` で探す: `$XIPE_TOTEC_EMBODY_DIR`、無ければ xipe_totec の隣の
+  `embody/`。見つからないときは初期化ファイルの `#mod_use` が失敗し、各行が `Unbound module Embody` の crash になる。
+  作業用の写しで OCaml を評価するときは環境変数を渡す（CLAUDE.md）
+- `~/my_app/nix/dev-tools.nix` に Haskell（`ghc`・`cabal-install`・`stack`・`haskell-language-server`）を足した。
+  式の評価で確認（手元の nixpkgs で ghc 9.10.3・HLS 2.13.0.0）。なお `~/my_app/flake.nix` の入力 `path:./UniMath` の
+  ディレクトリは今は無い（以前から。今回の変更とは無関係）
+- テスト: `ocaml_adapter_test` に embody の置き場所の1件（環境変数を書き換えるので、このファイルは並行実行をやめた）。
+  OCaml の単体 16件・実機 6件（移した `embody.ml` で）通過
+
+## 45. GHCi の裏取り（2026-09-27、`~/my_app/tezcatl`セッション、GHC 9.10.3、実装なし）
+
+next_step §2.4 の Haskell の最初の一歩。§30.3・§30.5 の設計のうち、GHCi で成り立つ形を確かめた。試作の `Embody`
+（run・whnf・exact・shown・typed・limited）で、次の送り方が全ケースでマーカーを返した。
+
+### 45.1 1件の送り方（`-fdefer-type-errors` の効く範囲に合わせる）
+
+```haskell
+let xt_<id> = <呼び出し>                      -- 呼び出しの型エラーは、ここで実行時まで遅れる
+let xt_<id>_w = Embody.whnf xt_<id>           -- 呼び出しが走ったか（WHNF まで）
+let xt_<id>_x = Embody.exact <前回> xt_<id>    -- Read・Show・Eq が無ければ、この束縛が実行時の TypeError になる
+let xt_<id>_s = Embody.shown xt_<id>          -- Show が無ければ同上
+let xt_<id>_t = Embody.typed xt_<id>          -- Typeable（全型にある）
+Embody.run "<id>" <上限 µs> xt_<id>_w xt_<id>_x xt_<id>_s xt_<id>_t
+```
+
+- **`-fdefer-type-errors` は `let` の束縛にだけ効き、プロンプトで直接実行する式には効かない**（§30.5-1 の答え）。
+  `Show` の無い値を実行の行に直接書くと、その行ごとコンパイルエラーになり、マーカーが出ずに締切まで待つことになる。
+  そのため振り分けに使う式をすべて `let` で束縛し、実行の行は必ず存在する名前だけを参照する
+- `run` は値を `evaluate` して、`whnf` → `exact`（TypeError なら次へ）→ `shown`（同）→ 型の順に試す。
+  TypeError 以外の例外は `crash`。`timeout` の例外を `try` が捕まえないよう、`try` を `timeout` の外に置く
+- 起動フラグ: `-v0 -fdefer-type-errors -Wno-deferred-type-errors -Wno-deferred-out-of-scope-variables`。
+  読み込み後に `:module + *M ...`（export されていない関数も `M.f` で呼べる）
+
+### 45.2 確かめたこと
+
+| 項目 | 結果 |
+|---|---|
+| 起動 | `-v0` でバナー・プロンプト無し。`putStrLn ("XT_" ++ "READY")` は `hFlush` なしで pipe 越しにすぐ届く。小さな対象で約0.13秒 |
+| 読み込み | ファイルをパスで渡す（`embody.hs` は小文字のまま読める）。`-isrc` で階層のあるモジュール。`main` は走らない |
+| `exact` | `Int`・`[Shape]`（レコード構文を含む）・`Map`（`fromList [...]`）が読み戻せた。前回値と比べて `same`/`changed` |
+| `unsupported` | 無限リスト（`show` を2000文字で切る。`Read` があっても切った長さを超えたら `exact` にしない）、関数（表示は型 `Int -> Int`）、`Show` の無い型（`Opaque`）、`IO` の値（`IO [Char]`、実行しない） |
+| 失敗 | 例外（`head []`）→ `crash`（CallStack 付き）。呼び出しの型エラー（`add 1.5 2`）→ `crash`（GHC の文言）。構文エラー → `crash … Variable not in scope: xt_<id>`（本来の文言はマーカーの外） |
+| 時間の上限 | `timeout` が解釈実行のループを止めた（割り当ての無い `go (k - 1 + 1)` も）。§30.4 の「密なループは割り込めない」は、コンパイル済みのコードの話で、解釈実行では起きなかった |
+| 割り当ての上限 | `setAllocationCounter`＋`enableAllocationLimit` で `allocation limit exceeded`。生きているメモリではなく割り当ての総量 |
+| SIGINT | 評価だけが止まり（`Interrupted.`）、GHCi は読み続ける → `interruptible: true` |
+
+### 45.3 残り
+
+- `IO` を返す関数の実行（`observeIO`）、`compare` の浮動小数点の許容誤差、割り当ての上限を使うかどうか
+- stack・cabal 経由の起動（`stack ghci`・`cabal repl` の中で `embody.hs` を足す方法。ビルドツールの項目）
+- 型の既定化（`ExtendedDefaultRules`）で引数の型が変わるか、構文エラーの文言をマーカーに入れる方法
+- HLS の dialect を使うか（OCaml と同じく、ファイルの中の関数どうしの依存が分かればよい、という判断が当てはまるか）
+
+## 46. Haskell の実装 ── GHCi＋`embody.hs`（1件6行）、テキストから読む Scanner（2026-09-27、`~/my_app/tezcatl`セッション）
+
+§45 の裏取りの形を実装した。`embody.hs` は別リポジトリ（§44、git@github.com:Crux-xurC/embody.git に初版を push）。
+
+### 46.1 部品
+
+| 部品 | ファイル | 中身 |
+|---|---|---|
+| `embody.hs` | `~/my_app/embody/embody.hs` | `run`（whnf → exact → shown → 型の順、1回の書き込み）・`whnf`・`exact`・`shown`・`typed`・`cut`。`base` のみ。最初の段の TypeError は呼び出しそのものの型エラー・構文エラーなので、文言付きの `crash`。`try` は `timeout` の外 |
+| 言語の申告 | `lib/repl/language/haskell.exs` | 拡張子 `hs`、REPL `ghci`、ビルドツール `stack`（`stack.yaml`）>`cabal`（`*.cabal`・`cabal.project`、判定のみ）。`launch_opts/3` は各ファイルの `module` 行からモジュール名と探索パス（`src/Geo/Shape.hs` → `src`）を決め、`:load`＋`:module + *M …` の GHCi スクリプトを一時ディレクトリに書く。`Main` が2つ以上なら `Main` を読まない |
+| launch | `lib/repl/haskell/launch.exs` | `ghci -v0 -w -fdefer-type-errors -Wno-deferred-type-errors -Wno-deferred-out-of-scope-variables -i<dirs> -ghci-script <script>`、バナー無し・`ready_probe`・`:quit`・interruptible |
+| eval_template | `lib/repl/haskell/eval_template.exs` | `let` の5行＋`Embody.run` の1行（§45.1）。引数の中の改行は空白にする（`let` の行が途中で終わらないように） |
+| Eval.Scan / FieldDrip | `lib/repl/eval/scan/direct/ghci.exs`・`lib/repl/eval/field_drip/haskell.exs` | iex のものに委譲 |
+| 共通 | `lib/repl/embody.exs` | embody の置き場所（`$XIPE_TOTEC_EMBODY_DIR`、無ければ xipe_totec の隣の `embody/`）。OCaml の launch もこれを使う |
+| Scanner | `lib/scanner/haskell.exs` | テキストから。モジュールは `module` 行（無ければ `Main`）。行頭の小文字の名前で始まり `=` かガードを持つブロックが定義（型シグネチャ・キーワード・中置の定義・パターン束縛は除く、複数の節は1つ）。コメント（`--`（演算子の一部は除く）・入れ子の `{- -}`）・文字列・文字リテラル（名前の `'` は残す）は塗りつぶす。呼び出し関係は `M.f`（別名を解決）、同じモジュールの名前、修飾なしの import のモジュールの名前（自分自身は除く） |
+
+### 46.2 確かめたこと
+
+- テスト: `test/haskell_adapter_test.exs`（12件、GHC 不要）、`test/live/repl_haskell_test.exs`（5件、`ghci` が PATH に
+  無ければ除外）、fixture `test/fixtures/haskell_sample/`（export リストで `hidden` を隠す `Target.hs`、`Target` を
+  import する `src/Geo/Shape.hs`、`main` を持つ `app/Main.hs`）
+- 既存のテストへの影響: `runner_test` の「登録されていない言語」の例が Haskell だったので Clojure に替えた。`info_test` は
+  登録される言語・REPL の一覧を更新
+- `./test/run.sh` 44ファイル・439件、live の iex 12件・ocaml 6件・ghci 5件、すべて通過。CLI（作業用の写し）で
+  scan（16ノード・5リンク）→ row/add → eval（`exact`・`unsupported`・`timeout`・`crash`、`Main.greet`・
+  export されていない `Target.hidden`）→ 2回目の eval で `exact` の7行が `compare=same`
+
+### 46.3 残り
+
+- ~~stack・cabal~~ → §47
+- `IO` を返す関数の実行（`observeIO`）、構文エラーの文言をマーカーに入れる方法、浮動小数点の比較の許容誤差
+- HLS は使わない方向（OCaml と同じく、ファイルの中の関数どうしの依存はテキストで取れる）。決めるのは crux
+
+## 47. Haskell の cabal・stack 対応 ── GHCi を `cabal exec`・`stack exec` の下で起動する（2026-09-27、`~/my_app/tezcatl`セッション）
+
+ビルドツールの項目（dune と同じ位置づけ、crux「これも薄く、GHCi に繋げるまでのパッチ」）。変えたのは
+`Repl.Language.Haskell.launch_opts/3` が返す GHCi の起動の仕方（`:argv`）だけで、読み込み・送り方・embody は変えていない。
+
+### 47.1 実機で確かめてから決めたこと（GHC 9.10.3・cabal-install 3.16.1.0・stack 3.9.3、依存は nix の `ghcWithPackages`）
+
+| 案 | 結果 |
+|---|---|
+| A. `cabal repl` に起動を任せ、`:add embody.hs`・`:module + *M` を足す | 1つのコンポーネントなら動く（オフライン、`split` への依存も解決）。ライブラリと実行ファイルを一度に読む `--enable-multi-repl` では `:add`・`:module` が使えない（`Command is not supported (yet) in multi-mode`）ので embody を足せない |
+| **B. 今の `ghci` の起動の前に `cabal exec --`・`stack exec --` を付ける**（採用） | 依存パッケージの見える環境だけを借り、読み込みは xipe のまま。ライブラリ・実行ファイルを一度に読める。依存の見えない素の `ghci` では同じ読み込みが失敗することも確認 |
+
+- **`cabal exec` は、プロジェクトが一度もビルドされていないと起動しない**（ストアのパッケージデータベース
+  `store/ghc-…/package.db` が無い、と GHC が止まる）。`--only-dependencies` のビルドでは、依存がすべて nix にあると
+  何も作られない。プロジェクトのビルド（`cabal build all`）で作られる。そこで dune（`dune ocaml top` が毎回ビルドする）に
+  合わせ、起動のたびに `cabal build --offline all` を走らせてから `cabal exec` する。出力は捨て、失敗しても GHCi の起動は
+  続ける（ソースは GHCi が読むので、ビルドの成否には依存しない）。`sh -c '…; exec "$@"'` の形にして、GHCi のフラグは
+  引数としてそのまま渡す
+- `--offline`: 評価のたびに Hackage へ取りに行かない（§16.1 の「外部ネットワークには接続しない」）。依存はあらかじめ
+  使える状態であること（nix・事前のビルド）
+- `stack exec --` はビルドしなくても動いた（`resolver: ghc-9.10.3`・`system-ghc: true` の構成で、ネット無し）。stack には
+  `--offline` に当たる大域の指定が無く、スナップショットの取得が要る構成ではネットに出る可能性がある
+- 対象に `dist-newstyle/`（cabal）・`.stack-work/`（stack）ができる（`_build/`・`.elixir_ls/` と同じく原則からのずれ）
+
+### 47.2 確かめたこと
+
+- テスト: `haskell_adapter_test` に1件（ビルドツールごとの起動）。`test/live/repl_haskell_test.exs` に cabal（一度も
+  ビルドしていない写しで、ライブラリの `Target.table` と実行ファイルの `Main.greet`）・stack の各1件（`cabal`・`stack` が
+  PATH に無ければ除外。`CABAL_DIR`・`STACK_ROOT` は一時ディレクトリ）
+- `./test/run.sh` 44ファイル・440件、live の ghci 7件、すべて通過。CLI（作業用の写し）で `table generate` が
+  `build_tool=cabal` と判定し、ビルドから評価まで通ること

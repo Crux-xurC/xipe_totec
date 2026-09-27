@@ -23,11 +23,14 @@ Code.require_file("lib/session.exs", __DIR__)
 Code.require_file("lib/git_ctx.exs", __DIR__)
 Code.require_file("lib/project_config.exs", __DIR__)
 Code.require_file("lib/project_env.exs", __DIR__)
+Code.require_file("lib/help.exs", __DIR__)
+Code.require_file("lib/outcome_text.exs", __DIR__)
+Code.require_file("lib/show.exs", __DIR__)
 
 defmodule XipeTotec.CLI do
   @moduledoc false
 
-  alias XipeTotec.{Book, CommandLine, Core, Dispatch, GitCtx, Info, InOut, Methods, ProjectConfig, ProjectEnv, Runner, Session, Store, Workspace}
+  alias XipeTotec.{Book, CommandLine, Core, GitCtx, Help, Info, InOut, Methods, OutcomeText, ProjectConfig, ProjectEnv, Runner, Session, Show, Store, Workspace}
   alias XipeTotec.Serve.Project, as: ServeProject
 
   @default_serve_port 4200
@@ -37,7 +40,8 @@ defmodule XipeTotec.CLI do
     case args do
       [] -> help()
       ["help"] -> help()
-      ["version"] -> IO.puts("xipe 0.1.0-dev")
+      ["help" | name] -> help(Enum.join(name, " "))
+      ["version"] -> IO.puts(Help.version())
       ["choice", "project", path] -> choice_project(path)
       ["table", "generate" | rest] -> table_generate(rest)
       ["scan", dir] -> scan(dir)
@@ -50,90 +54,22 @@ defmodule XipeTotec.CLI do
       ["eval" | rest] -> eval(rest)
       ["do" | rest] -> do_cmd(rest)
       ["dialogue", "depends" | rest] -> dialogue_depends(rest)
+      ["search" | rest] -> search(rest)
       ["refresh" | rest] -> refresh(rest)
       ["config" | rest] -> config(rest)
       [cmd | _] -> unknown(cmd)
     end
   end
 
-  defp help do
-    IO.puts("""
-    xipe -- Xipe Totec CLI (scaffold; most of §15 is not implemented yet)
+  # one line per command (XipeTotec.Help, shared with the dialogue
+  # window's `help`); `xipe help <command>` for the longer text
+  defp help, do: IO.write(Help.text(:cli))
 
-    Every command below that takes an optional <dir> acts on the selected project
-    (`xipe choice project`) when <dir> is omitted; a given <dir> must already be
-    registered. Each project's book lives in tables/project/<id>_<name>/book.jsonl.
-
-      xipe choice project <path>
-                                register <path> if new (generating its surface table) and make
-                                it the selected project (info.json's "project")
-      xipe table generate [<path>]
-                                regenerate <path>'s surface table (registering it if new) and save
-                                it to tables/project/<id>_<name>/table -- each language's build tool
-                                is detected here -- and resolve its environment again (flake.nix)
-      xipe scan [<dir>]        scan the project's .ex/.exs files and update its book
-      xipe show [<dir>]        print the project's sheets, nodes, links and calc rows (with values)
-      xipe start [<dir>] [--port N] [--lsp <url>] [--fs-root <dir>]
-                                run the §16.1 WebSocket (localhost) server over the project's book
-                                (default port #{@default_serve_port}, or $XIPE_TOTEC_PORT) and record it
-                                as the running session (tables/session.json): while it runs, every
-                                other command without a <dir> acts on its project instead of the
-                                selected one. An unregistered <dir> is registered (the selection is
-                                left alone). --lsp is tezcatl's /lsp relay URL and --fs-root the
-                                directory tezcatl's paths are relative to; both are optional
-                                ($XIPE_TOTEC_LSP_RELAY / $XIPE_TOTEC_LSP_FS_ROOT, else derived from
-                                the TEZCATL_RELAY_PORT / TEZCATL_FS_ROOT a tezcatl-spawned xipe
-                                inherits). tezcatl starts it without a <dir> -- on the selected
-                                project -- passing --port, --lsp and --fs-root
-      xipe serve ...           same as xipe start (spec §15's name)
-      xipe eval [<dir>] [id...] [--mix] [--include-writes]
-                                launch <dir>'s REPL and (re)evaluate the given calc-row ids
-                                (default: every call in the book); persists results back
-                                and prints an outcome line per call. --mix launches via `iex -S
-                                mix` instead of the default scripts-mode (`iex`, loading every
-                                scanned .ex/.exs file via -r). --include-writes also
-                                schedules writes/unknown-effect rows (still requires each one's
-                                node to have an explicit `effect/set` first)
-      xipe do [--dir <dir>] <method> [key=value...] [-- <method> [key=value...]]...
-                                run one or more methods (XipeTotec.Methods: row/add, effect/set,
-                                node/resolve, row/list, row/check, cell/resolve, row/depends,
-                                scan/run, ...) or the "eval" pseudo-method (params
-                                include_writes=true opts in writes/unknown-effect rows), chained
-                                in one command list -- see XipeTotec.Runner's moduledoc. A later
-                                command can reference an earlier one's result with
-                                "$<index>.<path>" (a number indexes a list), or as a cell
-                                reference with "⟦$<index>.<path>⟧", e.g.:
-                                  xipe do node/resolve module=Calc name=add arity=2 \\
-                                       -- effect/set 'id=$0.id' effect=pure \\
-                                       -- row/add 'node=$0.id' args=1,2 \\
-                                       -- eval 'call_ids=[$2.id]' \\
-                                       -- row/check on=error,changed
-                                row/check fails (exit 1) when a row is in one of its `on`
-                                states: error (default), changed, unevaluated
-                                Values: [..] is always a list ([] empty, [10] one element,
-                                [1,2] two); any other value containing a comma is a list too
-                                (args=1,2); everything else stays a plain string
-      xipe dialogue depends [<dir>] <call_id>
-                                §16.4 interactive dependency-chain negotiation: walks <call_id>'s
-                                upstream ⟦id⟧ chain deepest-first, asking at each step whether to
-                                hand-supply that step's value (skipping real evaluation for it and
-                                everything deeper) and run everything from there up through
-                                <call_id> for real. At a prompt, answer "y <literal>" (target-
-                                language source text) or "n"; declining every step does nothing.
-      xipe config [<dir>] [key=value...]
-                                show or set the project's own settings (its project.json):
-                                env.path=prepend|replace (how the environment a flake.nix gives,
-                                resolved with nix print-dev-env, meets xipe's own PATH) and
-                                env.refresh=auto|manual (a changed flake is resolved again on the
-                                next scan/eval, or only on `xipe table generate`)
-      xipe refresh -l|-r|-a     re-scan xipe_totec's own adapter modules and update ./info.json:
-                                -l (--languages) lib/repl/language/*.exs (names + extensions), -r (--repls)
-                                lib/repl/eval/scan/<transport>/*.exs, -a (--all) both. A file being
-                                present is not proof it works (§24) -- this only records what's
-                                there, run it after adding/removing an adapter module yourself.
-      xipe version              show version
-      xipe help                 show this message
-    """)
+  defp help(name) do
+    case Help.detail(name, :cli) do
+      {:ok, text} -> IO.write(text)
+      :error -> usage_error("xipe help: no command #{inspect(name)} (xipe help for the list)")
+    end
   end
 
   defp choice_project(path) do
@@ -151,11 +87,11 @@ defmodule XipeTotec.CLI do
     print_env_status("xipe", status, true)
   end
 
-  defp print_env_status(prefix, %{"state" => state} = status, verbose) do
-    cond do
-      state in ["stale", "error"] -> IO.puts(:stderr, "#{prefix}: env #{state} (#{status["source"]}): #{status["message"]}")
-      verbose and state != "none" -> IO.puts("#{prefix}: env #{state} (#{status["source"]})")
-      true -> :ok
+  defp print_env_status(prefix, status, verbose), do: print_lines(OutcomeText.env_lines(prefix, status, verbose))
+
+  defp print_lines(lines) do
+    for {stream, line} <- lines do
+      if stream == :err, do: IO.puts(:stderr, line), else: IO.puts(line)
     end
   end
 
@@ -214,33 +150,7 @@ defmodule XipeTotec.CLI do
 
   defp show(dir) do
     project = project!(dir)
-    book = Store.load(project.store_file)
-    IO.puts("project #{project.id}  #{project.path}")
-
-    for {id, row} <- book.sheets do
-      IO.puts("sheet #{id}  #{row.path}")
-    end
-
-    for {id, row} <- book.nodes do
-      IO.puts("node  #{id}  #{Core.node_label(row)}  effect=#{row.effect}")
-    end
-
-    for {_id, row} <- book.links do
-      IO.puts("link  #{row.node} --#{row.role}--> #{row.ref}")
-    end
-
-    # the calc rows, through the same row/list a client uses
-    {:ok, _book, %{"rows" => rows}} = Dispatch.handle(book, "row/list", %{})
-
-    for r <- rows do
-      value = if r["eval_count"] == 0, do: "-", else: r["value"] || "-"
-      state = if r["state"] == "ok", do: "", else: "  state=#{r["state"]}"
-      IO.puts("row   #{r["id"]}  #{r["label"] || "(node gone)"}  args=#{inspect(r["args"])}  #{value}  compare=#{r["compare"]}#{state}")
-    end
-
-    if book == Book.new() do
-      IO.puts("(empty -- run `xipe scan` first)")
-    end
+    Enum.each(Show.lines(project.id, project.path, Store.load(project.store_file)), &IO.puts/1)
   end
 
   # The project a command acts on (XipeTotec.Workspace.resolve/2): the
@@ -418,19 +328,11 @@ defmodule XipeTotec.CLI do
         |> Core.upstream_chain([call_id])
         |> Enum.map(fn id -> %{"id" => id, "label" => Core.call_label(old_book, id) || id} end)
 
-      programs = %{"dialogue/depends" => XipeTotec.Dialogue.Depends}
+      programs = InOut.programs()
       first = %{"method" => "dialogue/depends", "params" => %{"chain" => chain}}
 
-      # "y <literal>" -> %{"answer"=>"y","value"=>"<literal>"} (value may
-      # itself contain spaces, e.g. "y %{a: 1, b: 2}"); anything else is
-      # passed through verbatim as "answer" and left for
-      # Dialogue.Depends.answer/2's own catch-all (re-asks) to handle.
-      next_answer = fn ->
-        case (IO.gets("> ") || "") |> String.trim() |> String.split(" ", parts: 2) do
-          ["y", value] -> %{"answer" => "y", "value" => value}
-          [other] -> %{"answer" => other}
-        end
-      end
+      # the same "y <literal>" / "n" reading the dialogue window's input gets
+      next_answer = fn -> XipeTotec.Dialogue.answer_params(XipeTotec.Dialogue.Depends, IO.gets("> ") || "") end
 
       {new_book, outcome} =
         InOut.run_to_completion(old_book, dir, first, [ctx: GitCtx.read(dir), project_dir: project.dir], programs, next_answer, &IO.puts/1)
@@ -445,6 +347,70 @@ defmodule XipeTotec.CLI do
       unless outcome.ok?, do: System.halt(1)
     end
   end
+
+  # `xipe search [<turn>]` (next_step §1.1, Dialogue.Search): a prompt
+  # holding the search's list and `x` for as long as it runs -- one process,
+  # since a shell's separate `xipe search ...` calls couldn't share them.
+  # A turn the search passes on (an ordinary command line, InOut's `:run`)
+  # runs here as `xipe do` would; the book is saved after every turn.
+  defp search(args) do
+    project = project!(nil)
+    opts = [ctx: GitCtx.read(project.path), project_dir: project.dir]
+    first = %{"method" => "dialogue/search", "params" => %{"line" => Enum.map_join(args, " ", &shell_word/1)}}
+    book = Store.load(project.store_file)
+    {dialogue, new_book, outcome} = InOut.handle(nil, book, project.path, first, opts, InOut.programs())
+    dialogue_loop(project, opts, dialogue, book, new_book, outcome)
+  end
+
+  defp dialogue_loop(project, opts, dialogue, old_book, book, outcome) do
+    if outcome.text, do: IO.puts(outcome.text)
+    unless outcome.ok?, do: IO.puts(:stderr, "#{outcome.error["code"]}: #{outcome.error["message"]}")
+    if match?(%{"outcomes" => _}, outcome.result), do: print_outcomes(outcome.result["outcomes"])
+
+    book =
+      case Map.get(outcome, :run) do
+        {:line, line} -> run_line(project, opts, book, line)
+        {:commands, commands} -> run_list(project, opts, book, commands)
+        nil -> book
+      end
+
+    Store.persist_diff(project.store_file, old_book, book, @all_tables)
+
+    with {mod, _state} <- dialogue,
+         line when is_binary(line) <- IO.gets("search> ") do
+      request = XipeTotec.Dialogue.line_request(mod, String.trim(line))
+      {dialogue, new_book, outcome} = InOut.handle(dialogue, book, project.path, request, opts, InOut.programs())
+      dialogue_loop(project, opts, dialogue, book, new_book, outcome)
+    else
+      _ -> :ok
+    end
+  end
+
+  # a line a dialogue passed on, read as the dialogue window reads one
+  defp run_line(project, opts, book, line) do
+    case XipeTotec.Input.parse(line) do
+      {:commands, commands} ->
+        run_list(project, opts, book, commands)
+
+      printed ->
+        case printed do
+          :show -> Enum.each(Show.lines(project.id, project.path, book), &IO.puts/1)
+          {:text, text} -> IO.write(text)
+          {:error, message} -> IO.puts(:stderr, message)
+        end
+
+        book
+    end
+  end
+
+  defp run_list(project, opts, book, commands) do
+    unless Enum.all?(commands, &Methods.read_only?(&1["method"])), do: warn_if_session_project(project)
+    {book, outcomes} = Runner.run(book, project.path, commands, opts)
+    print_outcomes(outcomes)
+    book
+  end
+
+  defp shell_word(w), do: if(w == "" or String.match?(w, ~r/\s/), do: "'#{w}'", else: w)
 
   # `xipe refresh -l|-r|-a` (Old.md §24): a deliberate registration
   # step, not something every command silently re-derives -- see
@@ -504,31 +470,8 @@ defmodule XipeTotec.CLI do
     unless Enum.all?(outcomes, & &1.ok?), do: System.halt(1)
   end
 
-  defp print_outcomes(outcomes) do
-    Enum.each(outcomes, &print_outcome/1)
-    IO.puts("xipe: #{length(outcomes)} command(s), #{Enum.count(outcomes, & &1.ok?)} ok")
-  end
-
-  # "eval" and the pipelines.json methods ending in it (eval/run, row/update)
-  defp print_outcome(%{method: method, ok?: true, result: %{"results" => results} = result}) do
-    if method != "eval", do: IO.puts("#{method}  ok#{if result["id"], do: "  id=#{result["id"]}", else: ""}")
-    if status = result["env"], do: print_env_status("  eval", status, false)
-    for r <- results, do: IO.puts("  eval call #{r.call_id}  #{format_eval_call_outcome(r.outcome)}  compare=#{r.compare}")
-    for n <- Map.get(result, "not_run", []), do: IO.puts("  eval call #{n["id"]}  not run  #{n["reason"]}")
-  end
-
-  defp print_outcome(%{method: method, ok?: true, result: result}), do: IO.puts("#{method}  ok  #{inspect(result)}")
-
-  defp print_outcome(%{method: method, ok?: false, error: error}),
-    do: IO.puts(:stderr, "#{method}  error  #{error["code"]}: #{error["message"]}")
-
-  defp format_eval_call_outcome({:ok, %{repr: repr, display: display}}), do: "ok       repr=#{repr}  #{display}"
-  defp format_eval_call_outcome(:timeout), do: "timeout"
-  defp format_eval_call_outcome(:max_heap), do: "max_heap"
-  defp format_eval_call_outcome({:error, reason}), do: "crash    #{reason}"
-  defp format_eval_call_outcome({:skipped, upstream_id}),
-    do: "skipped  upstream #{upstream_id} has no value to pass on -- evaluate it in the same command (not recorded)"
-  defp format_eval_call_outcome(:aborted), do: "aborted  session ended before this call ran"
+  # the same lines the dialogue window's input answers with (OutcomeText)
+  defp print_outcomes(outcomes), do: print_lines(OutcomeText.lines(outcomes))
 
   # `xipe do [--dir <dir>] <method> [key=value...] [-- <method> [key=value...]]...`
   # -- the general "input" front end onto Runner, per XipeTotec.Runner's own

@@ -1,0 +1,4 @@
+; a wrapped library: outside it, its modules are Mylib.Words, Mylib.Stats
+(library
+ (name mylib)
+ (libraries str))

@@ -2,6 +2,8 @@ Code.require_file("book.exs", __DIR__)
 Code.require_file("runner.exs", __DIR__)
 Code.require_file("pipeline.exs", __DIR__)
 Code.require_file("dialogue.exs", __DIR__)
+Code.require_file("dialogue/depends.exs", __DIR__)
+Code.require_file("dialogue/search.exs", __DIR__)
 
 defmodule XipeTotec.InOut do
   @moduledoc """
@@ -46,14 +48,27 @@ defmodule XipeTotec.InOut do
       pseudo-method exactly as if `InOut` didn't exist, whether or not a
       dialogue happens to be held at the time.
 
-  ## The 2-bit reply tag (Old.md §17)
+  ## The programs, and what a turn may ask of its driver (2026-09-27)
 
-  `programs` is fixed to `%{}` by default (`programs/0`) -- no real
-  dialogue program exists yet (Old.md §16.4's dependency-chain
-  negotiation is step 4, this module is step 3); pass it explicitly to
-  register one, the same override-for-tests shape `Pipeline.run/5`'s
-  `stage_handlers` argument uses. `test/in_out_test.exs`'s `ToyDialogue`
-  is the only implementation so far.
+  `programs/0` is the one registry of dialogue programs (`dialogue/depends`,
+  `dialogue/search`), used by the CLI and the server alike (the server had
+  none before, `課題.md` §2). Tests pass their own map.
+
+  `"dialogue/quit"` ends whatever dialogue is held (`quit dialogue`,
+  next_step §1.1).
+
+  A program with `start/2`/`answer/3` gets a read-only `ctx` (the book,
+  root and project dir -- `Dialogue`). Two things are left to the caller
+  (the driver) instead of done here, marked on the outcome as `:run`:
+
+    * `{:line, line}` -- a turn returned `{:pass, state, line}`: an ordinary
+      command line to run while the dialogue stays held
+    * `{:commands, commands}` -- a `:done` turn's commands, only when the
+      caller passes `defer_commands: true` (`Serve.Input`, so an evaluation
+      runs in the server's pass queue, not inside this call). Without it
+      they run here through `Runner.run/4`, as before (the CLI)
+
+  ## The 2-bit reply tag (Old.md §17)
 
   A `Dialogue` program never encodes `hold`/`via_repl` itself (see that
   module's own moduledoc) -- `InOut` derives them mechanically:
@@ -88,6 +103,7 @@ defmodule XipeTotec.InOut do
   @type command :: %{String.t() => term()}
   @type programs :: %{String.t() => module()}
   @type outcome :: %{
+          optional(:run) => {:line, String.t()} | {:commands, [command()]},
           hold: boolean(),
           via_repl: boolean(),
           text: String.t() | nil,
@@ -97,10 +113,11 @@ defmodule XipeTotec.InOut do
         }
 
   @answer_method "dialogue/answer"
+  @quit_method "dialogue/quit"
 
-  @doc "The default (empty) dialogue-program registry -- see moduledoc. Pass a real map to register one, e.g. in tests."
+  @doc "The dialogue programs, by the method that starts each -- see moduledoc."
   @spec programs() :: programs()
-  def programs, do: %{}
+  def programs, do: %{"dialogue/depends" => XipeTotec.Dialogue.Depends, "dialogue/search" => XipeTotec.Dialogue.Search}
 
   @doc """
   Runs one `%{"method" => ..., "params" => ...}` input against `dialogue`
@@ -122,8 +139,11 @@ defmodule XipeTotec.InOut do
   def handle({mod, state}, book, root, %{"method" => @answer_method, "params" => params}, opts, _programs),
     do: run_program(mod, :answer, [state, params], book, root, opts)
 
-  def handle(nil, book, _root, %{"method" => @answer_method}, _opts, _programs),
-    do: {nil, book, error_outcome("no_pending_dialogue", "\"#{@answer_method}\" received but no dialogue is held")}
+  def handle({_mod, _state}, book, _root, %{"method" => @quit_method}, _opts, _programs),
+    do: {nil, book, ok_outcome(false, false, "対話を終了しました。", nil)}
+
+  def handle(nil, book, _root, %{"method" => method}, _opts, _programs) when method in [@answer_method, @quit_method],
+    do: {nil, book, error_outcome("no_pending_dialogue", "\"#{method}\" received but no dialogue is held")}
 
   def handle(nil, book, root, %{"method" => method, "params" => params}, opts, programs) do
     case Map.fetch(programs, method) do
@@ -172,16 +192,31 @@ defmodule XipeTotec.InOut do
   # --- dialogue-program results -> {dialogue, book, outcome} -----------
 
   defp run_program(mod, fun, args, book, root, opts) do
-    case apply(mod, fun, args) do
+    Code.ensure_loaded(mod)
+    ctx = %{book: book, root: root, project_dir: Keyword.get(opts, :project_dir)}
+
+    turn =
+      if function_exported?(mod, fun, length(args) + 1),
+        do: apply(mod, fun, args ++ [ctx]),
+        else: apply(mod, fun, args)
+
+    case turn do
       {:hold, state, text} ->
         {{mod, state}, book, ok_outcome(true, false, text, nil)}
+
+      {:pass, state, line} ->
+        {{mod, state}, book, Map.put(ok_outcome(true, false, nil, nil), :run, {:line, line})}
 
       {:done, text, []} ->
         {nil, book, ok_outcome(false, false, text, nil)}
 
       {:done, text, commands} ->
-        {new_book, outcomes} = Runner.run(book, root, commands, opts)
-        {nil, new_book, ok_outcome(false, true, text, %{"outcomes" => outcomes})}
+        if Keyword.get(opts, :defer_commands, false) do
+          {nil, book, Map.put(ok_outcome(false, true, text, nil), :run, {:commands, commands})}
+        else
+          {new_book, outcomes} = Runner.run(book, root, commands, opts)
+          {nil, new_book, ok_outcome(false, true, text, %{"outcomes" => outcomes})}
+        end
     end
   end
 

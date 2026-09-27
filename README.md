@@ -103,8 +103,9 @@ P1 の具体形: 副作用の分類（`pure`/`reads`/`writes`）は利用者が 
 `XipeTotec.Scanner` の実装）、`Repl.Evaluator` に渡す4モジュール（`launch`/
 `eval_template`/`Eval.Scan`/`field_drip`）、REPL の起動方法（`launch_opts/2`）を申告し、
 `Project`（スキャン）と `Runner`（評価）がそれを使う。REPL は言語ごとに1つに決め打ち
-（Elixir なら `iex`）で、ビルドツールは起動方法だけを変える。いまは Elixir の申告しか
-ない。Elixir の Scanner は elixir-ls（`Scanner.Lsp.Elixir`）を優先する。言語サーバーへは
+（Elixir なら `iex`）で、ビルドツールは起動方法だけを変える。申告があるのは Elixir と
+OCaml（2026-09-27、素の `ocaml` トップレベル＋`embody.ml`、`Old.md` §42）と Haskell（同日、GHCi＋`embody.hs`、§46）。
+`embody` は別リポジトリ（`~/my_app/embody`、git@github.com:Crux-xurC/embody.git）。Elixir の Scanner は elixir-ls（`Scanner.Lsp.Elixir`）を優先する。言語サーバーへは
 tezcatl の `/lsp` を先に試し、つながらなければ elixir-ls を自分で起動する（CLI 単体でも
 使える）。どちらも駄目なら自前の `Scanner.Elixir` を使う（仕様 §11.3）。どれで読んだか
 （`via` が `relay`/`stdio`）は `scan/run` の結果の `scanners` に出る。カードは disk のファイル
@@ -121,7 +122,8 @@ disk とずれるファイルは、そのファイルだけ次の Scanner（Elix
 | スキャン | `Scanner`（behaviour）/ `Scanner.Lsp`（+ `Scanner.Lsp.Elixir`）/ `Scanner.Elixir` / `Lsp.Transport`（+ `.Relay`・`.Stdio`）/ `Project` / `SurfaceTable` | ファイルからカードと link を作る口と共通の帳簿付け、言語サーバー経由の実装（`documentSymbol`・`callHierarchy`、言語ごとの差は薄い dialect）、Elixir の自前の実装（AST 抽出、`defmodule` のみコンパイル。言語サーバーが無いときの予備）、言語サーバーへのつなぎ方（tezcatl の `/lsp`、無ければ自分で起動）、ディレクトリ横断の2パス走査（言語ごとに Scanner を優先順に試し、どれを使ったかを記録）、ファイルごとの言語判定 |
 | コマンド | `Runner` / `Dispatch` / `Pipeline` / `Address` / `GraphQuery` | コマンド列の実行（`$<n>.<path>` で前の結果を参照）、method の表、住所の解決、呼び出しグラフの BFS と書き出し |
 | 評価 | `Repl.Evaluator` / `Launch` / `Sender(.Direct)` / `Session` / `EvalTemplate` / `SourceSanitize` / `Eval.{Scan,FieldDrip,Parser,Result}` | REPL の起動・完了待ち・式の送信・マーカー受信・ハング時の SIGINT→SIGKILL |
-| 対話 | `InOut` / `Dialogue` / `Dialogue.Depends` | 複数ターンの構造化対話と、依存チェーン交渉 |
+| 対話 | `InOut` / `Dialogue` / `Dialogue.Depends` / `Dialogue.Search` / `EvalTable` | 複数ターンの構造化対話（一覧は `InOut.programs/0`、CLI とサーバーで共通）、依存チェーン交渉、検索と、その `-e` が引く `eval_table`（計算行に関数と path を横付けした読み取り用の表） |
+| 人向けの入出力 | `Input` / `Help` / `OutcomeText` / `Show` / `Serve.Input` | 1行の読み方（CLI と同じ書き方）、`help` の表、結果・`show` の行（CLI と対話窓で共通）、`input` method |
 | サーバー | `Protocol` / `Serve.Project` / `Serve.Socket` | §16.3 の wire 形、1プロジェクト1GenServer、WebSocket の入口 |
 | プロジェクト | `Workspace` / `ProjectRegistry` / `Info` / `Repl.Language` | どのプロジェクトを対象にするかの解決、3桁 ID の登録、xipe_totec 自身の `info.json`（選択中のプロジェクト、言語と拡張子、アダプタ一覧）、言語ごとの自己申告 |
 
@@ -129,11 +131,14 @@ disk とずれるファイルは、そのファイルだけ次の Scanner（Elix
 
 ## いまどこまで動くか
 
-2026-09-27 時点。`./test/run.sh` の全38ファイル・375件がすべて通る。これとは別に、
-実機の `iex` を起動するテスト（`test/live/`、12件）がある。
+2026-09-27 時点。`./test/run.sh` の全44ファイル・440件がすべて通る。これとは別に、
+実機の REPL を起動するテスト（`test/live/`、`iex` 12件・`ocaml` 6件・`ghci` 7件。OCaml・Haskell 版は
+PATH に処理系が無ければ飛ばす）がある。
 
 **CLI からは、Elixir プロジェクトに対してスキャン → 計算行の作成 → 実評価 → 結果の
-永続化まで、一通り動く。** mix 構成（`iex -S mix`）とスクリプト構成の両方に対応している。
+永続化まで、一通り動く。** OCaml（`.ml`）も同じ流れで動く（`Old.md` §42）。dune のプロジェクトでは依存するライブラリを
+`dune ocaml top` から読み込む（§43）。Haskell（`.hs`）も同じ（§46）。cabal・stack のプロジェクトでは GHCi を `cabal exec`・`stack exec` の下で
+起動して依存パッケージを見えるようにする（§47）。 mix 構成（`iex -S mix`）とスクリプト構成の両方に対応している。
 スクリプト構成では、各ファイルの `defmodule` 部分だけを、元のファイルのパスと行番号の
 ままコンパイルする（`Repl.SourceSanitize` の読み込み用スクリプト。トップレベルの副作用は
 走らせない。エラーの位置と `__DIR__` は元のファイルを指す）。
@@ -146,6 +151,8 @@ disk とずれるファイルは、そのファイルだけ次の Scanner（Elix
   計算行は評価せず `skipped` にする
 - `xipe dialogue depends` で、上流の依存チェーンの深い段から順に「ここに値を手で
   入れて、そこから上を評価するか」を対話で決められる
+- `xipe search` で、surface table と `eval_table` を対話のターンを重ねて絞り込める
+  （`Old.md` §41）。どちらの対話も tezcatl の対話窓から使える
 
 `xipe serve`（WebSocket）経由でも評価できる。`eval`／`eval/run`／`row/update` はすぐに `pass_id` を
 返し、評価は別プロセスで走る（評価中もほかの要求に応答する）。終わると
@@ -157,7 +164,8 @@ disk とずれるファイルは、そのファイルだけ次の Scanner（Elix
 | 区分 | method | 状態 |
 |---|---|---|
 | Tier 1 | `scan/run`・`row/add`・`row/remove`・`effect/set`・`card/get`・`card/search`・`graph/neighbors`・`graph/export`・`cell/resolve` | 実装済み |
-| 独自追加 | `row/depends`（上流依存チェーン）・`row/set-result`（値の手入力）・`notify/passCompleted`（評価回の完了通知） | 実装済み（仕様 v0.4 には無い） |
+| 独自追加 | `row/depends`（上流依存チェーン）・`row/set-result`（値の手入力）・`row/list`（計算行の一覧）・`row/check`（条件に当たる行があれば失敗）・`node/resolve`（住所から node の id）・`notify/passCompleted`（評価回の完了通知） | 実装済み（仕様 v0.4 には無い） |
+| 独自追加 | `input`（1行をそのまま受け、CLI と同じ書き方で読む。tezcatl の対話窓用） | 実装済み（2026-09-27、`Old.md` §40） |
 | 評価 | `eval`・`eval/run` | 実装済み。CLI（`xipe eval`／`xipe do ... eval`）は同期実行、`xipe serve` では非同期（`pass_id` を返す）。`eval/run` は `Pipeline`（`["eval"]`）経由 |
 | Pipeline 経由 | `row/update` | 実装済み。`["edit", "eval"]`：引数を変えてその行だけを評価する（Old.md §37） |
 | Tier 3 | `cell/complete` | 未実装 |
@@ -170,7 +178,7 @@ disk とずれるファイルは、そのファイルだけ次の Scanner（Elix
 そのプロジェクトの Book（`tables/project/<id>_<name>/book.jsonl`）を読み書きする。
 
 **進行中なのは多言語対応。** 言語・REPL・ビルドツールの判定テーブル
-（`SurfaceTable`）はできていて、判定はまだ Elixir＋mix の分しか入っていない。残りは
+（`SurfaceTable`）はできていて、Elixir（＋mix）・OCaml（＋dune）・Haskell（＋stack・cabal）が入っている。残りは
 [`document/課題.md`](document/課題.md) を見ること。
 
 ---
@@ -195,6 +203,7 @@ xipe do [--dir <dir>] <method> [key=value...] [-- <method> ...]
                            #        -- eval call_ids=$0.id
 xipe dialogue depends [<dir>] <call_id>
                            # 依存チェーン交渉（"y <値>" か "n" で答える）
+xipe search [<turn>]       # 表（surface table / eval_table）を対話で絞り込む（-h で使い方）
 xipe start [<dir>] [--port N] [--lsp <url>] [--fs-root <dir>]
                            # §16.1 WebSocket の入口として常駐し、セッションとして記録する
                            # （既定ポート 4200、$XIPE_TOTEC_PORT でも可）。xipe serve は別名
@@ -204,6 +213,7 @@ xipe start [<dir>] [--port N] [--lsp <url>] [--fs-root <dir>]
                            # tezcatl は <dir> を渡さずに起動する（対象は選択中のプロジェクト。
                            # 決めるのは xipe_totec で、tezcatl は窓）。--port・--lsp・--fs-root は渡す
 xipe refresh -l|-r|-a      # xipe_totec 自身の info.json（言語と拡張子・REPL アダプタ一覧）を更新
+xipe help [<command>]      # 1行1コマンド（`コマンド: 説明  引数`）の一覧。<command> でその説明
 
 ./test/run.sh                         # ExUnit 全件（何も起動せず単体で走る）
 elixir test/live/repl_iex_test.exs    # 実機 iex を使うテスト
@@ -284,6 +294,11 @@ tezcatl はその窓に過ぎない。基本は tezcatl が `xipe start` を `<d
 
 WebSocket の応答には、JSON-RPC の通常の `result`/`error` に加えて `from`（予約、
 常に `null`）と `dialogue`（`hold`/`via_repl`/`text`）が付く（`Old.md` §17.2）。
+
+tezcatl の対話窓（`panels/skins/xipe.html`）は、打った1行を解釈せずに `input` `{"text": "<行>"}` で
+送る。行の意味は Xipe Totec が決め（書き方は CLI と同じ、`XipeTotec.Input`）、返事の
+`dialogue.text` に CLI と同じ行を入れる（`Serve.Input`、`Old.md` §40）。`help` は1行1コマンドの
+「`コマンド: 説明`」で、tezcatl の利用者はこれをヤンクして辞書に登録し、補完に使う。
 
 ---
 

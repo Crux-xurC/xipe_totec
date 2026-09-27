@@ -40,4 +40,55 @@ defmodule XipeTotec.Dialogue do
   @callback answer(state :: term(), params :: map()) ::
               {:hold, state :: term(), text :: String.t()}
               | {:done, text :: String.t(), commands :: [map()]}
+
+  @doc """
+  One typed line (the CLI's prompt, or the dialogue window's `input` while
+  this dialogue is held, 2026-09-27) as `answer/2`'s params. Optional:
+  without it the line arrives as `%{"text" => line}`.
+  """
+  @callback parse_answer(line :: String.t()) :: map()
+
+  ## Reading the Book, and passing a line on (2026-09-27, for Dialogue.Search)
+  #
+  # A program that needs to read the Book on every turn implements
+  # start/2 / answer/3 instead of start/1 / answer/2: `InOut` then hands it
+  # a read-only `ctx` (`%{book:, root:, project_dir:}`). It still never
+  # changes the Book itself -- changes go through commands, as before.
+  #
+  # Besides :hold and :done, a turn may return `{:pass, state, line}`: the
+  # line is an ordinary command line (read the way the CLI reads one,
+  # `XipeTotec.Input`), to be run by whoever drives the dialogue (the CLI's
+  # prompt, `Serve.Input`) while the dialogue stays held. The driver runs it
+  # rather than `InOut`, so an evaluation in it doesn't hold the server.
+
+  @type ctx :: %{book: XipeTotec.Book.t(), root: String.t(), project_dir: Path.t() | nil}
+  @type turn ::
+          {:hold, term(), String.t()}
+          | {:done, String.t(), [map()]}
+          | {:pass, term(), String.t()}
+
+  @callback start(params :: map(), ctx()) :: turn()
+  @callback answer(state :: term(), params :: map(), ctx()) :: turn()
+
+  @optional_callbacks parse_answer: 1, start: 1, start: 2, answer: 2, answer: 3
+
+  @doc "`mod.parse_answer/1` if it has one, else `%{\"text\" => line}`."
+  @spec answer_params(module(), String.t()) :: map()
+  def answer_params(mod, line) do
+    Code.ensure_loaded(mod)
+    if function_exported?(mod, :parse_answer, 1), do: mod.parse_answer(line), else: %{"text" => line}
+  end
+
+  @doc """
+  A typed line to a held dialogue, as the request `InOut.handle/6` takes:
+  `quit dialogue` (`xipe quit dialogue`) ends any dialogue
+  (`"dialogue/quit"`, next_step §1.1); anything else is the answer.
+  """
+  @spec line_request(module(), String.t()) :: map()
+  def line_request(mod, line) do
+    case String.split(line) do
+      w when w in [["quit", "dialogue"], ["xipe", "quit", "dialogue"]] -> %{"method" => "dialogue/quit", "params" => %{}}
+      _ -> %{"method" => "dialogue/answer", "params" => answer_params(mod, line)}
+    end
+  end
 end

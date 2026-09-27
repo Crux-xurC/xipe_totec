@@ -385,6 +385,15 @@ defmodule XipeTotec.Runner do
 
   # --- $n.path substitution -------------------------------------------
 
+  @doc """
+  `command`'s `$<n>.<path>` references resolved against `prior_outcomes`
+  (the outcomes of the commands before it, in order) -- what `run/4` does
+  before each command, for a caller that runs a command list one command
+  at a time itself (`Serve.Input`, whose eval steps are asynchronous).
+  """
+  @spec substitute_command(command(), [outcome()]) :: command()
+  def substitute_command(command, prior_outcomes), do: substitute(command, prior_outcomes)
+
   defp substitute(%{"params" => params} = command, prior_outcomes),
     do: %{command | "params" => substitute(params, prior_outcomes)}
 

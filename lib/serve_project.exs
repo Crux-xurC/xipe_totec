@@ -97,6 +97,10 @@ defmodule XipeTotec.Serve.Project do
   @spec info(GenServer.server()) :: map()
   def info(pid \\ __MODULE__), do: GenServer.call(pid, :info)
 
+  @doc "The book as it is now (the dialogue window's `show`, `Serve.Input`)."
+  @spec book(GenServer.server()) :: XipeTotec.Book.t()
+  def book(pid \\ __MODULE__), do: GenServer.call(pid, :book)
+
   @spec detach(GenServer.server(), pid()) :: :ok
   def detach(pid \\ __MODULE__, session_pid), do: GenServer.cast(pid, {:detach, session_pid})
 
@@ -123,6 +127,13 @@ defmodule XipeTotec.Serve.Project do
   updated value back on its next call, same reasoning Old.md §17
   already gave for keeping dialogue state connection-local rather than
   project-wide.
+
+  `opts[:watch]` (a pid): when `method` starts an evaluation pass, that
+  process is also sent `{:xipe_pass_done, pass_id, outcome}` when the pass
+  ends -- `outcome` in `Runner.run/4`'s shape, its results limited to the
+  rows still in the book (2026-09-27, for `Serve.Input`, which waits for
+  a pass before running the rest of a typed line). Registered in the same
+  call that queues the pass, so it can't miss a pass that ends at once.
   """
   @spec request_dialogue(GenServer.server(), InOut.dialogue(), String.t(), map(), keyword()) ::
           {InOut.dialogue(), InOut.outcome()}
@@ -155,6 +166,8 @@ defmodule XipeTotec.Serve.Project do
        eval_opts: Map.get(opts, :eval_opts, []),
        running: nil,
        queue: :queue.new(),
+       # pass_id => the pid told when that pass ends (request_dialogue/5's :watch)
+       watchers: %{},
        scan: nil,
        scan_waiting: []
      }}
@@ -171,9 +184,10 @@ defmodule XipeTotec.Serve.Project do
   end
 
   def handle_call(:info, _from, state), do: {:reply, %{"id" => state.project_id, "root" => state.root}, state}
+  def handle_call(:book, _from, state), do: {:reply, state.book, state}
 
   def handle_call({:request, method, params}, _from, state) when method in @eval_methods do
-    case start_repl_method(method, params, state) do
+    case start_repl_method(method, params, nil, state) do
       {:ok, reply, state} -> {:reply, {:ok, reply}, state}
       {:error, error, state} -> {:reply, {:error, error}, state}
     end
@@ -213,9 +227,9 @@ defmodule XipeTotec.Serve.Project do
     end
   end
 
-  def handle_call({:request_dialogue, dialogue, method, params, _opts}, _from, state) when method in @eval_methods do
+  def handle_call({:request_dialogue, dialogue, method, params, opts}, _from, state) when method in @eval_methods do
     outcome =
-      case start_repl_method(method, params, state) do
+      case start_repl_method(method, params, opts[:watch], state) do
         {:ok, reply, state} -> {%{hold: false, via_repl: true, text: nil, ok?: true, result: reply, error: nil}, state}
         {:error, error, state} -> {%{hold: false, via_repl: true, text: nil, ok?: false, result: nil, error: error}, state}
       end
@@ -266,10 +280,10 @@ defmodule XipeTotec.Serve.Project do
           "result" => Protocol.wire_result(%{outcome.result | "results" => results})
         })
 
-        %{state | book: new_book}
+        tell_watcher(%{state | book: new_book}, pass_id, %{outcome | result: %{outcome.result | "results" => results}})
       else
         push(state.sessions, "notify/passCompleted", %{"pass_id" => pass_id, "ok" => false, "error" => outcome.error})
-        state
+        tell_watcher(state, pass_id, outcome)
       end
 
     {:noreply, start_next_pass(%{state | running: nil})}
@@ -303,12 +317,9 @@ defmodule XipeTotec.Serve.Project do
 
   # the pass process died without reporting (a crash inside Runner/Evaluator)
   def handle_info({:DOWN, ref, :process, _pid, reason}, %{running: %{ref: ref, pass_id: pass_id}} = state) do
-    push(state.sessions, "notify/passCompleted", %{
-      "pass_id" => pass_id,
-      "ok" => false,
-      "error" => %{"code" => "eval_failed", "message" => inspect(reason)}
-    })
-
+    error = %{"code" => "eval_failed", "message" => inspect(reason)}
+    push(state.sessions, "notify/passCompleted", %{"pass_id" => pass_id, "ok" => false, "error" => error})
+    state = tell_watcher(state, pass_id, %{method: "eval", ok?: false, result: nil, error: error})
     {:noreply, start_next_pass(%{state | running: nil})}
   end
 
@@ -329,7 +340,7 @@ defmodule XipeTotec.Serve.Project do
   # broadcast like any request's; the "eval" stage -- or a plain "eval" --
   # goes to the pass queue (Old.md §37). The reply merges both: e.g.
   # row/update's edited row plus the pass id.
-  defp start_repl_method(method, params, state) do
+  defp start_repl_method(method, params, watcher, state) do
     prepared =
       if Pipeline.handles?(method),
         do: Pipeline.prepare(method, state.book, params, %{root: state.root, project_dir: state.project_dir}),
@@ -349,7 +360,7 @@ defmodule XipeTotec.Serve.Project do
             {:ok, result, state}
 
           eval_params ->
-            {reply, state} = enqueue_pass(eval_params, state)
+            {reply, state} = enqueue_pass(eval_params, watcher, state)
             {:ok, Map.merge(result, reply), state}
         end
 
@@ -358,9 +369,10 @@ defmodule XipeTotec.Serve.Project do
     end
   end
 
-  defp enqueue_pass(params, state) do
+  defp enqueue_pass(params, watcher, state) do
     pass_id = XipeTotec.Id.ulid()
     status = if state.running, do: "queued", else: "started"
+    state = if watcher, do: put_in(state.watchers[pass_id], watcher), else: state
     state = start_next_pass(%{state | queue: :queue.in({pass_id, params}, state.queue)})
     {%{"pass_id" => pass_id, "status" => status}, state}
   end
@@ -388,6 +400,12 @@ defmodule XipeTotec.Serve.Project do
   end
 
   defp start_next_pass(state), do: state
+
+  defp tell_watcher(state, pass_id, outcome) do
+    {watcher, watchers} = Map.pop(state.watchers, pass_id)
+    if watcher, do: send(watcher, {:xipe_pass_done, pass_id, outcome})
+    %{state | watchers: watchers}
+  end
 
   defp request_scan(waiter, %{scan: nil} = state), do: start_scan([waiter], state)
   defp request_scan(waiter, state), do: %{state | scan_waiting: state.scan_waiting ++ [waiter]}

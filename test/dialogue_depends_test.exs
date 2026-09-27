@@ -78,4 +78,10 @@ defmodule DialogueDependsTest do
     assert {:hold, ^state, text} = Depends.answer(state, %{"answer" => "y"})
     assert text =~ "w3"
   end
+
+  test "a typed line (the CLI prompt, the dialogue window) reads as y <value> / n" do
+    assert %{"answer" => "y", "value" => "%{a: 1, b: 2}"} = XipeTotec.Dialogue.answer_params(Depends, "y %{a: 1, b: 2}\n")
+    assert %{"answer" => "n"} = XipeTotec.Dialogue.answer_params(Depends, " n ")
+    assert %{"answer" => "maybe"} = Depends.parse_answer("maybe")
+  end
 end

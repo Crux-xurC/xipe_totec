@@ -69,6 +69,9 @@ defmodule RunnerTest do
   alias XipeTotec.Runner
   alias RunnerTest.EchoSender
 
+  # The eval tests evaluate "." -- xipe_totec itself, which holds an OCaml
+  # fixture too -- with rows whose functions have no file: the language is
+  # given (`language: "elixir"`) rather than told from the surface table.
   defp pure_node(name), do: %{module: "M", name: name, anykey: 1, effect: "pure", effect_source: "user"}
 
   test "a single Dispatch command runs and folds into the book" do
@@ -192,7 +195,7 @@ defmodule RunnerTest do
     # would otherwise sanitize+scan this whole checkout via
     # Project.find_sheets(".") -- slow and beside the point of this test,
     # which is about method routing, not launch-opt inference)
-    {new_book, [outcome]} = Runner.run(book, ".", commands, sender: EchoSender, launch_opts: [])
+    {new_book, [outcome]} = Runner.run(book, ".", commands, sender: EchoSender, launch_opts: [], language: "elixir")
 
     assert outcome.method == "eval"
     assert outcome.ok?
@@ -209,7 +212,7 @@ defmodule RunnerTest do
 
     commands = [%{"method" => "eval", "params" => %{}}]
 
-    {new_book, [outcome]} = Runner.run(book, ".", commands, sender: EchoSender, launch_opts: [])
+    {new_book, [outcome]} = Runner.run(book, ".", commands, sender: EchoSender, launch_opts: [], language: "elixir")
 
     assert outcome.ok?
     assert length(outcome.result["results"]) == 2
@@ -224,7 +227,7 @@ defmodule RunnerTest do
       |> Core.add_call("c1", %{node: "n1", args: ["1"]})
 
     commands = [%{"method" => "eval", "params" => %{"call_ids" => ["c1"]}}]
-    {new_book, [outcome]} = Runner.run(book, ".", commands, sender: EchoSender, launch_opts: [])
+    {new_book, [outcome]} = Runner.run(book, ".", commands, sender: EchoSender, launch_opts: [], language: "elixir")
 
     assert outcome.ok?
     assert outcome.result["results"] == []
@@ -238,7 +241,7 @@ defmodule RunnerTest do
       |> Core.add_call("c1", %{node: "n1", args: ["1"]})
 
     commands = [%{"method" => "eval", "params" => %{"call_ids" => ["c1"]}}]
-    {_new_book, [outcome]} = Runner.run(book, ".", commands, sender: EchoSender, launch_opts: [])
+    {_new_book, [outcome]} = Runner.run(book, ".", commands, sender: EchoSender, launch_opts: [], language: "elixir")
 
     assert outcome.ok?
     assert outcome.result["results"] == []
@@ -253,7 +256,7 @@ defmodule RunnerTest do
       |> Core.add_call("c1", %{node: "n1", args: ["1"]})
 
     commands = [%{"method" => "eval", "params" => %{"call_ids" => ["c1"], "include_writes" => true}}]
-    {new_book, [outcome]} = Runner.run(book, ".", commands, sender: EchoSender, launch_opts: [])
+    {new_book, [outcome]} = Runner.run(book, ".", commands, sender: EchoSender, launch_opts: [], language: "elixir")
 
     assert outcome.ok?
     assert [%{call_id: "c1", outcome: {:ok, _}}] = outcome.result["results"]
@@ -267,7 +270,7 @@ defmodule RunnerTest do
       |> Core.add_call("c1", %{node: "n1", args: ["1"]})
 
     commands = [%{"method" => "eval", "params" => %{"call_ids" => ["c1"], "include_writes" => "true"}}]
-    {_new_book, [outcome]} = Runner.run(book, ".", commands, sender: EchoSender, launch_opts: [])
+    {_new_book, [outcome]} = Runner.run(book, ".", commands, sender: EchoSender, launch_opts: [], language: "elixir")
 
     assert [%{call_id: "c1"}] = outcome.result["results"]
   end
@@ -284,7 +287,7 @@ defmodule RunnerTest do
       def interrupt(_handle), do: :ok
     end
 
-    {new_book, [outcome]} = Runner.run(book, ".", commands, sender: RefusingSender, launch_opts: [])
+    {new_book, [outcome]} = Runner.run(book, ".", commands, sender: RefusingSender, launch_opts: [], language: "elixir")
 
     refute outcome.ok?
     assert outcome.error["code"] == "eval_failed"
@@ -300,7 +303,7 @@ defmodule RunnerTest do
       %{"method" => "eval", "params" => %{"call_ids" => ["$0.id"]}}
     ]
 
-    {new_book, [added, effect_set, evaluated]} = Runner.run(book, ".", commands, sender: EchoSender, launch_opts: [])
+    {new_book, [added, effect_set, evaluated]} = Runner.run(book, ".", commands, sender: EchoSender, launch_opts: [], language: "elixir")
 
     assert added.ok?
     assert effect_set.ok?
@@ -377,7 +380,8 @@ defmodule RunnerTest do
     dir = Path.join(System.tmp_dir!(), "xipe_totec_runner_nolang_test_#{System.unique_integer([:positive])}")
     File.mkdir_p!(dir)
     on_exit(fn -> File.rm_rf!(dir) end)
-    File.write!(Path.join(dir, "Main.hs"), "main = pure ()\n")
+    # a language xipe_totec has no adapter for (Clojure)
+    File.write!(Path.join(dir, "core.clj"), "(defn f [x] x)\n")
 
     book = Book.new() |> Core.put_node("n1", pure_node("f")) |> Core.add_call("c1", %{node: "n1", args: ["1"]})
     commands = [%{"method" => "eval", "params" => %{"call_ids" => ["c1"]}}]
@@ -393,7 +397,7 @@ defmodule RunnerTest do
     book = Book.new() |> Core.put_node("n1", pure_node("f")) |> Core.add_call("c1", %{node: "n1", args: ["1"]})
     commands = [%{"method" => "eval", "params" => %{"call_ids" => ["c1"]}}]
 
-    {^book, [outcome]} = Runner.run(book, ".", commands, sender: EchoSender, launch_opts: [], language: "haskell")
+    {^book, [outcome]} = Runner.run(book, ".", commands, sender: EchoSender, launch_opts: [], language: "clojure")
 
     refute outcome.ok?
     assert outcome.error["code"] == "language_not_registered"
@@ -420,7 +424,7 @@ defmodule RunnerTest do
       |> Core.add_call("c2", %{node: "n1", args: ["⟦c1⟧"]})
 
     command = %{"method" => "row/update", "params" => %{"id" => "c1", "args" => ["9"]}}
-    {new_book, [outcome]} = Runner.run(book, ".", [command], sender: EchoSender, launch_opts: [])
+    {new_book, [outcome]} = Runner.run(book, ".", [command], sender: EchoSender, launch_opts: [], language: "elixir")
 
     assert outcome.ok?
     assert outcome.result["id"] == "c1"

@@ -1,4 +1,5 @@
 Code.require_file("../dialogue.exs", __DIR__)
+Code.require_file("../core.exs", __DIR__)
 
 defmodule XipeTotec.Dialogue.Depends do
   @moduledoc """
@@ -64,6 +65,30 @@ defmodule XipeTotec.Dialogue.Depends do
   @impl true
   def start(%{"chain" => chain}) when is_list(chain), do: ask_or_finish(chain, 0)
 
+  # Started with just a `call_id` (the server, the dialogue window, 2026-09-27):
+  # the chain is built from the read-only book InOut hands in, the way the
+  # CLI builds it -- this module still never changes the book.
+  @impl true
+  def start(%{"chain" => _} = params, _ctx), do: start(params)
+
+  def start(%{"call_id" => call_id}, %{book: book}) when is_binary(call_id) do
+    if XipeTotec.Book.get(book, :calls, call_id) do
+      start(%{"chain" => chain(book, call_id)})
+    else
+      {:done, "計算行 #{call_id} はありません。", []}
+    end
+  end
+
+  def start(_params, _ctx), do: {:done, "dialogue depends には call_id が要ります（dialogue depends <call_id>）。", []}
+
+  @doc "`call_id`'s upstream chain, deepest first, each with its label -- `start/1`'s `chain`."
+  @spec chain(XipeTotec.Book.t(), String.t()) :: [map()]
+  def chain(book, call_id) do
+    book
+    |> XipeTotec.Core.upstream_chain([call_id])
+    |> Enum.map(fn id -> %{"id" => id, "label" => XipeTotec.Core.call_label(book, id) || id} end)
+  end
+
   @impl true
   def answer(%{chain: chain, position: position}, %{"answer" => "y", "value" => value})
       when is_binary(value) do
@@ -83,6 +108,18 @@ defmodule XipeTotec.Dialogue.Depends do
 
   def answer(state, _params),
     do: {:hold, state, "y (と value) または n で答えてください。\n" <> question(state.chain, state.position)}
+
+  # "y <literal>" -> %{"answer"=>"y","value"=>"<literal>"} (value may itself
+  # contain spaces, e.g. "y %{a: 1, b: 2}"); anything else is passed
+  # through verbatim as "answer" and left for answer/2's own catch-all
+  # (re-asks) to handle.
+  @impl true
+  def parse_answer(line) do
+    case line |> String.trim() |> String.split(" ", parts: 2) do
+      ["y", value] -> %{"answer" => "y", "value" => value}
+      [other] -> %{"answer" => other}
+    end
+  end
 
   # position >= length(chain) - 1 means either the chain is down to just
   # the target itself (nothing left to ask about) or every dependency has

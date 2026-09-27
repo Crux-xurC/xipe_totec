@@ -65,6 +65,10 @@ methods (xipe do / WebSocket)
 - **合わせて**: 同じ表を返す読み取り専用の method（例: `command/list`）を `Methods` に載せる。tezcatl から使えるコマンドの一覧を取れる
 - **決めること**: CLI のコマンドの表を作り、`xipe help`（いまは長い説明文を手書き）もそこから出す形にするか。一覧を `xipe command list`（全部）だけにするか、`-c`（CLI のみ）・`-m`（method のみ）で絞れるようにするか
 - コメント:
+- （2026-09-27 実施、`Old.md` §40）表は作った（CLI コマンドは `lib/help.exs`、method は `Methods` の
+  `args`/`summary`）。一覧は `xipe help` が1行1コマンド（`コマンド: 説明  引数`）で出し、tezcatl の対話窓の
+  `help` も同じ表から出す。`command/list` の method は作らない（crux: tezcatl は `help` の行をヤンクして
+  辞書に登録する）。`xipe command list` と `-c`/`-m` は作っていない（要るなら `help` の引数で足せる）
 
 ### 1.1 検索 ── `xipe search`（対話で絞り込む、優先度: 高）
 
@@ -117,6 +121,12 @@ methods (xipe do / WebSocket)
 
 - 今の対話プログラム（`Dialogue.Depends`）は Book に触らない前提で作られている（必要なデータは開始時に全部渡す）。search はターンごとに Book と surface table を読むので、対話プログラムに読み取り専用のアクセスを渡す口を足す
 - 「ある関数を呼んでいる関数」は `links`（呼び出し関係）の検索になる。`-s`・`-e` に加えて3つ目の表（例: `-l`）を持つかは、必要になった時点で決める
+
+**実装（2026-09-27、`Old.md` §41）**: `eval_table`（`lib/eval_table.exs`）と `Dialogue.Search`。CLI の
+`xipe search [<最初のターン>]`（`search>` のプロンプト）と、tezcatl の対話窓の `search` の両方で動く。上の
+表からの補い: `-s|-e <列> <値>` の `<取り出したい列>` は省けば `id`。`-s|-e <列> list` にも取り出す列を書く
+（例の `-e path list id` のとおり）。`-` は空のセルに合う。リストの列（`args`）は要素を `, ` でつないだ文字列と
+して比べる。`x` は語・値（`id=x`）・リストの要素（`call_ids=[x]`）・参照（`⟦x⟧`）の位置で置き換える
 
 **決めたこと（crux、2026-09-26）**
 
@@ -235,18 +245,22 @@ methods (xipe do / WebSocket)
 
 #### Haskell（GHCi）
 
+**2026-09-27 に GHCi 9.10.3 で裏取りした**（Old.md §45）。「確認済み」の印が付いたものは実機で確かめた。
+
 | 論点 | 留意点 |
 |---|---|
-| ビルドツールの申告 | `stack`（`stack.yaml`）> `cabal`（`*.cabal`、`cabal.project`）> なし。起動はそれぞれ `stack ghci`・`cabal repl`・`ghci`。**どれも中身は GHCi** なので、アダプタは GHCi 用の1組でよい |
-| scripts-mode | `ghci file.hs` はモジュールを読み込むだけで `main` を実行しない。トップレベルの副作用が無い言語なので、`SourceSanitize` 相当は不要の見込み |
-| 起動の確認 | プロンプトが読み込んだモジュールで変わるので、バナーは `nil` にして `ready_probe`（`putStrLn ("XT_" ++ "READY")`）だけにするのが確実 |
-| 呼び出し式 | `M.f (a) (b)`。修飾名には `import qualified` が要る。GHCi は型の既定化（`ExtendedDefaultRules`）をするので、`f 1` の型が意図と変わりうる。必要なら引数に型注釈を書いてもらう |
-| 公開されていない関数 | `:load *Module`（解釈実行で読み込む）なら export されていない関数も呼べる。`cabal repl` の既定の読み込み方で呼べるかは要確認 |
-| 値の形 | `Read` を持つ型は少ないので往復検査はほぼ使えない。`embody` の `observe`（`show` の出力を有限に切る、Old.md §30.3）が本線。無限構造も `show` の遅延評価で先頭だけ取れる |
-| 遅延評価 | `evaluate` と表示範囲までの強制が必要。例外は強制した時点で起きる |
-| `IO` を返す関数 | GHCi は `IO a` の式を実行してしまう。`IO` を返す関数は `pure` にできない（分類の提案に使える） |
-| 上限 | 時間は `System.Timeout.timeout`（割り当てをしないループは止まらないことがある）。メモリは `enableAllocationLimit`（スレッドごとの割り当て上限）が使える見込み |
-| 言語サーバー | HLS（haskell-language-server）。`documentSymbol`・`callHierarchy` ともに対応している見込み。起動が重い |
+| ビルドツールの申告 | `stack`（`stack.yaml`）> `cabal`（`*.cabal`、`cabal.project`）> なし。起動はそれぞれ `stack ghci`・`cabal repl`・`ghci`。**どれも中身は GHCi** なので、アダプタは GHCi 用の1組でよい（stack・cabal 経由は未確認） |
+| scripts-mode | **確認済み**: `ghci -v0 <flags> embody.hs A.hs src/B/C.hs -isrc` でファイルを読むだけで、`main` は走らない。`SourceSanitize` 相当は不要。`embody.hs` は小文字のファイル名のままパスで読める。起動は小さな対象で約0.13秒 |
+| 起動の確認 | **確認済み**: `-v0` ではバナーもプロンプトも出ない。`ready_pattern` は `nil`、`ready_probe` は `putStrLn ("XT_" ++ "READY")`（`hFlush` しなくても pipe 越しにすぐ届く） |
+| 呼び出し式 | `M.f (a) (b)`。`:module + *M ...` で読み込んだモジュールをスコープに入れれば、修飾名で呼べる。GHCi の型の既定化（`ExtendedDefaultRules`）は未確認 |
+| 公開されていない関数 | **確認済み**: ソースから読み込み `:module + *M` にすれば、export されていない関数も `M.hidden` で呼べる（階層のあるモジュールも） |
+| 値の形 | **確認済み**: 1件を `let` の5行＋実行の1行で送る（Old.md §45）。`-fdefer-type-errors` は `let` の束縛にだけ効く（プロンプトで直接実行する式には効かない）ので、`Read`/`Show` の有無の振り分けは `let` の中で遅らせる。`Read`＋`Show`＋`Eq` で読み戻せれば `exact`（`[Shape]`・`Map` も）、`Show` だけなら `show` を切った `unsupported`、`Show` が無ければ型（`Typeable`）を表示にした `unsupported` |
+| 遅延評価 | **確認済み**: 無限リストは `show` を2000文字で切って返る。`exact` の判定も切った長さを超えたら諦める（無限の `[Integer]` は `Read` を持つが止まらないため） |
+| `IO` を返す関数 | いまは実行せず、型（`IO [Char]`）を表示にする。実行する `observeIO` は未設計 |
+| 上限 | **確認済み**: 時間は `System.Timeout.timeout` が解釈実行のループ（割り当てのないものも）を止める。割り当ての上限（`enableAllocationLimit`）も効く（生きているメモリではなく割り当ての総量） |
+| SIGINT | **確認済み**: 評価だけが止まり（`Interrupted.`）、GHCi は読み続ける → `interruptible: true` |
+| 失敗の返り方 | **確認済み**: 例外・呼び出しの型エラーは `crash`（GHC の文言）。呼び出しの構文エラーは `crash … Variable not in scope: xt_<id>` になり、本来の構文エラーの文言はマーカーの外に出る |
+| 言語サーバー | HLS（haskell-language-server）。未確認 |
 | arity | カリー化のため `anykey` は `nil`。同じモジュールに同名の関数は置けないので、名前だけで一意 |
 
 #### OCaml（素の `ocaml` トップレベル）
@@ -261,7 +275,7 @@ methods (xipe do / WebSocket)
 | 値の形（**確認済み**、2026-09-26） | 固定の `embody.ml` が、式のテキストをトップレベル自身の仕組み（`Toploop.execute_phrase`）で評価し、トップレベルの表示 `val xt_<id> : 型 = 値` を文字列として受け取る（2.5、Old.md §38）。型が一緒に取れ、表示は必ず有限（循環は `<cycle>`、関数は `<fun>`）。表示をもう一度評価して `=` で比べれば往復検査もできる見込み |
 | 同名の関数 | 同じモジュールで同名の `let` を重ねて書ける（後ろが前を隠す）。自然キー（モジュール・名前）が一意にならないので、`anykey` に出現順を入れるなどの工夫が要る |
 | 上限 | 時間は `Unix.alarm`＋シグナル、またはスレッド。トップレベルに `unix` ライブラリを読み込む必要がある。メモリの上限は難しく、REPL ごと kill に頼る見込み |
-| 言語サーバー | ocaml-lsp（`ocamllsp`）。`documentSymbol` は対応。`callHierarchy` の対応は要確認 |
+| 言語サーバー | ocaml-lsp（`ocamllsp`）。`documentSymbol` は対応。**`callHierarchy` は非対応**（1.27.0 で確認、2026-09-27）。使わず、テキストで読む `Scanner.Ocaml` にする（crux、Old.md §42.4） |
 
 #### Clojure
 
@@ -316,6 +330,11 @@ methods (xipe do / WebSocket)
 | Lean 4（`#eval`） | 対話的な REPL の形が他と違う（ファイルに `#eval` を書いて処理させる形）。xipe の枠に乗るかから検討が要る |
 
 ### 2.4 着手順
+
+**変更（crux、2026-09-27）: OCaml を先にする**（実機の確認が済んでいたため）。OCaml は 2026-09-27 に実装した（`Old.md` §42・§43）。Haskell も同日に実装した（§45・§46、cabal・stack は §47）。
+
+**一旦停止（crux、2026-09-27）**: Clojure・Racket はしばらく使う予定が無いので、言語の追加（§2）はここで止める。
+再開するときは §2.3 の各言語の表（未検証の下書き）と Old.md §42〜§47 の実装の形から。
 
 **決定（crux、2026-09-26）: Haskell と OCaml を優先する。** どちらも往復検査の汎用の仕組みが無く、値の形（`embody`、Old.md §30）に最初から向き合う順番になる。Old.md §30.1 の注意（Lisp 系から始めると repr の問題が見えないまま進む）にも沿う。Clojure・Racket はその後。
 
@@ -408,15 +427,16 @@ Aepyornis（Elixir の `lib/` が、dune でビルドした OCaml の実行フ�
 
 ## 3. 次の再開時に決めたいことの一覧
 
+**（2026-09-27）`eval_table` と検索（1.1）は実装した（`Old.md` §41）。**
 **次の再開は `eval_table` を実現するところから詰める（crux、2026-09-26）。** 検索（1.1）の `-e`、言語をまたぐ変換（2.6）の `result_type` による割り当てが、どちらもこの表を土台にする。1.1 の「`eval_table` の定義」（計算行に関数と `path` を横付けした読み取り用の表）が出発点。
 
 1. コマンド一覧（1.0）: CLI のコマンドの表を作り `xipe help` もそこから出すか、絞り込みの有無
-2. 検索（1.1）: 決定済み（完全一致と `~値` の部分一致・数値の同一視、`get id` は1から・「No match data」、変数 `x`、先頭10件の表示、`xipe quit dialogue`、終了以外はすべて保持）。残りは `eval_table` の実現（下の太字）
+2. 検索（1.1）: 実装済み（2026-09-27、`Old.md` §41）。残りは `links` を引く3つ目の表を持つか
 3. `row/history` の見せ方（1.2）
 4. `surface/set` の値を作り直しでどう残すか（1.3）。`surface/list` は検索（1.1 の `-s`）で代用できるので、作るのは `surface/set`・`surface/diff` だけでよいか
 5. 期待値（1.4）: `rewrite` を「評価しない書き換え」の総称にするか
 6. まとめて分類するときの安全策（1.5）
 7. `row/stale` に依存の変化を含めるか（1.6）
 8. CLI の住所と値の記法（1.7）
-9. Java・Python を対象に入れるか（2.3）。着手順は Haskell → OCaml に決定済み（2.4）
+9. Java・Python を対象に入れるか（2.3）。着手順は OCaml（2026-09-27 実装）→ Haskell（2.4）
 10. 言語が混ざるプロジェクト（2.6）: 仮の制限は外した。言語をまたぐ連鎖の変換（型ごとの変換モジュールと対応表）を作る時期、変換を経た印の形

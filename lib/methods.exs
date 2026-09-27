@@ -21,34 +21,39 @@ defmodule XipeTotec.Methods do
       (`Serve.Project`: `{"status": "started"}` then `notify/passCompleted`;
       a `:pipeline` method's stages before `"eval"` run at once)
 
+    * `args`/`summary` -- how its params are written in a command list
+      (`xipe do`, the dialogue window's `input`) and what it does, one line
+      each: `help` prints them (`XipeTotec.Help`). A `:not_implemented`
+      method has none and isn't printed
+
   Not listed: session bookkeeping `Serve.Socket` handles itself
-  (`initialize`, `subscribe`) and dialogue methods (`InOut`).
+  (`initialize`, `subscribe`, `input`) and dialogue methods (`InOut`).
 
   A `:dispatch` method added to `Dispatch.handle/4` must be added here too;
   `test/methods_test.exs` checks both directions.
   """
 
   @type route :: :dispatch | :repl | :pipeline | :not_implemented
-  @type spec :: %{route: route(), writes: boolean(), repl: boolean()}
+  @type spec :: %{route: route(), writes: boolean(), repl: boolean(), args: String.t(), summary: String.t() | nil}
 
   @methods %{
-    "scan/run" => %{route: :dispatch, writes: true},
-    "row/add" => %{route: :dispatch, writes: true},
-    "row/remove" => %{route: :dispatch, writes: true},
-    "row/set-result" => %{route: :dispatch, writes: true},
-    "effect/set" => %{route: :dispatch, writes: true},
-    "card/get" => %{route: :dispatch, writes: false},
-    "card/search" => %{route: :dispatch, writes: false},
-    "cell/resolve" => %{route: :dispatch, writes: false},
-    "graph/neighbors" => %{route: :dispatch, writes: false},
-    "graph/export" => %{route: :dispatch, writes: false},
-    "row/depends" => %{route: :dispatch, writes: false},
-    "row/list" => %{route: :dispatch, writes: false},
-    "row/check" => %{route: :dispatch, writes: false},
-    "node/resolve" => %{route: :dispatch, writes: false},
-    "eval" => %{route: :repl, writes: true, repl: true},
-    "eval/run" => %{route: :pipeline, writes: true, repl: true},
-    "row/update" => %{route: :pipeline, writes: true, repl: true},
+    "scan/run" => %{route: :dispatch, writes: true, summary: "ソースを読み、カードと link を更新する"},
+    "row/add" => %{route: :dispatch, writes: true, args: "node=<node id> args=[...]", summary: "計算行を作る"},
+    "row/remove" => %{route: :dispatch, writes: true, args: "id=<call id>", summary: "計算行を消す"},
+    "row/set-result" => %{route: :dispatch, writes: true, args: "id=<call id> result=<値>", summary: "評価せずに結果の値を手で入れる"},
+    "effect/set" => %{route: :dispatch, writes: true, args: "id=<node id> effect=pure|reads|writes", summary: "関数の副作用を分類する（未分類の関数は評価しない）"},
+    "card/get" => %{route: :dispatch, writes: false, args: "module= name= arity= file= row=", summary: "住所に合うカード（関数・計算行・link）を取り出す"},
+    "card/search" => %{route: :dispatch, writes: false, args: "module= name= arity= file= row=", summary: "住所に合うカードを探す"},
+    "cell/resolve" => %{route: :dispatch, writes: false, args: "ref=⟦<call id>⟧", summary: "参照の今の値を引く"},
+    "graph/neighbors" => %{route: :dispatch, writes: false, args: "address=<住所> [depth=N] [direction=in|out|both]", summary: "呼び出し関係の近いものを引く"},
+    "graph/export" => %{route: :dispatch, writes: false, args: "address=<住所> format=mermaid|dot|json|doctest [depth=N]", summary: "呼び出し関係を書き出す"},
+    "row/depends" => %{route: :dispatch, writes: false, args: "call_ids=[...]", summary: "計算行の上流の依存（⟦id⟧）をたどる"},
+    "row/list" => %{route: :dispatch, writes: false, args: "[call_ids=[...]]", summary: "計算行の一覧"},
+    "row/check" => %{route: :dispatch, writes: false, args: "[on=error,changed,unevaluated] [call_ids=[...]]", summary: "条件に当たる計算行があれば失敗する"},
+    "node/resolve" => %{route: :dispatch, writes: false, args: "module= name= arity= file= row=", summary: "住所から関数（node）の id を引く"},
+    "eval" => %{route: :repl, writes: true, repl: true, args: "[call_ids=[...]] [include_writes=true]", summary: "指定した計算行を REPL で評価する"},
+    "eval/run" => %{route: :pipeline, writes: true, repl: true, args: "[call_ids=[...]] [include_writes=true]", summary: "指定した計算行を REPL で評価する"},
+    "row/update" => %{route: :pipeline, writes: true, repl: true, args: "id=<call id> args=[...]", summary: "引数を変えて、その行だけを評価する"},
     "cell/complete" => %{route: :not_implemented, writes: false},
     "edit/propose" => %{route: :not_implemented, writes: false},
     "edit/apply" => %{route: :not_implemented, writes: true},
@@ -60,7 +65,8 @@ defmodule XipeTotec.Methods do
   }
 
   @spec all() :: %{String.t() => spec()}
-  def all, do: Map.new(@methods, fn {name, spec} -> {name, Map.put_new(spec, :repl, false)} end)
+  def all,
+    do: Map.new(@methods, fn {name, spec} -> {name, spec |> Map.put_new(:repl, false) |> Map.put_new(:args, "") |> Map.put_new(:summary, nil)} end)
 
   @spec get(String.t()) :: spec() | nil
   def get(name), do: Map.get(all(), name)
