@@ -7,12 +7,23 @@ defmodule XipeTotec.Serve.Socket do
   §16.1's WebSocket (localhost) entry, one `:cowboy_websocket` instance per
   accepted connection (Old.md §9, 2026-09-17). A thin transport shell:
   decode/encode via `Protocol`, forward real work to the single
-  `Serve.Project` GenServer. No auth, no Origin check -- spec §16.1: "いず
-  れもローカルホストのみで待ち受け、認証は設けず" (every §16.1 entry point
-  is localhost-only, no auth by design), unlike tezcatl's `LspSocket`/
-  `BrowserSocket`, which *do* check Origin because a browser tab can reach
-  them cross-origin. This socket is dialed into directly (by tezcatl's own
-  `/xipe` relay, or any other localhost client), never embedded in a page.
+  `Serve.Project` GenServer. No auth -- spec §16.1: "いずれもローカルホスト
+  のみで待ち受け、認証は設けず" (every §16.1 entry point is localhost-only,
+  no auth by design).
+
+  ## Origin
+
+  Localhost-only is not enough on its own: any web page open in a browser
+  on this machine can dial `ws://127.0.0.1:<port>/` (a WebSocket is not
+  held back by CORS), and a client that can `row/add` + `eval` runs
+  arbitrary code in the target project's REPL. A browser always sends an
+  `Origin` header on a WebSocket handshake; this socket's real clients
+  (tezcatl's `/xipe` relay, which dials in with `gun`, or any other local
+  program) send none. So a handshake with no `Origin` is accepted, and one
+  with an `Origin` only if it is listed in `XIPE_TOTEC_ALLOWED_ORIGINS`
+  (comma-separated, empty by default). tezcatl's pages never reach this
+  socket directly -- they go through the relay's `/xipe`, which checks
+  their Origin itself (tezcatl `AllowedOrigins`).
 
   `initialize`'s session state (`initialized?`, the client's declared
   capabilities) lives here, not in `Serve.Project` -- decided 2026-09-17
@@ -51,10 +62,36 @@ defmodule XipeTotec.Serve.Socket do
   alias XipeTotec.{Protocol, Serve.Input, Serve.Project}
 
   @impl true
-  def init(req, _opts),
-    do:
-      {:cowboy_websocket, req, %{initialized: false, capabilities: nil, dialogue: nil, inputs: %{}},
-       %{idle_timeout: :infinity}}
+  def init(req, _opts) do
+    case check_origin(:cowboy_req.header("origin", req, :undefined)) do
+      :ok ->
+        {:cowboy_websocket, req, %{initialized: false, capabilities: nil, dialogue: nil, inputs: %{}},
+         %{idle_timeout: :infinity}}
+
+      {:error, origin} ->
+        IO.puts(:stderr, "xipe start: rejected a connection from Origin #{inspect(origin)} (XIPE_TOTEC_ALLOWED_ORIGINS)")
+        req = :cowboy_req.reply(403, %{"content-type" => "text/plain"}, "forbidden origin\n", req)
+        {:ok, req, nil}
+    end
+  end
+
+  @doc """
+  Whether a handshake's `Origin` header (`:undefined` when absent) may
+  connect -- see the moduledoc's "Origin". `allowed` defaults to
+  `XIPE_TOTEC_ALLOWED_ORIGINS`.
+  """
+  @spec check_origin(String.t() | :undefined, [String.t()]) :: :ok | {:error, String.t()}
+  def check_origin(origin, allowed \\ allowed_origins())
+  def check_origin(:undefined, _allowed), do: :ok
+  def check_origin(origin, allowed), do: if(origin in allowed, do: :ok, else: {:error, origin})
+
+  @spec allowed_origins() :: [String.t()]
+  def allowed_origins do
+    (System.get_env("XIPE_TOTEC_ALLOWED_ORIGINS") || "")
+    |> String.split(",")
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+  end
 
   @impl true
   def websocket_init(state) do

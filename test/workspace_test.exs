@@ -64,17 +64,17 @@ defmodule WorkspaceTest do
     assert project.path == a
     assert Path.dirname(project.store_file) == project.dir
     assert [%{"path" => "m.exs", "language" => "elixir"}] = XipeTotec.SurfaceTable.load(project.table_file)
-    assert Info.load(roots.info)["project"] == "001"
+    assert Workspace.selected(roots) == "001"
     assert {:ok, ^project} = Workspace.resolve(nil, roots)
   end
 
   test "choose/2 on an already-registered project keeps its id and just switches the selection", %{roots: roots, proj_a: a, proj_b: b} do
     {pa, :new} = Workspace.choose(a, roots)
     {pb, :new} = Workspace.choose(b, roots)
-    assert Info.load(roots.info)["project"] == pb.id
+    assert Workspace.selected(roots) == pb.id
 
     assert {^pa, :existing} = Workspace.choose(a, roots)
-    assert Info.load(roots.info)["project"] == pa.id
+    assert Workspace.selected(roots) == pa.id
   end
 
   test "each project gets its own book file", %{roots: roots, proj_a: a, proj_b: b} do
@@ -92,9 +92,14 @@ defmodule WorkspaceTest do
     assert Enum.any?(rows, &(&1["path"] == "n.exs"))
   end
 
-  test "resolve/2 preserves the other info.json fields", %{roots: roots, proj_a: a} do
-    Info.save(%{"languages" => ["elixir"], "repls" => [], "project" => nil}, roots.info)
-    Workspace.choose(a, roots)
-    assert Info.load(roots.info)["languages"] == ["elixir"]
+  # the selection is machine-local (tables/, git-ignored): choosing a
+  # project leaves the tracked info.json untouched
+  test "choose/2 keeps the selection beside the registry, not in info.json", %{roots: roots, proj_a: a} do
+    Info.save(%{"languages" => ["elixir"], "repls" => []}, roots.info)
+    before = File.read!(roots.info)
+    {project, _} = Workspace.choose(a, roots)
+    assert File.read!(roots.info) == before
+    assert Workspace.selection_path(roots) == Path.join(Path.dirname(roots.registry), "selection.json")
+    assert JSON.decode!(File.read!(Workspace.selection_path(roots))) == %{"project" => project.id}
   end
 end

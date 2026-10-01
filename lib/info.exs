@@ -3,10 +3,8 @@ defmodule XipeTotec.Info do
   `info.json` (xipe_totec's own root, Old.md §24): xipe_totec's
   bookkeeping about itself, not about any scanned target project's Book --
   which languages/REPLs it currently has adapter modules for (`languages`/
-  `repls`), and which target project is currently selected (`project`,
-  still unused until a future `xipe choice project` command writes it --
-  §24's co-design deferred that command and its ID-assignment past this
-  pass).
+  `repls`). Which target project is selected is not kept here (it is
+  machine-local: `Workspace.selected/1`, `tables/selection.json`).
 
   Deliberately **not** CWD-relative like `book.jsonl` (`main.exs`'s
   `@store_file`) -- `book.jsonl`'s own convention (`Store.load/persist_diff`
@@ -40,15 +38,14 @@ defmodule XipeTotec.Info do
   Loads `path` (default: xipe_totec's own `info.json`) into a plain
   string-keyed map. A missing file is not an error -- returns the same
   empty scaffold `xipe refresh` would start filling in
-  (`%{"languages" => [], "extensions" => %{}, "repls" => [], "project" =>
-  nil}`), so a fresh checkout works before anyone has ever run `xipe
+  (`%{"languages" => [], "extensions" => %{}, "repls" => []}`), so a fresh checkout works before anyone has ever run `xipe
   refresh`.
   """
   @spec load(Path.t()) :: t()
   def load(path \\ @default_path) do
     case File.read(path) do
       {:ok, content} -> JSON.decode!(content)
-      {:error, :enoent} -> %{"languages" => [], "extensions" => %{}, "repls" => [], "project" => nil}
+      {:error, :enoent} -> %{"languages" => [], "extensions" => %{}, "repls" => []}
     end
   end
 
@@ -76,7 +73,7 @@ defmodule XipeTotec.Info do
       `build_tool` column
 
   A module without `repl/0`/`build_tools/0` records `nil`/`[]`.
-  Does not touch `repls` or `project`.
+  Does not touch `repls`.
   """
   @spec refresh_languages(t(), Path.t()) :: t()
   def refresh_languages(info, dir \\ @language_dir) when is_map(info) do
@@ -102,7 +99,7 @@ defmodule XipeTotec.Info do
   `document/repl-adapter-guide.md` documents) and sets `info["repls"]` to
   `[%{"transport" => ..., "repl" => ...}, ...]`, sorted (today: a single
   `%{"transport" => "direct", "repl" => "iex"}`). Does not touch
-  `languages` or `project`.
+  `languages`.
   """
   @spec refresh_repls(t()) :: t()
   def refresh_repls(info) when is_map(info), do: Map.put(info, "repls", list_repls())

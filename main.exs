@@ -154,7 +154,7 @@ defmodule XipeTotec.CLI do
   end
 
   # The project a command acts on (XipeTotec.Workspace.resolve/2): the
-  # given <dir> if registered, else info.json's selected project. Halts
+  # given <dir> if registered, else the selected project (tables/selection.json). Halts
   # with the resolver's own message otherwise.
   defp project!(dir) do
     case Workspace.resolve(dir) do

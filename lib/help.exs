@@ -54,7 +54,7 @@ defmodule XipeTotec.Help do
       window: false,
       detail: """
       register <path> if new (generating its surface table) and make it the selected
-      project (info.json's "project")
+      project (tables/selection.json)
       """
     },
     %{

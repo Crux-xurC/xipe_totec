@@ -22,8 +22,11 @@ defmodule XipeTotec.Workspace do
   only re-mint fresh node ids, orphaning its calls and losing its
   `effect/set` classifications) -- see Old.md §31.
 
-  The currently selected project is `info.json`'s `project` field (an id,
-  `XipeTotec.Info`), written only by `choose/3`. `resolve/3` is what every
+  The currently selected project is `tables/selection.json`'s `project`
+  field (an id), written only by `choose/3` -- machine-local and git-ignored
+  like the rest of `tables/`, next to the registry it points into (it used
+  to be `info.json`'s, which is tracked, so every selection showed up as a
+  change to commit). `resolve/3` is what every
   other command goes through: an explicit `<dir>` must already be
   registered (no silent auto-registration from `scan`/`eval` -- choosing a
   project is its own deliberate step, same spirit as `xipe refresh`), and
@@ -33,10 +36,11 @@ defmodule XipeTotec.Workspace do
 
   `roots` (the last argument everywhere) is `%{registry: ..., info: ...}`,
   defaulting to xipe_totec's own `tables/project/` and `info.json`, so
-  tests can point both at a temp directory.
+  tests can point both at a temp directory. The selection file is the
+  registry's sibling (`selection_path/1`).
   """
 
-  alias XipeTotec.{Info, ProjectRegistry, Session, SurfaceTable}
+  alias XipeTotec.{ProjectRegistry, Session, SurfaceTable}
 
   @type project :: %{id: String.t(), path: String.t(), dir: Path.t(), store_file: Path.t(), table_file: Path.t()}
   @type roots :: %{required(:registry) => Path.t(), required(:info) => Path.t(), optional(:session) => Path.t()}
@@ -107,13 +111,34 @@ defmodule XipeTotec.Workspace do
           {project, :existing}
       end
 
-    roots.info |> Info.load() |> Map.put("project", project.id) |> Info.save(roots.info)
+    write_selection(roots, project.id)
     {project, status}
+  end
+
+  @doc "Where the selected project's id is kept: `selection.json` beside the registry directory."
+  @spec selection_path(roots()) :: Path.t()
+  def selection_path(roots), do: Path.join(Path.dirname(roots.registry), "selection.json")
+
+  @doc "The selected project's id, or `nil`."
+  @spec selected(roots()) :: String.t() | nil
+  def selected(roots \\ default_roots()) do
+    with {:ok, text} <- File.read(selection_path(roots)),
+         {:ok, %{"project" => id}} when is_binary(id) <- JSON.decode(text) do
+      id
+    else
+      _ -> nil
+    end
+  end
+
+  defp write_selection(roots, id) do
+    path = selection_path(roots)
+    File.mkdir_p!(Path.dirname(path))
+    File.write!(path, JSON.encode!(%{"project" => id}) <> "\n")
   end
 
   @doc """
   The project a command acts on: `dir` (must already be registered) when
-  given, otherwise `info.json`'s selected project.
+  given, otherwise the selected project (`selected/1`).
   """
   @spec resolve(String.t() | nil, roots()) :: {:ok, project()} | {:error, String.t()}
   def resolve(dir, roots \\ default_roots())
@@ -139,7 +164,7 @@ defmodule XipeTotec.Workspace do
   end
 
   defp resolve_selected(roots) do
-    case Info.load(roots.info)["project"] do
+    case selected(roots) do
       nil ->
         {:error, "no project selected -- run `xipe choice project <path>` first"}
 

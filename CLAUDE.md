@@ -8,7 +8,8 @@
 1. `README.md` ── 何のためのものか、何ではないか、設計原則 P1〜P10、いまどこまで動くか
 2. `document/課題.md` ── いま何が未解決で、次に何をするか
 3. `document/next_step.md` ── 次の段階の案。各項目の「コメント:」欄に crux の書き込みがあれば、それが最新の意向
-4. 必要なときだけ: `document/動作原理.md`（どの順で何が呼ばれるか）、`document/How_to_use.md`（使い方）、
+4. 言語やコマンドを足すとき: `document/拡張の手引き.md`（何を参考に、どういう動作を満たすか。壊してはいけない約束）
+5. 必要なときだけ: `document/動作原理.md`（どの順で何が呼ばれるか）、`document/How_to_use.md`（使い方）、
    `document/Old.md`（決定の経緯。コード中の「Old.md §N」はここ）
 
 仕様書 `document/xipe_totec_spec_v0.4.html` は叩き台。`Old.md` の決定と食い違うときは `Old.md` を優先する。
@@ -37,22 +38,12 @@ tezcatl の画面から確かめるときは `../tezcatl/test/e2e/README.md`（�
 
 ## git
 
-`~/my_app` は複数のプロジェクトが入った1つの作業ツリーで、index には**無関係なステージ済みの変更が
-常にある**。xipe_totec のコミットはパスを指定して、それらを巻き込まない:
+xipe_totec はこのディレクトリが独立した git リポジトリ（2026-10-01 から。`origin` =
+`git@github.com:Crux-xurC/xipe_totec.git`、ブランチ `main`）。普通に `git commit` / `git push origin main`
+する。`~/my_app` 側の git はもう xipe_totec を追跡しない（`~/my_app` は手元専用の別リポジトリ）。
 
-```
-git add -A -- xipe_totec
-git commit -F <メッセージのファイル> -- xipe_totec          # メッセージは「xipe_totec: 」で始める
-git -c core.quotepath=false show --name-only --format= HEAD | grep -v '^xipe_totec/'   # 何も出ないこと
-```
-
-push は `xipe_totec` リモートへ subtree split で送る:
-
-```
-S=$(git subtree split --prefix=xipe_totec HEAD)
-git rev-parse $S^            # xipe_totec/main と同じであること（fast-forward）
-git push xipe_totec $S:refs/heads/main
-```
+`tables/`（プロジェクトの登録・Book・選択中のプロジェクト `selection.json`・`session.json`）は
+マシンごとのデータで git 管理外。
 
 **commit も push も、crux が明示的に頼んだときだけ。**
 

@@ -60,6 +60,32 @@ defmodule ServeSocketTest do
 
   defp request(method, params, id \\ 1), do: JSON.encode!(%{"jsonrpc" => "2.0", "id" => id, "method" => method, "params" => params})
 
+  # a web page can dial this socket too; only a browser sends Origin
+  # (moduledoc's "Origin")
+  test "a handshake without Origin is accepted, one from a page is not unless listed" do
+    assert Socket.check_origin(:undefined, []) == :ok
+    assert Socket.check_origin("https://evil.example", []) == {:error, "https://evil.example"}
+    assert Socket.check_origin("http://127.0.0.1:4001", []) == {:error, "http://127.0.0.1:4001"}
+    assert Socket.check_origin("http://127.0.0.1:4001", ["http://127.0.0.1:4001"]) == :ok
+  end
+
+  test "XIPE_TOTEC_ALLOWED_ORIGINS is a comma-separated list, empty by default" do
+    previous = System.get_env("XIPE_TOTEC_ALLOWED_ORIGINS")
+
+    try do
+      System.delete_env("XIPE_TOTEC_ALLOWED_ORIGINS")
+      assert Socket.allowed_origins() == []
+      System.put_env("XIPE_TOTEC_ALLOWED_ORIGINS", " http://a:1 ,,http://b:2")
+      assert Socket.allowed_origins() == ["http://a:1", "http://b:2"]
+    after
+      if previous, do: System.put_env("XIPE_TOTEC_ALLOWED_ORIGINS", previous), else: System.delete_env("XIPE_TOTEC_ALLOWED_ORIGINS")
+    end
+  end
+
+  test "init/2 upgrades a handshake that has no Origin (how tezcatl's relay dials in)" do
+    assert {:cowboy_websocket, _req, %{initialized: false}, _opts} = Socket.init(%{headers: %{}}, [])
+  end
+
   test "initialize tells the client which project this server has open", %{dir: dir} do
     {:reply, {:text, body}, state} =
       Socket.websocket_handle({:text, request("initialize", %{})}, %{initialized: false, capabilities: nil, dialogue: nil})

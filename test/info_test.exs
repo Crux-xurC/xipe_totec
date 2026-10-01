@@ -14,7 +14,7 @@ defmodule InfoTest do
   end
 
   test "load/1 on a missing file returns the empty scaffold", %{path: path} do
-    assert Info.load(path) == %{"languages" => [], "extensions" => %{}, "repls" => [], "project" => nil}
+    assert Info.load(path) == %{"languages" => [], "extensions" => %{}, "repls" => []}
   end
 
   test "save/2 then load/1 round-trips", %{path: path} do

@@ -531,11 +531,14 @@ tezcatl の対話窓はすべての行をこの形で送り、中身を解釈し
 
 ### 6.3 tezcatl から使う
 
-基本は tezcatl が `xipe start` を `<dir>` なしで起動する（対象は選択中のプロジェクト）。
-対象を決めるのは Xipe Totec 側で、tezcatl は窓にすぎない。先に `xipe choice project` で
-選んでおくこと。
+基本は tezcatl の開発シェルの `t` が、Emacs と同じく `xipe start` を `<dir>` なしで :4200 に
+バックグラウンドで起動する（:4200 が空いているときだけ。ログは `/tmp/tezcatl-xipe.log`）。
+tezcatl の中継はそこへつなぐだけなので、窓を閉じても止まらない。止めるときは
+`tables/session.json` の pid に SIGTERM を送る。対象は選択中のプロジェクトで、選ばれていなければ
+すぐ終わる（ログに出る）。対象を決めるのは Xipe Totec 側で、tezcatl は窓にすぎない。先に
+`xipe choice project` で選んでおくこと。
 
-tezcatl が起動するときは `--port`・`--lsp`（tezcatl の `/lsp` 中継の URL）・`--fs-root`
+`t` や tezcatl の中継（`xipe.json` が `mode: "spawn"` のとき）が起動するときは `--port`・`--lsp`（tezcatl の `/lsp` 中継の URL）・`--fs-root`
 （tezcatl のファイルのルート）を渡す。これでスキャンは tezcatl の言語サーバーを共用する。
 手で起動するときに同じことをしたければ、これらを自分で渡すか、環境変数で指定する（§10）。
 tezcatl がいなくても、elixir-ls を自分で起動して読むので動作は変わらない。
@@ -562,12 +565,13 @@ xipe eval                                # 何度でも。compare で変化を�
 
 | ファイル | 中身 |
 |---|---|
-| `info.json` | 登録済みの言語と拡張子、言語ごとの REPL とビルドツールの優先順位、REPL アダプタ、選択中のプロジェクト |
+| `info.json` | 登録済みの言語と拡張子、言語ごとの REPL とビルドツールの優先順位、REPL アダプタ |
 | `pipelines.json` | Pipeline 経由の method の登録（通常は触らない） |
 | `tables/project/<id>_<名前>/project.json` | 対象プロジェクトの絶対パス（照合キー）と、プロジェクトごとの設定（§4.3） |
 | `tables/project/<id>_<名前>/env.json` | flake.nix から取り出した環境変数とハッシュ（§4.3） |
 | `tables/project/<id>_<名前>/table` | ファイル→言語の表（言語・REPL・ビルドツール）。スキャン・評価はこれを読む |
 | `tables/project/<id>_<名前>/book.jsonl` | Book。追記のみの JSON Lines で、同じ id の最後の行が現在の値 |
+| `tables/selection.json` | 選択中のプロジェクト（`xipe choice project` が書く） |
 | `tables/session.json` | 動いている `xipe start` の記録 |
 
 `book.jsonl` は追記だけで、書き換えない。壊れた行（書き込み途中で落ちたなど）は読み込み時に

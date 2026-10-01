@@ -1,12 +1,18 @@
 # REPLアダプタ追加ガイド（新しい言語/REPLを足すとき用）
 
+> **2026-09-27 追記: 入口は `document/拡張の手引き.md`。** このガイドは Elixir を実装した時点（2026-09-18〜09-26）の
+> 詳しい参照資料として残している。その後 OCaml（`Old.md` §42〜§43）と Haskell（§45〜§47）を実装し、対象の REPL に読み込む
+> 固定のモジュール **embody**（別リポジトリ `~/my_app/embody`）という第3の部品が加わった。下の「候補言語ごとの
+> チェックリスト回答」の OCaml / utop・Haskell / GHCi の節は実装前の下書きで、実際の形（utop ではなく素の `ocaml`、
+> GHCi には `let` で束縛して送る、など）は `Old.md` の各節と `拡張の手引き.md` を見ること
+
 対象読者: Elixir以外の言語（spec §12.6の候補: Haskell/GHCi、OCaml/utop、Clojure、Racketなど）のREPLアダプタを新しく書く人（人間・AIのどちらも想定。このセッションの会話内容を知らない前提で書いてある）。
 
 **2026-09-18時点でElixir向けの実装は完成し、実機の`iex`で全パイプライン(起動→完了検知→評価→compare判定→パース→離脱)を確認済み。** このガイドの各項目は、もう「設計だけ」ではなく`lib/repl/`配下に動くコード例がある。新しい言語を足すときは、まずそのコードを読むこと。`compare`判定・`Core.plan_recalc`/`Core.apply_results`との配線(`Repl.Evaluator`)・`xipe eval`/`xipe do`のCLIまで含めて動く(`Old.md` §11〜14)。
 
 ## 前提となる設計（変更しないこと）
 
-Xipe Totecは対象プロジェクトのREPLへ人間が手で式を打ち込んで確認するのと同じ操作を自動化する（`Old.md` §10）。全体は「**言語/REPLごとの算出プログラム**（JSONデータやコード片を作るだけ、純粋関数）」と「**汎用の実行層**（それを読んで実行するだけ、言語知識ゼロ）」に分かれている。**新しい言語を足すときは、算出プログラム側だけを書けばよい。汎用の実行層(`lib/repl/sender.exs`/`lib/repl/sender_direct.exs`/`lib/repl/session.exs`/`lib/repl/eval/scan.exs`/`lib/repl/eval/field_drip.exs`/`lib/repl/eval/parser.exs`/`lib/repl/eval/result.exs`/`lib/repl/evaluator.exs`)には一切手を入れない。**
+Xipe Totecは対象プロジェクトのREPLへ人間が手で式を打ち込んで確認するのと同じ操作を自動化する（`Old.md` §10）。全体は「**言語/REPLごとの算出プログラム**（JSONデータやコード片を作るだけ、純粋関数）」と「**汎用の実行層**（それを読んで実行するだけ、言語知識ゼロ）」に分かれている。**新しい言語を足すときは、算出プログラム側（と、必要なら対象の REPL に読み込む embody）だけを書けばよい。汎用の実行層(`lib/repl/sender.exs`/`lib/repl/sender_direct.exs`/`lib/repl/session.exs`/`lib/repl/eval/scan.exs`/`lib/repl/eval/field_drip.exs`/`lib/repl/eval/parser.exs`/`lib/repl/eval/result.exs`/`lib/repl/evaluator.exs`)には一切手を入れない。**
 
 `XipeTotec.Repl.Evaluator`(`lib/repl/evaluator.exs`)は`Core.plan_recalc/3`のPlanを1セッションに流し込み`Core.apply_results/3`まで畳み込む、この汎用実行層の一番外側のオーケストレータ(2026-09-18)。`:launch_module`/`:eval_template_module`/`:scan_module`/`:field_drip_module`の4オプションで算出プログラム側の4モジュールを受け取る(既定はElixir実装)──「呼び出し元が具体的なモジュールを渡す、内部で言語判定しない」という`Parser.step/5`と同じ流儀。新しい言語を足しても`Evaluator`自体は無改造で、この4つを差し替えて渡すだけでよい(まだ「どのノードがどの言語のプロジェクトに属するか見て自動選択する」機構は無い ── 今のところ言語アダプタが1つしか無いため)。
 
@@ -17,7 +23,9 @@ Xipe Totecは対象プロジェクトのREPLへ人間が手で式を打ち込ん
 - **`XipeTotec.Repl.Language`（`lib/repl/language.exs`、2026-09-24、`Old.md` §34）**: 言語ごとの自己申告。`lib/repl/language/<name>.exs`に1言語1モジュールを置き、ファイル名が言語名になる（`elixir.exs`→`"elixir"`）。申告するのは`extensions/0`（拡張子の一覧）・`repl/0`（REPL の名前、surface table の`repl`列）・`build_tools/0`（ビルドツールの優先順位表 `[%{"name", "markers"}]`、2026-09-26）・`scanner/0`・`adapter/0`・`launch_opts/3`（`build_tool`の名前と、その言語のファイル一覧を受け取る）。**新しい言語を足すときは、4つの算出プログラムに加えてこのファイルも書く**
 - **`XipeTotec.Info`（`lib/info.exs`）**: xipe_totec自身の`info.json`（対象プロジェクト側ではない）を読み書きする。`xipe refresh -l`が`lib/repl/language/*.exs`を読み込んで`extensions/0`・`repl/0`・`build_tools/0`を呼び、`languages`（言語名）・`extensions`（拡張子→申告した言語のリスト）・`language_repls`・`build_tools`を書く。**ファイルを置いただけでは効かず、`xipe refresh -l`を叩いて初めて登録される**（P4）
 - **`XipeTotec.SurfaceTable`（`lib/surface_table.exs`）**: 対象プロジェクトのファイルツリーを走査し、`language`/`repl`/`build_tool`を判定するテーブル。`language`は`info.json`の`extensions`から引く。1言語だけが申告した拡張子はその言語、どの言語も申告していないか**2つ以上の言語が申告した拡張子は`nil`**（P9、判定できないものは判定できないと示す）。`repl`/`build_tool`は各言語の`Repl.Language`の申告（`repl/0`・`build_tools/0`）から決まる（Elixir＋`mix`、OCaml＋`dune`）
-- **まだ申告に無いもの（計画のみ）**: `embody`の有無（§30）。実装されたら`Repl.Language`のcallbackとして足す。Nix の環境は言語ではなくプロジェクト単位の層（`ProjectEnv`）なので、申告には含めない。あわせて、起動完了の検出を固定の`XT_READY`マーカーへ移す計画もある（§25.3。`Launch`相当のモジュールの`ready_pattern`に関わる）。最新の実装状況は`README.md`の「いまどこまで動くか」、残作業は`課題.md`の「多言語対応」節を確認すること
+- **embody（2026-09-27 実装）**: callback にはせず、各言語の launch が初期化の中で読み込む（OCaml は `-init` のファイル、
+  Haskell は `-ghci-script`）。置き場所は `lib/repl/embody.exs`（`XIPE_TOTEC_EMBODY_DIR`、無ければ隣の `embody/`）。
+  **まだ申告に無いもの（計画のみ）**:Nix の環境は言語ではなくプロジェクト単位の層（`ProjectEnv`）なので、申告には含めない。あわせて、起動完了の検出を固定の`XT_READY`マーカーへ移す計画もある（§25.3。`Launch`相当のモジュールの`ready_pattern`に関わる）。最新の実装状況は`README.md`の「いまどこまで動くか」、残作業は`課題.md`の「多言語対応」節を確認すること
 
 ## ディレクトリ構成
 

@@ -125,7 +125,7 @@ disk とずれるファイルは、そのファイルだけ次の Scanner（Elix
 | 対話 | `InOut` / `Dialogue` / `Dialogue.Depends` / `Dialogue.Search` / `EvalTable` | 複数ターンの構造化対話（一覧は `InOut.programs/0`、CLI とサーバーで共通）、依存チェーン交渉、検索と、その `-e` が引く `eval_table`（計算行に関数と path を横付けした読み取り用の表） |
 | 人向けの入出力 | `Input` / `Help` / `OutcomeText` / `Show` / `Serve.Input` | 1行の読み方（CLI と同じ書き方）、`help` の表、結果・`show` の行（CLI と対話窓で共通）、`input` method |
 | サーバー | `Protocol` / `Serve.Project` / `Serve.Socket` | §16.3 の wire 形、1プロジェクト1GenServer、WebSocket の入口 |
-| プロジェクト | `Workspace` / `ProjectRegistry` / `Info` / `Repl.Language` | どのプロジェクトを対象にするかの解決、3桁 ID の登録、xipe_totec 自身の `info.json`（選択中のプロジェクト、言語と拡張子、アダプタ一覧）、言語ごとの自己申告 |
+| プロジェクト | `Workspace` / `ProjectRegistry` / `Info` / `Repl.Language` | どのプロジェクトを対象にするかの解決、3桁 ID の登録、xipe_totec 自身の `info.json`（言語と拡張子、アダプタ一覧）と、このマシンで選択中のプロジェクト（`tables/selection.json`）、言語ごとの自己申告 |
 
 ---
 
@@ -285,9 +285,10 @@ Mix プロジェクトではない（`mix.exs` なし）。tezcatl と同じ規�
 
 [tezcatl](../tezcatl) の relay の `/xipe` が、ブラウザ側のパネル（`panels/matrix.html` など）と
 Xipe Totec のサーバーをつなぐ。対象プロジェクトを決めるのは Xipe Totec（`xipe choice project`）で、
-tezcatl はその窓に過ぎない。基本は tezcatl が `xipe start` を `<dir>` なしで起動し（`xipe.json` の
-`mode: "spawn"`）、その後 WebSocket でつなぐ。既に立っているサーバーへつなぐだけの
-`mode: "connect"` もある。`xipe.json` のキー（`"."` など）はつなぐ先の名前で、パスではない。
+tezcatl はその窓に過ぎない。基本は tezcatl の `t` が Emacs と同じく `xipe start` を `<dir>` なしで
+:4200 にバックグラウンドで起動し、中継はそこへ WebSocket でつなぐだけ（`xipe.json` の
+`mode: "connect"`、2026-09-28）。窓を閉じても止まらない。中継に起動させる `mode: "spawn"` もある
+（最後の窓が離れて45秒で止まる）。`xipe.json` のキー（`"."` など）はつなぐ先の名前で、パスではない。
 どのプロジェクトが開いているかは `initialize` の結果の `project`（`id`・`root`）で分かる。
 §16.2 の「中継は状態を持たない」規定に従い、`/xipe` は `/lsp` のような id 書き換え型の
 多重化はせず、状態を持たないブロードキャスト中継にしている（tezcatl 側 `lib/relay/xipe_*.exs`）。
@@ -309,7 +310,8 @@ tezcatl の対話窓（`panels/skins/xipe.html`）は、打った1行を解釈�
 | この README | 何のために作られ、何ではなく、いまどこまで動くか |
 | [`document/How_to_use.md`](document/How_to_use.md) | いまのコードで、実際にどう使うか |
 | [`document/動作原理.md`](document/動作原理.md) | 使う場面ごとに、何がどの順で呼ばれ、どのプログラムが担っているか |
-| [`document/repl-adapter-guide.md`](document/repl-adapter-guide.md) | 新しい言語・REPL のアダプタをどう書くか |
+| [`document/拡張の手引き.md`](document/拡張の手引き.md) | 言語やコマンドを足したい人（と、その人の AI）は、何を参考に、どういう動作を満たすように作ればよいか |
+| [`document/repl-adapter-guide.md`](document/repl-adapter-guide.md) | 新しい言語・REPL のアダプタをどう書くか（Elixir 実装時点の詳しい参照資料。入口は拡張の手引き） |
 | [`document/課題.md`](document/課題.md) | いま何が未解決で、次に何をするか |
 | [`document/Old.md`](document/Old.md) | いまの設計が、いつ・なぜそうなったか（決定歴。旧 `XipeTotec_prebuild.md` と旧 `課題.mkd`）。コード中の「Old.md §N」はここの節 |
 | `document/xipe_totec_spec_v0.4.html` | 仕様のたたき台（v0.4）。実装との差分がいくつも残っている（`課題.md` の「文書」節）。食い違うときは `Old.md` の決定を優先すること |
