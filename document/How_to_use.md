@@ -511,6 +511,12 @@ tezcatl の対話窓はすべての行をこの形で送り、中身を解釈し
   `help [<command>]`・`version`・`show`・`scan`・`eval [id...] [--include-writes]`・
   `do <method> ... [-- <method> ...]`。method 名から始めた行は `do` を省いたものとして読む。
   引用符（`'id=$0.id'`）はシェルと同じく外す
+- **文字列の引数は引用符ごと包む**: 上のとおり `"` も外れるので、`args=["hi"]` は `args=[hi]`
+  （変数 `hi`）になり、評価すると `undefined variable "hi"` で crash する。`'args=["hi"]'` と書く
+  （端末でシェルに打つときと同じ書き方）
+- **1行が1回の `input`**。複数の行を続けて送ると、行どうしは同時に走る（行ごとに別のプロセス）。
+  前の行の結果（`scan` で増えた関数、`row/add` した行、評価した値）を次の行で使うなら、返事を
+  待ってから送るか、`--` でつないで1行にする
 - 端末が要るコマンド（`choice project`・`table generate`・`start`・`config`・`refresh`・
   `dialogue depends`）は `input_error` で断る
 - 返事の `dialogue.text` に、CLI が出すのと同じ行が入る。コマンドなら `result.outcomes` に
@@ -668,6 +674,9 @@ xipe refresh -a     # 両方
 | `not run  effect not classified` | `effect/set` で分類していない。§2.4 |
 | `not run  effect=writes -- pass --include-writes` | `xipe eval --include-writes`（`xipe do` なら `eval include_writes=true`） |
 | `eval call bash.id  not run  unknown call id` | `$0.id` を引用符で囲んでいない。§3.3 |
+| `crash ... undefined variable "hi"`（文字列を渡したつもり） | `"` が語の解釈で外れた。`'args=["hi"]'` と引用符ごと包む（端末でも対話窓でも同じ。§3.3・§6.2） |
+| `timeout`（重い関数） | 1件5秒の上限（§4.1）。今は変えられない（`eval.timeout` の設定を足す予定、`課題.md` §3） |
+| 対話窓で、前の行で足したはずの関数・計算行が「無い」と言われる | 前の行がまだ終わっていない（行どうしは同時に走る）。返事を待つか `--` で1行にする（§6.2） |
 | `row/add: ... takes 1 arg(s), got 3` | 引数の数が合わない。リストを1引数で渡せない制限にも注意（§3.3） |
 | `row/add: ... is private` | `defp` の関数は計算行にできない |
 | `skipped  upstream ... has no value to pass on` | 参照先の値が表に無い（未評価・`unsupported`）か、参照先が評価できない。参照先の id も並べて指定する（§2.6） |

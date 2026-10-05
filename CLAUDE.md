@@ -12,6 +12,10 @@
 5. 必要なときだけ: `document/動作原理.md`（どの順で何が呼ばれるか）、`document/How_to_use.md`（使い方）、
    `document/Old.md`（決定の経緯。コード中の「Old.md §N」はここ）
 
+**レビューするとき**は、先に `document/課題.md` §6「全体レビュー（2026-10-02〜03）」と
+`../tezcatl/forAI/progress.md` の同名の節を読む。既知の指摘と、判断済み（仕様どおり・受け入れ・
+決定済みで未実装）のものが載っている。
+
 仕様書 `document/xipe_totec_spec_v0.4.html` は叩き台。`Old.md` の決定と食い違うときは `Old.md` を優先する。
 
 ## テスト
