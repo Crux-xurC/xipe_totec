@@ -10,6 +10,8 @@ defmodule XipeTotec.Repl.Session do
   """
 
   @ready_marker "XT_READY"
+  # how much of a failed boot's output await_ready/4 hands back
+  @boot_output_lines 30
 
   @doc """
   Blocks the calling process until the REPL `message` (`Repl.Launch`)
@@ -22,10 +24,12 @@ defmodule XipeTotec.Repl.Session do
 
   Fails if the process exits first (the "XT_EXIT" marker turns up -- e.g. a
   bad launch command or a compile error at boot) or `timeout` (for both
-  stages together) elapses.
+  stages together) elapses. An exit carries its status and the last
+  #{@boot_output_lines} lines the REPL printed before it, which is where a compile error
+  says what and where (`output`, `""` if it printed nothing).
   """
   @spec await_ready(module(), term(), map(), timeout()) ::
-          :ok | {:error, :timeout} | {:error, {:exited_before_ready, String.t()}}
+          :ok | {:error, :timeout} | {:error, {:exited_before_ready, String.t(), String.t()}}
   def await_ready(sender, handle, message, timeout \\ 10_000) do
     deadline = System.monotonic_time(:millisecond) + timeout
 
@@ -56,7 +60,8 @@ defmodule XipeTotec.Repl.Session do
         {:ok, rest}
 
       match = Regex.run(~r/XT_EXIT (\S+)/, buffer) ->
-        {:error, {:exited_before_ready, Enum.at(match, 1)}}
+        [output | _] = String.split(buffer, "XT_EXIT ", parts: 2)
+        {:error, {:exited_before_ready, Enum.at(match, 1), last_lines(output)}}
 
       true ->
         receive do
@@ -65,6 +70,18 @@ defmodule XipeTotec.Repl.Session do
           max(deadline - System.monotonic_time(:millisecond), 0) -> {:error, :timeout}
         end
     end
+  end
+
+  defp last_lines(output) do
+    output
+    |> String.split(~r/\r?\n/)
+    |> Enum.map(&String.trim_trailing/1)
+    |> Enum.drop_while(&(&1 == ""))
+    |> Enum.reverse()
+    |> Enum.drop_while(&(&1 == ""))
+    |> Enum.take(@boot_output_lines)
+    |> Enum.reverse()
+    |> Enum.join("\n")
   end
 
   @doc """

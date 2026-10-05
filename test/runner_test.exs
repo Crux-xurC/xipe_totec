@@ -294,6 +294,18 @@ defmodule RunnerTest do
     assert new_book == book
   end
 
+  test "a REPL that exits while booting is reported with its output, not only the exit status" do
+    message = Runner.failure_message({:boot_failed, {:exited_before_ready, "1", "** (SyntaxError) calc.exs:3\n  def sub(a, b), do: a -"}})
+
+    assert message ==
+             "boot_failed: the REPL exited before it was ready (exit status 1). Its last output:\n" <>
+               "    ** (SyntaxError) calc.exs:3\n" <>
+               "      def sub(a, b), do: a -"
+
+    assert Runner.failure_message({:boot_failed, {:exited_before_ready, "127", ""}}) =~ "exit status 127), printing nothing"
+    assert Runner.failure_message({:launch_failed, :nope}) == "{:launch_failed, :nope}"
+  end
+
   test "add a row, mark it pure, then eval it -- all three chained by $n.path in one command list" do
     book = Book.new() |> Core.put_node("n1", pure_node("f") |> Map.merge(%{effect: "unknown", effect_source: nil}))
 

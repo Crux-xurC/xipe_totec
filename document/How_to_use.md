@@ -333,6 +333,8 @@ REPL（`iex`）は1回の評価（pass）の間だけ保持し、評価が終わ
 
 計算行は1つずつ、別プロセスの中で timeout 5秒と max_heap 付きで実行される。`iex` の
 起動（`XT_READY` が返るまで）を15秒待っても完了しなければ、その pass は `boot_failed` になる。
+起動の途中で `iex` が終了したとき（対象のコードがコンパイルできないなど）も `boot_failed` で、
+そのときは `iex` が最後に出した30行（コンパイルエラーのファイル名・行番号を含む）がエラーの文に付く。
 
 ### 4.2 出力の読み方
 
@@ -681,7 +683,8 @@ xipe refresh -a     # 両方
 | `row/add: ... is private` | `defp` の関数は計算行にできない |
 | `skipped  upstream ... has no value to pass on` | 参照先の値が表に無い（未評価・`unsupported`）か、参照先が評価できない。参照先の id も並べて指定する（§2.6） |
 | `crash` のスタックトレースの行番号がずれる | `mix.exs` のない対象では、抜き出した一時ファイル上の行番号になる |
-| `boot_failed` | `iex` が15秒以内に起動しなかった。Mix プロジェクトなら、一度 `mix compile` を済ませておく |
+| `boot_failed: the REPL exited before it was ready` | 起動中に `iex` が終了した。たいていは対象のコードがコンパイルできない。続く出力にファイル名と行番号が出る |
+| `boot_failed`（`:timeout`） | `iex` が15秒以内に起動しなかった。Mix プロジェクトなら、一度 `mix compile` を済ませておく |
 | `xipe start: a session is already running` | 既に動いている。止めるなら記録にある pid に SIGTERM を送る |
 | サーバーの表に CLI の変更が出ない | セッション中の CLI 書き込みはサーバーに届かない。§6 |
 | スキャンが遅い | 初回は elixir-ls の起動を待つ。急ぐなら `XIPE_TOTEC_LSP=off` |

@@ -310,13 +310,27 @@ defmodule XipeTotec.Runner do
 
         case result do
           {:ok, _book, results} -> {:ok, results, env_status}
-          {:error, reason} -> {:error, %{"code" => "eval_failed", "message" => inspect(reason)}}
+          {:error, reason} -> {:error, %{"code" => "eval_failed", "message" => failure_message(reason)}}
         end
 
       {:error, error} ->
         {:error, error}
     end
   end
+
+  # A REPL that exited while booting -- most often the project's own code
+  # failing to compile -- is reported with what it printed (Session.await_ready/4),
+  # so the message says which file and line instead of only an exit status.
+  @doc false
+  def failure_message({:boot_failed, {:exited_before_ready, status, ""}}),
+    do: "boot_failed: the REPL exited before it was ready (exit status #{status}), printing nothing"
+
+  def failure_message({:boot_failed, {:exited_before_ready, status, output}}) do
+    "boot_failed: the REPL exited before it was ready (exit status #{status}). Its last output:\n" <>
+      Enum.map_join(String.split(output, "\n"), "\n", &("    " <> &1))
+  end
+
+  def failure_message(reason), do: inspect(reason)
 
   # The REPL side of one language's pass (§26's table reference): the
   # language must be registered in info.json, and its `Repl.Language`

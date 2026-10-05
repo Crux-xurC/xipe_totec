@@ -36,7 +36,7 @@ defmodule ReplSessionTest do
       Direct.kill(handle)
     end
 
-    test "returns {:error, {:exited_before_ready, status}} when the process exits before printing the pattern" do
+    test "returns {:error, {:exited_before_ready, status, output}} when the process exits before printing the pattern" do
       {:ok, handle} =
         Direct.send(%{
           "kind" => "repl/launch",
@@ -45,7 +45,28 @@ defmodule ReplSessionTest do
           "cwd" => System.tmp_dir!()
         })
 
-      assert {:error, {:exited_before_ready, "1"}} = Session.await_ready(Direct, handle, %{"ready_pattern" => "never appears"}, 2_000)
+      assert {:error, {:exited_before_ready, "1", "not-ready-yet"}} =
+               Session.await_ready(Direct, handle, %{"ready_pattern" => "never appears"}, 2_000)
+    end
+
+    # what a compile error at boot prints is where it says what and where:
+    # handed back (the last lines only), not dropped with the buffer
+    test "an exit before ready hands back the last lines it printed" do
+      {:ok, handle} =
+        Direct.send(%{
+          "kind" => "repl/launch",
+          "argv" => ["sh", "-c", "for i in $(seq 1 50); do echo line$i; done; echo 'calc.exs:3: syntax error'; echo; exit 1"],
+          "env" => %{},
+          "cwd" => System.tmp_dir!()
+        })
+
+      assert {:error, {:exited_before_ready, "1", output}} =
+               Session.await_ready(Direct, handle, %{"ready_pattern" => "never appears"}, 2_000)
+
+      lines = String.split(output, "\n")
+      assert length(lines) == 30
+      assert List.last(lines) == "calc.exs:3: syntax error"
+      assert hd(lines) == "line22"
     end
 
     # 2026-09-26 (Old.md §25.3): after the banner, the probe is written and
