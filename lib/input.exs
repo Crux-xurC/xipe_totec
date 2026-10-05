@@ -26,6 +26,10 @@ defmodule XipeTotec.Input do
       (`XipeTotec.CommandLine`, the same parsing as `xipe do`)
     * `<method> ...` -- the same without `do`: a first word that names a
       method (any word with a `/`, or one of `XipeTotec.Methods`)
+    * without `do`, a step of a `--` list may also be `scan` or `eval
+      [id...] [--include-writes]` (`scan -- row/list`, `row/add ... --
+      eval`): the window's shorthands, read as above. With `do` the line
+      is exactly `xipe do`'s
     * the CLI commands that select or start projects or rewrite
       xipe_totec's own files (`choice project`, `start`, ...) need a
       terminal: an error saying so
@@ -64,16 +68,11 @@ defmodule XipeTotec.Input do
   defp command(["version"]), do: {:text, Help.version() <> "\n"}
   defp command(["show"]), do: :show
   defp command(["scan"]), do: {:commands, [%{"method" => "scan/run", "params" => %{}}]}
+  defp command(["scan", "--" | _] = words), do: command_list(words)
   defp command([cmd, _ | _]) when cmd in ["show", "scan"], do: {:error, "#{cmd}: 対話窓では引数を取りません（対象は開いているプロジェクト）"}
 
-  defp command(["eval" | rest]) do
-    case OptionParser.parse(rest, strict: [include_writes: :boolean]) do
-      {opts, ids, []} ->
-        {:commands, [%{"method" => "eval", "params" => %{"call_ids" => ids, "include_writes" => opts[:include_writes] || false}}]}
-
-      {_opts, _ids, invalid} ->
-        {:error, "eval: 対話窓で使えない指定です: #{Enum.map_join(invalid, " ", &elem(&1, 0))}（id と --include-writes のみ）"}
-    end
+  defp command(["eval" | rest] = words) do
+    if "--" in rest, do: command_list(words), else: eval_alone(rest)
   end
 
   defp command(["search" | turn]),
@@ -95,9 +94,58 @@ defmodule XipeTotec.Input do
     cond do
       two in Help.cli_only_commands() -> cli_only(two)
       first in Help.cli_only_commands() or first == "serve" -> cli_only(first)
-      String.contains?(first, "/") or Methods.get(first) != nil -> {:commands, CommandLine.parse(words)}
+      method?(first) -> command_list(words)
       true -> {:error, "#{first} というコマンドはありません（help で一覧）"}
     end
+  end
+
+  # `eval [id...] [--include-writes]` on its own, as the CLI's `xipe eval`
+  defp eval_alone(rest) do
+    case OptionParser.parse(rest, strict: [include_writes: :boolean]) do
+      {opts, ids, []} ->
+        {:commands, [%{"method" => "eval", "params" => %{"call_ids" => ids, "include_writes" => opts[:include_writes] || false}}]}
+
+      {_opts, _ids, invalid} ->
+        {:error, "eval: 対話窓で使えない指定です: #{Enum.map_join(invalid, " ", &elem(&1, 0))}（id と --include-writes のみ）"}
+    end
+  end
+
+  defp method?(word), do: String.contains?(word, "/") or Methods.get(word) != nil
+
+  # a `--` list without `do`: each step a method call, or a shorthand that
+  # makes sense inside a list (`scan`, `eval [id...]`)
+  defp command_list(words) do
+    Enum.reduce_while(CommandLine.groups(words), {:commands, []}, fn group, {:commands, done} ->
+      case step(group) do
+        {:ok, command} -> {:cont, {:commands, done ++ [command]}}
+        {:error, message} -> {:halt, {:error, message}}
+      end
+    end)
+  end
+
+  defp step(["scan"]), do: {:ok, %{"method" => "scan/run", "params" => %{}}}
+  defp step(["scan" | _]), do: {:error, "scan: 引数を取りません（対象は開いているプロジェクト）"}
+
+  # `eval` as the method (`call_ids=[...]`) or as the shorthand (bare ids,
+  # `--include-writes`), mixed freely
+  defp step(["eval" | rest]) do
+    case OptionParser.parse(rest, strict: [include_writes: :boolean]) do
+      {opts, words, []} ->
+        {pairs, ids} = Enum.split_with(words, &String.contains?(&1, "="))
+        [%{"params" => params}] = CommandLine.parse(["eval" | pairs])
+        params = if ids == [], do: params, else: Map.update(params, "call_ids", ids, &(List.wrap(&1) ++ ids))
+        params = if opts[:include_writes], do: Map.put(params, "include_writes", true), else: params
+        {:ok, %{"method" => "eval", "params" => params}}
+
+      {_opts, _words, invalid} ->
+        {:error, "eval: 対話窓で使えない指定です: #{Enum.map_join(invalid, " ", &elem(&1, 0))}（id と --include-writes のみ）"}
+    end
+  end
+
+  defp step([first | _] = group) do
+    if method?(first),
+      do: {:ok, hd(CommandLine.parse(group))},
+      else: {:error, "#{first}: コマンド列（--）の中では method 名か scan・eval を書きます（help で一覧）"}
   end
 
   defp quote_word(w), do: if(w == "" or String.match?(w, ~r/\s/), do: "'#{w}'", else: w)

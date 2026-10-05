@@ -42,6 +42,22 @@ defmodule SessionTest do
     assert Session.read(path) == :none
   end
 
+  test "a live pid that started at another time is no session (the pid was reused)", %{path: path} do
+    Session.write(%{"project" => "001"}, path)
+    assert {:ok, %{"os_started" => started}} = Session.read(path)
+    assert is_binary(started)
+
+    record = path |> File.read!() |> JSON.decode!() |> Map.put("os_started", "Mon Jan  1 00:00:00 2001")
+    File.write!(path, JSON.encode!(record))
+    assert Session.read(path) == :none
+  end
+
+  test "a record from before os_started is judged by the pid alone", %{path: path} do
+    File.mkdir_p!(Path.dirname(path))
+    File.write!(path, JSON.encode!(%{"os_pid" => System.pid(), "project" => "001"}))
+    assert {:ok, _} = Session.read(path)
+  end
+
   test "clear/1 removes only this process's own record", %{path: path} do
     File.mkdir_p!(Path.dirname(path))
     File.write!(path, JSON.encode!(%{"os_pid" => "1", "project" => "001"}))

@@ -116,7 +116,9 @@ defmodule XipeTotec.Help do
       (default), changed, unevaluated.
       Values: [..] is always a list ([] empty, [10] one element, [1,2] two); any other
       value containing a comma is a list too (args=1,2); everything else stays a plain
-      string. The window takes no --dir, and `do` may be left out.
+      string. The window takes no --dir, and `do` may be left out; without `do` a
+      step may also be the window's `scan` or `eval [id...] [--include-writes]`
+      (`scan -- node/resolve ... -- eval ...`). With `do` the line is exactly the CLI's.
       """
     },
     %{

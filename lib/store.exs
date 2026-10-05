@@ -33,10 +33,11 @@ defmodule XipeTotec.Store do
   @doc "Append one row (atom-keyed map, must include `:type` and `:id`) to the log at `path`."
   @spec append(Path.t(), map()) :: :ok
   def append(path, row) when is_map(row) do
-    line = row |> stringify_keys() |> JSON.encode!()
-    File.write!(path, line <> "\n", [:append])
+    File.write!(path, line(row), [:append])
     :ok
   end
+
+  defp line(row), do: (row |> stringify_keys() |> JSON.encode!()) <> "\n"
 
   @doc """
   Load `path` into a fresh `Book`, folding rows in file order. Ignores
@@ -80,20 +81,20 @@ defmodule XipeTotec.Store do
   """
   @spec persist_diff(Path.t(), Book.t(), Book.t(), [Book.table()]) :: :ok
   def persist_diff(path, old_book, new_book, tables) do
-    for table <- tables do
-      old_table = Map.fetch!(old_book, table)
-      new_table = Map.fetch!(new_book, table)
-      type = Map.fetch!(@table_types, table)
-
-      for {id, row} <- new_table, Map.get(old_table, id) != row do
-        append(path, row |> Map.put(:type, type) |> Map.put(:id, id))
+    # all the changed rows in one append (a scan can change hundreds; opening
+    # the file once per row was the cost), in the same order as before
+    lines =
+      for table <- tables,
+          old_table = Map.fetch!(old_book, table),
+          new_table = Map.fetch!(new_book, table),
+          type = Map.fetch!(@table_types, table),
+          row <-
+            (for {id, row} <- new_table, Map.get(old_table, id) != row, do: row |> Map.put(:type, type) |> Map.put(:id, id)) ++
+              (for {id, _row} <- old_table, not Map.has_key?(new_table, id), do: %{type: type, id: id, deleted: true}) do
+        line(row)
       end
 
-      for {id, _row} <- old_table, not Map.has_key?(new_table, id) do
-        append(path, %{type: type, id: id, deleted: true})
-      end
-    end
-
+    if lines != [], do: File.write!(path, lines, [:append])
     :ok
   end
 

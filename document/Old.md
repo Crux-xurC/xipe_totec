@@ -1900,3 +1900,29 @@ Embody.run "<id>" <上限 µs> xt_<id>_w xt_<id>_x xt_<id>_s xt_<id>_t
   PATH に無ければ除外。`CABAL_DIR`・`STACK_ROOT` は一時ディレクトリ）
 - `./test/run.sh` 44ファイル・440件、live の ghci 7件、すべて通過。CLI（作業用の写し）で `table generate` が
   `build_tool=cabal` と判定し、ビルドから評価まで通ること
+
+## 48. 対話窓の `--` の列に `scan`・`eval` の短縮形を書ける（2026-10-05、`~/my_app/tezcatl`セッション）
+
+tezcatl で普段の流れを一周したとき、対話窓に `scan -- node/resolve … -- eval …` と打つと `input_error`
+（`scan: 対話窓では引数を取りません`）になった。短縮形の `scan` は単独の行でしか読まれず、続けるには
+`scan/run -- …` と method 名で書く必要があった。窓では `scan` と打つのが普通なので、列の中でも読む。
+
+- `do` の無い行に `--` があれば列として読む（`XipeTotec.Input`）。各段は method 名か、窓の短縮形の
+  `scan`・`eval [id...] [--include-writes]`。`eval` の段は `call_ids=[…]`（method の書き方）と裸の id
+  （短縮形）を混ぜてよい。`--` を含まない単独の `eval …` は今までどおり
+- `do` を付けた行は今までどおり `xipe do` と同じ読み方（短縮形は読まない。端末と1対1のまま）
+- 列の区切りは `CommandLine.groups/1` を共用（`xipe do` と同じ）
+- `help do` の説明に追記。`How_to_use.md` §6.2 は crux の Emacs で開いたままだったので今回は触っていない
+- テスト: `input_test.exs` に1件。tezcatl の `test/e2e/xipe_input.mjs` に `scan -- row/list`
+
+## 49. セッションの記録に起動時刻、Book の差分はまとめて1回で追記（2026-10-06、`~/my_app/tezcatl`セッション）
+
+tezcatl と合同の軽いレビューで見つけた2点。
+
+- `tables/session.json` の生存確認は `kill -0`（pid があるか）だけだったので、再起動や長い時間のあとで pid が
+  別のプログラムに再利用されると、それをセッションと見誤り、`<dir>` を省いたコマンドの対象がずれる。
+  記録に `os_started`（`ps -o lstart=` の起動時刻、C ロケール）を足し、読むときは同じ pid の起動時刻が
+  一致するときだけセッションとする。`os_started` の無い古い記録は今までどおり pid だけで見る
+  （`Session`、`session_test.exs` に2件）
+- `Store.persist_diff` は変わった行ごとにファイルを開いて追記していた。関数の多いプロジェクトの scan では
+  数百回になる。行を集めて1回で追記する（順序は同じ）。途中で切れた行の件（課題.md §6）とは別

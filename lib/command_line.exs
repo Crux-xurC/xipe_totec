@@ -29,7 +29,22 @@ defmodule XipeTotec.CommandLine do
 
   @doc "`xipe do`'s argv (after the optional `--dir <dir>`) to a command list."
   @spec parse([String.t()]) :: [command()]
-  def parse(args), do: args |> split_on_dashdash() |> Enum.map(&parse_command_group/1)
+  def parse(args), do: args |> groups() |> Enum.map(&parse_command_group/1)
+
+  @doc "argv split on `--` into the command groups (empty groups dropped)."
+  @spec groups([String.t()]) :: [[String.t()]]
+  def groups(args) do
+    args
+    |> Enum.chunk_while(
+      [],
+      fn
+        "--", acc -> {:cont, Enum.reverse(acc), []}
+        token, acc -> {:cont, [token | acc]}
+      end,
+      fn acc -> {:cont, Enum.reverse(acc), []} end
+    )
+    |> Enum.reject(&(&1 == []))
+  end
 
   @spec parse_value(String.t()) :: String.t() | [String.t()]
   def parse_value("[" <> rest = v) do
@@ -43,19 +58,6 @@ defmodule XipeTotec.CommandLine do
   def parse_value(v), do: split_commas(v)
 
   defp split_commas(v), do: if(String.contains?(v, ","), do: String.split(v, ","), else: v)
-
-  defp split_on_dashdash(args) do
-    args
-    |> Enum.chunk_while(
-      [],
-      fn
-        "--", acc -> {:cont, Enum.reverse(acc), []}
-        token, acc -> {:cont, [token | acc]}
-      end,
-      fn acc -> {:cont, Enum.reverse(acc), []} end
-    )
-    |> Enum.reject(&(&1 == []))
-  end
 
   defp parse_command_group([method | kvs]), do: %{"method" => method, "params" => Map.new(kvs, &parse_kv/1)}
 

@@ -62,6 +62,37 @@ defmodule InputTest do
       assert {:error, _} = Input.parse("do --dir /x row/list")
     end
 
+    test "without do, scan and eval may be steps of a -- list" do
+      assert {:commands, [%{"method" => "scan/run", "params" => %{}}, %{"method" => "row/list", "params" => %{}}]} =
+               Input.parse("scan -- row/list")
+
+      assert {:commands,
+              [
+                %{"method" => "scan/run"},
+                %{"method" => "node/resolve", "params" => %{"name" => "triple"}},
+                %{"method" => "eval", "params" => %{"call_ids" => ["$1.id"]}}
+              ]} = Input.parse("scan -- node/resolve name=triple -- eval 'call_ids=[$1.id]'")
+
+      # eval's shorthand inside a list: bare ids and --include-writes, also with call_ids=
+      assert {:commands, [%{"method" => "row/list"}, %{"method" => "eval", "params" => %{"call_ids" => ["a", "b"], "include_writes" => true}}]} =
+               Input.parse("row/list -- eval a --include-writes b")
+
+      assert {:commands, [%{"method" => "eval", "params" => %{"call_ids" => ["a", "b"]}}, %{"method" => "row/check", "params" => %{"on" => "changed"}}]} =
+               Input.parse("eval call_ids=[a] b -- row/check on=changed")
+
+      assert {:commands, [%{"method" => "row/list"}, %{"method" => "scan/run"}]} = Input.parse("row/list -- scan")
+
+      # a step that is neither a method nor scan/eval, or scan with arguments
+      assert {:error, message} = Input.parse("scan -- show")
+      assert message =~ "show"
+      assert {:error, _} = Input.parse("row/list -- scan /dir")
+      assert {:error, message} = Input.parse("row/list -- eval --mix")
+      assert message =~ "--mix"
+
+      # with do the line stays exactly `xipe do`'s: no shorthands
+      assert {:commands, [%{"method" => "scan"}, %{"method" => "row/list"}]} = Input.parse("do scan -- row/list")
+    end
+
     test "commands that need a terminal are refused, saying so" do
       for line <- ["choice project /x", "table generate", "start", "serve --port 1", "config", "refresh -a"] do
         assert {:error, message} = Input.parse(line)
