@@ -373,12 +373,19 @@ defmodule XipeTotec.Dispatch do
     end
   end
 
+  # `linked` (2026-10-06, 実地確認 X-1): whether the row's node still
+  # exists. A rescan that removed it (a half-typed save, a commented-out
+  # function) leaves the row pointing at the old id for good -- a rescan
+  # of the restored function mints a new one -- while the row's `state`
+  # stays what its last eval left. A client shows this; it doesn't guess
+  # from `label` being nil.
   defp list_row(book, id) do
     row = Book.get(book, :calls, id)
 
     %{
       "id" => id,
       "node" => row.node,
+      "linked" => Book.get(book, :nodes, row.node) != nil,
       "label" => Core.call_label(book, id),
       "args" => row.args,
       "value" => row[:result],

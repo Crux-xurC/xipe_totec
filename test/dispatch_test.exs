@@ -342,6 +342,13 @@ defmodule DispatchTest do
       assert %{"id" => "c3", "state" => "eval_error", "error" => "boom"} = r3
     end
 
+    test "row/list: a row whose node a rescan removed is linked=false (its state unchanged)", %{book: book} do
+      assert {:ok, _, %{"rows" => [%{"linked" => true} | _]}} = Dispatch.handle(book, "row/list", %{})
+      book = Book.delete(book, :nodes, "n1")
+      assert {:ok, _, %{"rows" => [r1, %{"linked" => true}, _]}} = Dispatch.handle(book, "row/list", %{})
+      assert %{"id" => "c1", "linked" => false, "label" => nil, "state" => "ok"} = r1
+    end
+
     test "row/list narrows to call_ids, in their order; an unknown one is not_found", %{book: book} do
       assert {:ok, _, %{"rows" => [%{"id" => "c3"}, %{"id" => "c1"}]}} = Dispatch.handle(book, "row/list", %{"call_ids" => ["c3", "c1"]})
       assert {:error, _, %{"code" => "not_found"}} = Dispatch.handle(book, "row/list", %{"call_ids" => ["nope"]})
