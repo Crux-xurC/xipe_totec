@@ -173,10 +173,17 @@ defmodule XipeTotec.Pipeline do
 
   defp stage_handlers, do: %{"edit" => &edit_stage/3, "eval" => &eval_stage/3}
 
-  defp edit_stage(book, %{"id" => id, "args" => args}, _ctx) when is_binary(id) do
+  defp edit_stage(book, %{"id" => id, "args" => args}, ctx) when is_binary(id) do
+    # a row a running pass is evaluating keeps its args until the pass
+    # ends (XipeTotec.Passes, Old.md §51)
+    refused = XipeTotec.Passes.refuse(ctx[:project_dir], id)
+
     case Book.get(book, :calls, id) do
       nil ->
         {:error, book, %{"code" => "not_found", "message" => "unknown call id: #{id}"}}
+
+      _row when refused != nil ->
+        {:error, book, refused}
 
       row ->
         case XipeTotec.Dispatch.check_args(book, row.node, args, "row/update") do

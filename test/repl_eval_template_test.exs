@@ -5,6 +5,13 @@ Code.require_file(Path.expand("../lib/book.exs", __DIR__))
 Code.require_file(Path.expand("../lib/core.exs", __DIR__))
 Code.require_file(Path.expand("../lib/repl/eval_template.exs", __DIR__))
 
+# a project's own struct that hides a field from inspect: its display can't
+# be read back, so it is repr=binary
+defmodule ReplEvalTemplateTest.Hidden do
+  @derive {Inspect, only: [:a]}
+  defstruct a: 1, b: 2
+end
+
 defmodule ReplEvalTemplateTest do
   use ExUnit.Case, async: true
 
@@ -165,6 +172,42 @@ defmodule ReplEvalTemplateTest do
                ~s(XT_ERROR_c1 crash {:compile_error, "undefined function undefined_fn/1)
 
       assert run_built(raw_entry(["x"])) =~ ~s(XT_ERROR_c1 crash {:compile_error, "undefined variable \\"x\\")
+    end
+
+    # Function.identity(<expr>): the value under test comes back as the result
+    defp value_entry(expr, basis \\ :none),
+      do: %{call_id: "c1", module: "Function", name: "identity", args: [expr], inputs: [], basis: basis, limits: %{timeout: 2_000, max_heap_words: 50_000_000}}
+
+    # Enum on a struct raised (Date, URI, the project's own) or walked its
+    # elements (MapSet, Range) in the session process: no marker, so the
+    # entry read as session_hung and the rest of the pass as aborted
+    test "a struct, or a value holding one, is classified and printed like any other value" do
+      for {expr, repr} <- [
+            {"~D[2026-10-06]", "exact"},
+            {~s{URI.parse("http://a")}, "exact"},
+            {"MapSet.new([1])", "exact"},
+            {"1..3", "exact"},
+            {"{:ok, ~D[2026-10-06]}", "exact"},
+            {"%{when: ~D[2026-10-06]}", "exact"},
+            {"%ReplEvalTemplateTest.Hidden{}", "binary"}
+          ] do
+        out = run_built(value_entry(expr))
+        assert out =~ "XT_BEGIN_c1\nrepr=#{repr}\n", "#{expr}: #{out}"
+        assert out =~ "XT_END_c1", expr
+      end
+
+      # a pid inside a struct-holding map is still found
+      assert run_built(value_entry("%{d: ~D[2026-10-06], p: self()}")) =~ "repr=unsupported"
+    end
+
+    test "compare works on structs (the previous value is a struct too)" do
+      assert run_built(value_entry("~D[2026-10-06]", {:exact, "~D[2026-10-06]"})) =~ "compare=same"
+      assert run_built(value_entry("~D[2026-10-07]", {:exact, "~D[2026-10-06]"})) =~ "compare=changed"
+      assert run_built(value_entry("MapSet.new([1])", {:exact, "MapSet.new([1])"})) =~ "compare=same"
+
+      bin = Base.encode64(:erlang.term_to_binary(%ReplEvalTemplateTest.Hidden{b: 5}))
+      assert run_built(value_entry("%ReplEvalTemplateTest.Hidden{b: 5}", {:binary, bin})) =~ "compare=same"
+      assert run_built(value_entry("%ReplEvalTemplateTest.Hidden{b: 6}", {:binary, bin})) =~ "compare=changed"
     end
 
     test "reference variables are taken from the session's bindings" do

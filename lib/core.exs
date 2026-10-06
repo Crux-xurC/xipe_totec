@@ -75,7 +75,7 @@ defmodule XipeTotec.Core do
   evaluation (Old.md §16.4/§19, the dependency-chain negotiation's
   "insert a value into X" step). `result_value` must already be valid
   target-language source text for a literal -- `resolve_ref/4`'s own
-  "already exact/binary" branch (below) embeds `result` verbatim into a
+  "already exact" branch (below) embeds `result` verbatim into a
   dependent call's generated expression, exactly the same as a real eval's
   `display` value would be, so this function needs no new embedding logic
   and no other part of Core needs to know a value was hand-supplied rather
@@ -541,11 +541,12 @@ defmodule XipeTotec.Core do
   # a placeholder+binding -- its value does not exist yet when the plan is
   # built (this was the bug fix that motivated the 3-stage split).
   #
-  # A plan-external ref with a stored exact/binary repr is embedded as its
-  # own literal canonical text -- pure string substitution.
+  # A plan-external ref with a stored exact repr is embedded as its own
+  # literal canonical text -- pure string substitution.
   #
   # Everything else (a plan-external row whose value the book can't hand
-  # over -- never evaluated, or unsupported -- or a dangling/unknown ref) is a `:binding` to a variable no earlier entry of the pass sets:
+  # over -- never evaluated, binary or unsupported -- or a dangling/unknown
+  # ref) is a `:binding` to a variable no earlier entry of the pass sets:
   # drop_unresolvable/2 turns the row into `{:skipped, ref}` before it
   # reaches the REPL. The REPL session lives for one pass only, so no
   # binding survives from another. An unsupported value from a pure
@@ -553,6 +554,14 @@ defmodule XipeTotec.Core do
   # that ran the referenced function without a record of it, so since
   # 2026-09-26 (Old.md §36) it is left to the caller to evaluate that row
   # in the same pass.
+  #
+  # A binary value is not handed over either (2026-10-06, Old.md §51): its
+  # stored `result` is only its display, which by definition doesn't read
+  # back (embedded, `#P.S<a: 1, ...>` made the call a syntax error), and
+  # rebuilding it from `bin` is per-language work the plain command path
+  # doesn't take on. Such a value is the person's to settle: evaluate the
+  # referenced row in the same command, or give a value in its place
+  # (`dialogue depends`, which writes it with `row/set-result`).
   defp resolve_ref(book, ref, in_plan_set) do
     var = binding_name(ref)
     placeholder = Atom.to_string(var)
@@ -562,7 +571,7 @@ defmodule XipeTotec.Core do
       MapSet.member?(in_plan_set, ref) ->
         {placeholder, [{:in_plan, %{placeholder: placeholder, ref: ref, var: var}}]}
 
-      ref_call && ref_call.repr in ["exact", "binary"] ->
+      ref_call && ref_call.repr == "exact" ->
         {ref_call.result, []}
 
       true ->

@@ -49,6 +49,7 @@ defmodule XipeTotec.Methods do
     "graph/export" => %{route: :dispatch, writes: false, args: "address=<住所> format=mermaid|dot|json|doctest [depth=N]", summary: "呼び出し関係を書き出す"},
     "row/depends" => %{route: :dispatch, writes: false, args: "call_ids=[...]", summary: "計算行の上流の依存（⟦id⟧）をたどる"},
     "row/list" => %{route: :dispatch, writes: false, args: "[call_ids=[...]]", summary: "計算行の一覧"},
+    "eval/status" => %{route: :dispatch, writes: false, args: "", summary: "いま評価中のパス（行・段・経過時間）を見る。評価中の行は変えられない"},
     "row/check" => %{route: :dispatch, writes: false, args: "[on=error,changed,unevaluated] [call_ids=[...]]", summary: "条件に当たる計算行があれば失敗する"},
     "node/resolve" => %{route: :dispatch, writes: false, args: "module= name= arity= file= row=", summary: "住所から関数（node）の id を引く"},
     "eval" => %{route: :repl, writes: true, repl: true, args: "[call_ids=[...]] [include_writes=true]", summary: "指定した計算行を REPL で評価する"},

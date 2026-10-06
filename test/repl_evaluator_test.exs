@@ -77,6 +77,30 @@ defmodule ReplEvaluatorTest.SilentSender do
   def interrupt(_handle), do: :ok
 end
 
+defmodule ReplEvaluatorTest.CalledThenSilentSender do
+  # The call returns (XT_CALLED_<id>) and then nothing more: judging the
+  # value never finishes -- the case eval/status names (Old.md §51)
+  @behaviour XipeTotec.Repl.Sender
+
+  def send(message) do
+    handle = self()
+    Kernel.send(handle, {handle, {:data, message["ready_pattern"] <> "\nXT_READY\n"}})
+    {:ok, handle}
+  end
+
+  def write(handle, text) do
+    case Regex.run(~r/XT_CALLED_([^"\s]+)/, text) do
+      [_, call_id] -> Kernel.send(handle, {handle, {:data, "XT_CALLED_#{call_id}\n"}})
+      nil -> :ok
+    end
+
+    :ok
+  end
+
+  def kill(_handle), do: :ok
+  def interrupt(_handle), do: :ok
+end
+
 defmodule ReplEvaluatorTest.RefusingSender do
   @behaviour XipeTotec.Repl.Sender
   def send(_message), do: {:error, {:executable_not_found, "nope"}}
@@ -233,6 +257,57 @@ defmodule ReplEvaluatorTest do
     assert Book.get(new_book, :calls, "c2") == Book.get(book, :calls, "c2")
 
     assert_received :fake_kill_called
+  end
+
+  test ":progress hears each entry's phase; a hang after XT_CALLED says the call returned" do
+    book =
+      Book.new()
+      |> Core.put_node("n1", pure_node("f"))
+      |> Core.add_call("c1", %{node: "n1", args: ["1"]})
+      |> Core.add_call("c2", %{node: "n1", args: ["2"]})
+
+    me = self()
+    progress = fn id, phase -> Kernel.send(me, {:progress, id, phase}) end
+
+    assert {:ok, _book, [r1, r2]} =
+             Evaluator.run_pass(book, "pass1",
+               cwd: ".",
+               call_ids: ["c1", "c2"],
+               sender: ReplEvaluatorTest.CalledThenSilentSender,
+               hang_grace_ms: 50,
+               interrupt_grace_ms: 10,
+               launch_opts: [ready_pattern: "READY"],
+               progress: progress
+             )
+
+    assert {:error, "session_hung (the call returned; judging its value -- repr, compare -- did not finish)"} = r1.outcome
+    assert r2.outcome == :aborted
+    assert_received {:progress, "c1", "calling"}
+    assert_received {:progress, "c1", "classifying"}
+    refute_received {:progress, "c1", "classifying"}
+    refute_received {:progress, "c2", _}
+  end
+
+  test ":progress on an ordinary pass: calling for each entry, in order" do
+    book =
+      Book.new()
+      |> Core.put_node("n1", pure_node("f"))
+      |> Core.add_call("c1", %{node: "n1", args: ["1"]})
+      |> Core.add_call("c2", %{node: "n1", args: ["2"]})
+
+    me = self()
+
+    assert {:ok, _book, [_, _]} =
+             Evaluator.run_pass(book, "pass1",
+               cwd: ".",
+               call_ids: ["c1", "c2"],
+               sender: EchoSender,
+               launch_opts: [ready_pattern: "READY"],
+               progress: fn id, phase -> Kernel.send(me, {:progress, id, phase}) end
+             )
+
+    assert_received {:progress, "c1", "calling"}
+    assert_received {:progress, "c2", "calling"}
   end
 
   test "swapping all four :*_module opts routes through a non-Elixir adapter set entirely" do

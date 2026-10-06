@@ -6,6 +6,7 @@ Code.require_file("pipeline.exs", __DIR__)
 Code.require_file("repl/evaluator.exs", __DIR__)
 Code.require_file("info.exs", __DIR__)
 Code.require_file("project_env.exs", __DIR__)
+Code.require_file("passes.exs", __DIR__)
 
 defmodule XipeTotec.Runner do
   @moduledoc """
@@ -66,7 +67,7 @@ defmodule XipeTotec.Runner do
   to a string is left as written.
   """
 
-  alias XipeTotec.{Book, Core, Dispatch, Info, Pipeline, Project, ProjectEnv, SurfaceTable}
+  alias XipeTotec.{Book, Core, Dispatch, Info, Passes, Pipeline, Project, ProjectEnv, SurfaceTable}
   alias XipeTotec.Repl.Evaluator
 
   @type command :: %{String.t() => term()}
@@ -87,7 +88,11 @@ defmodule XipeTotec.Runner do
   its saved surface table (`SurfaceTable.rows/3`) instead of generating one
   on every call, and start the project's tools in its environment
   (`ProjectEnv`). An `"eval"` result then carries that environment's
-  status as `"env"`.
+  status as `"env"`. With `:project_dir`, every language group of a pass is
+  also recorded as running while it runs (`XipeTotec.Passes`: what
+  `eval/status` shows, and what refuses a change to one of its rows);
+  `:pass_id` names the pass (`Serve.Project` passes its own), else one is
+  made.
 
   Does not halt on a failing command -- every command in the list runs
   (a reference into a failed command's result just resolves to `nil`,
@@ -246,7 +251,7 @@ defmodule XipeTotec.Runner do
   end
 
   defp run_groups(book, root, groups, rows, unplaced, call_ids, include_writes, opts) do
-    pass_id = XipeTotec.Id.ulid()
+    pass_id = Keyword.get_lazy(opts, :pass_id, &XipeTotec.Id.ulid/0)
     run = fn {language, ids} -> {language, ids, run_group(book, root, rows, language, ids, include_writes, pass_id, opts)} end
 
     ran =
@@ -304,8 +309,18 @@ defmodule XipeTotec.Runner do
   defp run_group(book, root, rows, language, ids, include_writes, pass_id, opts) do
     case repl_opts(root, rows, language, opts) do
       {:ok, repl_opts, cleanup, env_status} ->
-        eval_opts = Keyword.merge(repl_opts, cwd: root, call_ids: ids, include_writes: include_writes)
-        result = Evaluator.run_pass(book, pass_id, eval_opts)
+        # recorded as running for as long as the group's REPL works on `ids`
+        handle = Passes.start(Keyword.get(opts, :project_dir), pass_id, language, ids)
+        progress = fn call_id, phase -> Passes.progress(handle, call_id, phase) end
+        eval_opts = Keyword.merge(repl_opts, cwd: root, call_ids: ids, include_writes: include_writes, progress: progress)
+
+        result =
+          try do
+            Evaluator.run_pass(book, pass_id, eval_opts)
+          after
+            Passes.finish(handle)
+          end
+
         cleanup.()
 
         case result do
@@ -362,7 +377,7 @@ defmodule XipeTotec.Runner do
 
       opts =
         opts
-        |> Keyword.drop([:language, :project_dir, :info, :language_modules])
+        |> Keyword.drop([:language, :project_dir, :info, :language_modules, :pass_id])
         |> Keyword.put(:launch_opts, launch_opts)
         |> Keyword.put_new(:launch_module, adapter.launch)
         |> Keyword.put_new(:eval_template_module, adapter.eval_template)

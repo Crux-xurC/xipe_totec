@@ -5,7 +5,7 @@ defmodule XipeTotec.Repl.EvalTemplate do
   assembly half). Pure string manipulation -- no process spawning, no I/O.
 
   Per Old.md §28 B's division of labor: Core hands over `args` with
-  embeddable references already substituted (exact/binary) and the rest
+  embeddable references already substituted (exact) and the rest
   left as placeholder tokens plus typed `inputs` (`core.exs`'s
   `resolve_ref/4`). Every placeholder Core produces is already the final
   text -- `xt_<call_id>`, a bare reference to the session variable an
@@ -141,6 +141,10 @@ defmodule XipeTotec.Repl.EvalTemplate do
       receive do
         {:xt_result, ^xt_pid_#{suffix}, xt_val} ->
           Process.demonitor(xt_ref_#{suffix}, [:flush])
+          # the call returned: what follows is judging the value (repr,
+          # compare), done here in the session -- Evaluator tells the two
+          # apart when the deadline hits (eval/status, Old.md §51)
+          IO.puts("XT_CALLED_#{call_id}")
 
           xt_oneline = fn s -> String.replace(s, "\\n", "\\\\n") end
 
@@ -149,7 +153,14 @@ defmodule XipeTotec.Repl.EvalTemplate do
               p when is_pid(p) or is_port(p) or is_reference(p) or is_function(p) -> true
               l when is_list(l) -> Enum.any?(l, &f.(f, &1))
               t when is_tuple(t) -> t |> Tuple.to_list() |> Enum.any?(&f.(f, &1))
-              m when is_map(m) -> Enum.any?(m, fn {k, mv} -> f.(f, k) or f.(f, mv) end)
+              # Map.to_list, not Enum on the map itself: a struct is a map
+              # too, and Enum on a struct either raises (no Enumerable --
+              # Date, URI, a project's own struct) or walks its elements
+              # instead of its fields (MapSet, Range). Raised here, in the
+              # session rather than the child, it printed no marker: the
+              # entry read as session_hung and the rest of the pass as
+              # aborted (2026-10-06).
+              m when is_map(m) -> m |> Map.to_list() |> Enum.any?(fn {k, mv} -> f.(f, k) or f.(f, mv) end)
               _ -> false
             end
           end
@@ -302,7 +313,7 @@ defmodule XipeTotec.Repl.EvalTemplate do
 
               is_map(a) and is_map(b) ->
                 Enum.sort(Map.keys(a)) == Enum.sort(Map.keys(b)) and
-                  Enum.all?(a, fn {k, v} -> f.(f, v, Map.get(b, k, :xt_missing_key)) end)
+                  (a |> Map.to_list() |> Enum.all?(fn {k, v} -> f.(f, v, Map.get(b, k, :xt_missing_key)) end))
 
               true ->
                 a == b

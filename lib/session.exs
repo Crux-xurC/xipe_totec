@@ -45,11 +45,9 @@ defmodule XipeTotec.Session do
   @spec write(record(), Path.t()) :: :ok
   def write(record, path \\ @default_path) do
     record =
-      Map.merge(record, %{
-        "os_pid" => System.pid(),
-        "os_started" => started(System.pid()),
-        "started_at" => DateTime.utc_now() |> DateTime.to_iso8601()
-      })
+      record
+      |> Map.merge(owner())
+      |> Map.put("started_at", DateTime.utc_now() |> DateTime.to_iso8601())
 
     File.mkdir_p!(Path.dirname(path))
     File.write!(path, JSON.encode!(record) <> "\n")
@@ -67,13 +65,25 @@ defmodule XipeTotec.Session do
     :ok
   end
 
-  # the recorded process is still the one running under that pid: the same
-  # start time. A record written before os_started existed falls back to
-  # "the pid exists".
-  defp same_process?(%{"os_pid" => pid, "os_started" => started}) when is_binary(started),
+  @doc """
+  This OS process as a record's owner: `os_pid` and `os_started` -- what
+  `same_process?/1` checks later. Also used by `XipeTotec.Passes` for the
+  passes being evaluated.
+  """
+  @spec owner() :: record()
+  def owner, do: %{"os_pid" => System.pid(), "os_started" => started(System.pid())}
+
+  @doc """
+  Whether the process a record names (`os_pid` + `os_started`) is still
+  the one running under that pid: the same start time. A record written
+  before os_started existed falls back to "the pid exists".
+  """
+  @spec same_process?(record()) :: boolean()
+  def same_process?(%{"os_pid" => pid, "os_started" => started}) when is_binary(started),
     do: started(pid) == started
 
-  defp same_process?(%{"os_pid" => pid}), do: alive?(pid)
+  def same_process?(%{"os_pid" => pid}), do: alive?(pid)
+  def same_process?(_record), do: false
 
   # when `pid` started, as ps prints it (C locale, so the text does not
   # depend on the environment), or nil (no such process, no ps)

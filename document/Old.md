@@ -1926,3 +1926,67 @@ tezcatl と合同の軽いレビューで見つけた2点。
   （`Session`、`session_test.exs` に2件）
 - `Store.persist_diff` は変わった行ごとにファイルを開いて追記していた。関数の多いプロジェクトの scan では
   数百回になる。行を集めて1回で追記する（順序は同じ）。途中で切れた行の件（課題.md §6）とは別
+
+## 50. 構造体を返す関数が `session_hung` になっていた（2026-10-06、`~/my_app/tezcatl`セッション）
+
+コードの追跡で見つけ、作業用のコピーと実機の iex で確かめた。
+
+- `EvalTemplate` が値の中を見る2か所 ── `unsupported` の判定（`xt_unsupported?`）と `compare` の比較（`xt_eq`）──
+  は、map なら `Enum.any?`/`Enum.all?` を map そのものに掛けていた。構造体も map なので、`Enumerable` の無い構造体
+  （`Date`・`URI`・プロジェクト自身の構造体）では `Protocol.UndefinedError`、`Enumerable` のある構造体（`MapSet`・
+  `Range`）では要素が `{k, v}` でないので `FunctionClauseError` になる。`{:ok, %Date{}}` のように中に入っていても同じ
+- 例外は子プロセスではなくセッション側の `receive` の中で起きるので、マーカーが出ない。その行は締め切りまで待って
+  `session_hung`、同じパスの残りはすべて `aborted` になっていた
+- 直し方: どちらも `Map.to_list/1` を通してから歩く（構造体の `__struct__` も1つの欄として比べるので、型の違う
+  構造体は等しくならない）
+- テスト: `repl_eval_template_test.exs` に2件（`Date`・`URI`・`MapSet`・`Range`・タプルや map の中の構造体・
+  `@derive {Inspect, only: …}` の構造体＝`binary`・pid を含む map＝`unsupported`、構造体どうしの `compare`）。
+  修正を外すと2件とも失敗することを確かめた
+
+## 51. 評価中の行を構造で封じる・`eval/status`・`binary` の値は渡さない（2026-10-06、`~/my_app/tezcatl`セッション）
+
+コードの追跡で見つけた2件（X-2・X-3）と、値の判定に制限が無いという指摘を、crux と相談して扱いを決めた。
+方針（crux）: **基本の評価は素のコマンドのまま。不安のある値（`binary` など）だけ対話で決める。** 評価中の行の
+変更は、見て避けるだけでなく**構造で封じる**（断る）。
+
+**X-3 ── 評価中のパスをファイルに残し、その行の変更を断る**
+
+- `Serve.Project` はパスを book のスナップショットで走らせ、終わった時点の book に結果を重ねる。その間に
+  `row/update` で引数が変わると、計算に使っていない引数の行に値・`prev`・`compare` が書かれていた。CLI どうし
+  （別の端末）でも、評価の結果を追記するときに同じことが起きる
+- CLI はサーバーが動いていても `book.jsonl` に直接書く（課題 §2）ので、サーバーのメモリだけでは封じられない。
+  新しい `XipeTotec.Passes` が、パスの言語ごとのグループを `tables/project/<id>_<名前>/passes/<pass_id>-<言語>.json`
+  に置く（`Runner` が走らせる間だけ。`os_pid`・`os_started` で生死を見る ── `Session` と同じ。死んだ記録は読むときに消す）
+- `row/update`（`Pipeline` の edit の段）・`row/set-result`・`row/remove`（`Dispatch`）は、その行が評価中なら
+  `row_in_pass` で断る。行を変える経路はこの3つだけで、CLI・サーバー・対話のどれもここを通る
+- サーバーのパスのプロセスが `Runner` の後始末なしに死んだときは、`Serve.Project` の DOWN で `Passes.clear/2`
+  （OS のプロセスは生きているので、記録が生きて見えて行が封じられたままになるのを防ぐ）
+
+**`eval/status`**
+
+- 新しい method（`Dispatch`、読むだけ）。評価中のパスの言語・経過時間・対象の行と、いまの行・段・経過時間。
+  サーバーでは順番待ちのパスも足す。`xipe do eval/status`・対話窓の `input` で使える
+
+**値の判定の段を見せる（「判定が制限なしに走る」を閉じる）**
+
+- 読み直すと、1件の締め切り（上限＋2秒）は書き込みから結果までの全体に掛かっていて、判定（`inspect`・評価し直し・
+  compare）も含まれていた。問題は、固まったのが呼び出しか判定かを区別できず、どちらも `session_hung` になること
+- Elixir の `EvalTemplate` が、子から値を受け取った時点で `XT_CALLED_<id>` を出す。`Evaluator` は `:progress` に
+  `"calling"`／`"classifying"` を知らせ（`Runner` が `Passes` に書く）、判定の段で締め切りに当たった行は
+  `session_hung (the call returned; judging its value -- repr, compare -- did not finish)` と記録する。
+  OCaml・Haskell（embody）はまだ出さないので `calling` のまま（課題 §3 の E-A と一緒に）
+
+**X-2 ── `binary` の値は次の呼び出しに埋め込まない**
+
+- `Core.resolve_ref` は `exact` でも `binary` でも `result` を埋め込んでいたが、`binary` の `result` は表示だけで、
+  定義上読み戻せない（`P.get_b(#P.S<a: 1, ...>)` が構文エラーになった。実機で確認）。埋め込むのは `exact` だけにし、
+  `binary` は未評価・`unsupported` と同じく「渡せない値」として `skipped`。同じコマンドで参照先も評価すれば
+  セッションの束縛で渡る。`bin` から作り直す道は、言語ごとの仕事を素のコマンドの経路に持ち込むので取らない
+- `skipped` の行は理由で `dialogue depends <id>`（参照先の代わりの値を入れる）を案内する。`binary` などを
+  決める専用の対話は、tezcatl との一貫テストのときに作る（crux）
+
+テスト: `passes_test.exs`（新規、9件: 記録の一生、死んだ記録、`clear`、3つの method が断ること、`eval/status`
+とその表示、`Runner` が走らせる間の記録、`skipped` の案内）、`repl_evaluator_test.exs` に2件（段の知らせ、
+`XT_CALLED` のあとの `session_hung`）、`core_test.exs` に1件（`binary` は `skipped`、同じパスなら束縛、`exact` は
+埋め込む。修正を外すと失敗）。作業用のコピーで CLI を2つ同時に動かし、評価中の `row/update` が断られ、
+ほかの行は変えられ、終われば変えられること、`eval/status` が行と段を出すことを確かめた

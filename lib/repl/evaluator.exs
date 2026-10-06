@@ -75,7 +75,7 @@ defmodule XipeTotec.Repl.Evaluator do
      (2) if some future language's adapter doesn't have an equivalent
      guard.
 
-  `run_entries/6`/`wait_result/6` treat total silence (no `:data` chunk of
+  `run_entries/8`/`wait_result/7` treat total silence (no `:data` chunk of
   any kind) for longer than `entry.limits.timeout + <padding>` as a hang,
   enforced as a **fixed wall-clock deadline computed once when an entry
   starts waiting**, not a per-chunk-reset silence window: incoming data no
@@ -145,6 +145,13 @@ defmodule XipeTotec.Repl.Evaluator do
       "Language independence" section); default to Elixir's own
       (`Repl.Launch`/`Repl.EvalTemplate`/`Repl.Eval.Scan.Direct.Iex`/
       `Repl.Eval.FieldDrip.Elixir`).
+    * `:progress` -- `fn call_id, phase -> ... end`, told `"calling"` when
+      an entry is sent and `"classifying"` when the adapter says the call
+      returned (an `XT_CALLED_<id>` line, before the repr/compare
+      judgment). `Runner` records it for `eval/status` (`XipeTotec.Passes`).
+      An entry that hits the deadline after `XT_CALLED` is recorded as
+      `session_hung` with that phase named: the call finished, judging its
+      value did not (2026-10-06, Old.md §51).
 
   `plan.skipped` (rows `Core.plan_recalc/3` left out because a referenced
   row's value couldn't be handed over) is reported first in `results` and
@@ -166,7 +173,7 @@ defmodule XipeTotec.Repl.Evaluator do
     hang_grace_ms = Keyword.get(opts, :hang_grace_ms)
     interrupt_grace_ms = Keyword.get(opts, :interrupt_grace_ms, @default_interrupt_grace_ms)
     launch_opts = Keyword.get(opts, :launch_opts, [])
-    adapter = adapter_from(opts)
+    adapter = opts |> adapter_from() |> Map.put(:progress, Keyword.get(opts, :progress) || fn _call_id, _phase -> :ok end)
 
     plan_opts = Keyword.take(opts, [:call_ids, :include_writes])
     plan = Core.plan_recalc(book, pass_id, plan_opts)
@@ -230,21 +237,22 @@ defmodule XipeTotec.Repl.Evaluator do
   defp run_entries([], _pass_id, _handle, _sender, _adapter, _interruptible, _hang_grace_ms, _interrupt_grace_ms), do: {:ok, []}
 
   defp run_entries([entry | rest], pass_id, handle, sender, adapter, interruptible, hang_grace_ms, interrupt_grace_ms) do
+    adapter.progress.(entry.call_id, "calling")
     sender.write(handle, adapter.eval_template.build(entry))
     grace_ms = hang_grace_ms || entry.limits.timeout + @default_deadline_padding_ms
     # a fixed wall-clock deadline, not a per-chunk silence window -- see
-    # wait_result/6's comment for why this changed (2026-09-18 review
+    # wait_result/7's comment for why this changed (2026-09-18 review
     # finding).
     deadline = System.monotonic_time(:millisecond) + grace_ms
 
-    case wait_result(handle, entry.call_id, "", pass_id, adapter, deadline) do
+    case wait_result(handle, entry.call_id, "", pass_id, adapter, deadline, false) do
       {:ok, result} ->
         {status, rest_results} = run_entries(rest, pass_id, handle, sender, adapter, interruptible, hang_grace_ms, interrupt_grace_ms)
         {status, [result | rest_results]}
 
-      :hung ->
+      {:hung, called?} ->
         end_hung_session(sender, handle, interruptible, interrupt_grace_ms)
-        hung = %{call_id: entry.call_id, outcome: {:error, "session_hung"}, compare: "skipped", evaluated_at: nil, session_gen: nil}
+        hung = %{call_id: entry.call_id, outcome: {:error, hung_reason(called?)}, compare: "skipped", evaluated_at: nil, session_gen: nil}
         aborted = for e <- rest, do: %{call_id: e.call_id, outcome: :aborted, compare: "skipped", evaluated_at: nil, session_gen: nil}
         {:hung, [hung | aborted]}
     end
@@ -295,7 +303,18 @@ defmodule XipeTotec.Repl.Evaluator do
   # closes that: no matter how much keeps arriving, this entry gives up at
   # `grace_ms` total, same ceiling as before for the ordinary "truly
   # silent" hang case.
-  defp wait_result(handle, call_id, buffer, session_gen, adapter, deadline) do
+  #
+  # `called?`: the adapter already said the call returned (`XT_CALLED_<id>`)
+  # -- told to `:progress` once, and named in the hung reason.
+  defp wait_result(handle, call_id, buffer, session_gen, adapter, deadline, called?) do
+    called? =
+      if not called? and String.contains?(buffer, "XT_CALLED_#{call_id}\n") do
+        adapter.progress.(call_id, "classifying")
+        true
+      else
+        called?
+      end
+
     case Parser.step(buffer, call_id, adapter.scan, adapter.field_drip, session_gen) do
       {:ok, result, _cleaned} ->
         {:ok, result}
@@ -304,15 +323,19 @@ defmodule XipeTotec.Repl.Evaluator do
         remaining = deadline - System.monotonic_time(:millisecond)
 
         if remaining <= 0 do
-          :hung
+          {:hung, called?}
         else
           receive do
             {^handle, {:data, chunk}} ->
-              wait_result(handle, call_id, cleaned.buffer <> chunk, session_gen, adapter, deadline)
+              wait_result(handle, call_id, cleaned.buffer <> chunk, session_gen, adapter, deadline, called?)
           after
-            remaining -> :hung
+            remaining -> {:hung, called?}
           end
         end
     end
   end
+
+  # the stored error: which side of the call the deadline caught
+  defp hung_reason(false), do: "session_hung"
+  defp hung_reason(true), do: "session_hung (the call returned; judging its value -- repr, compare -- did not finish)"
 end

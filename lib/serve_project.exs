@@ -196,6 +196,12 @@ defmodule XipeTotec.Serve.Project do
   def handle_call({:request, "scan/run", _params}, from, state),
     do: {:noreply, request_scan({from, :plain}, state)}
 
+  # eval/status: the running passes (files, Dispatch) plus this server's queue
+  def handle_call({:request, "eval/status", params}, _from, state) do
+    {:ok, _book, result} = Dispatch.handle(state.book, "eval/status", params, %{root: state.root, project_dir: state.project_dir})
+    {:reply, {:ok, Map.put(result, "queued", queued(state))}, state}
+  end
+
   def handle_call({:request, method, params}, _from, state) do
     # Pipeline-routed methods checked first, never falling through to
     # Dispatch's own @not_implemented for them (2026-09-18) -- same
@@ -236,6 +242,12 @@ defmodule XipeTotec.Serve.Project do
 
     {outcome, state} = outcome
     {:reply, {dialogue, outcome}, state}
+  end
+
+  def handle_call({:request_dialogue, dialogue, "eval/status", params, _opts}, _from, state) do
+    {:ok, _book, result} = Dispatch.handle(state.book, "eval/status", params, %{root: state.root, project_dir: state.project_dir})
+    result = Map.put(result, "queued", queued(state))
+    {:reply, {dialogue, %{hold: false, via_repl: false, text: nil, ok?: true, result: result, error: nil}}, state}
   end
 
   def handle_call({:request_dialogue, dialogue, "scan/run", _params, _opts}, from, state),
@@ -317,6 +329,9 @@ defmodule XipeTotec.Serve.Project do
 
   # the pass process died without reporting (a crash inside Runner/Evaluator)
   def handle_info({:DOWN, ref, :process, _pid, reason}, %{running: %{ref: ref, pass_id: pass_id}} = state) do
+    # died without Runner's own cleanup: its running records would look
+    # alive (this OS process lives on) and keep its rows locked
+    XipeTotec.Passes.clear(state.project_dir, pass_id)
     error = %{"code" => "eval_failed", "message" => inspect(reason)}
     push(state.sessions, "notify/passCompleted", %{"pass_id" => pass_id, "ok" => false, "error" => error})
     state = tell_watcher(state, pass_id, %{method: "eval", ok?: false, result: nil, error: error})
@@ -388,7 +403,10 @@ defmodule XipeTotec.Serve.Project do
           spawn_monitor(fn ->
             # read per pass: the working tree may have moved since the server started
             ctx = Keyword.get_lazy(eval_opts, :ctx, fn -> GitCtx.read(root) end)
-            {_book, [outcome]} = Runner.run(book, root, [%{"method" => "eval", "params" => params}], Keyword.put(eval_opts, :ctx, ctx))
+            # the pass is recorded under this pass_id (XipeTotec.Passes), so
+            # the DOWN handler below can clear it if this process dies
+            eval_opts = eval_opts |> Keyword.put(:ctx, ctx) |> Keyword.put(:pass_id, pass_id)
+            {_book, [outcome]} = Runner.run(book, root, [%{"method" => "eval", "params" => params}], eval_opts)
             send(server, {:pass_done, pass_id, outcome, ctx})
           end)
 
@@ -400,6 +418,11 @@ defmodule XipeTotec.Serve.Project do
   end
 
   defp start_next_pass(state), do: state
+
+  defp queued(state) do
+    for {pass_id, params} <- :queue.to_list(state.queue),
+        do: %{"pass_id" => pass_id, "call_ids" => List.wrap(params["call_ids"])}
+  end
 
   defp tell_watcher(state, pass_id, outcome) do
     {watcher, watchers} = Map.pop(state.watchers, pass_id)

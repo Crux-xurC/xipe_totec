@@ -26,9 +26,34 @@ defmodule XipeTotec.OutcomeText do
   defp outcome(%{method: method, ok?: true, result: %{"results" => results} = result}) do
     head = if method != "eval", do: [{:out, "#{method}  ok#{if result["id"], do: "  id=#{result["id"]}", else: ""}"}], else: []
     env = if status = result["env"], do: env_lines("  eval", status, false), else: []
-    calls = for r <- results, do: {:out, "  eval call #{r.call_id}  #{eval_call(r.outcome)}  compare=#{r.compare}"}
+    calls = for r <- results, do: {:out, "  eval call #{r.call_id}  #{eval_call(r.outcome, r.call_id)}  compare=#{r.compare}"}
     not_run = for n <- Map.get(result, "not_run", []), do: {:out, "  eval call #{n["id"]}  not run  #{n["reason"]}"}
     head ++ env ++ calls ++ not_run
+  end
+
+  # what is being evaluated now (XipeTotec.Passes), and a server's queue
+  defp outcome(%{method: "eval/status", ok?: true, result: %{"running" => running} = result}) do
+    queued = Map.get(result, "queued", [])
+
+    head =
+      if running == [] and queued == [],
+        do: [{:out, "eval/status  ok  nothing is being evaluated"}],
+        else: [{:out, "eval/status  ok"}]
+
+    passes =
+      Enum.flat_map(running, fn p ->
+        [{:out, "  running  pass #{p["pass_id"]}  #{p["language"]}  #{p["seconds"]}s  #{length(p["call_ids"])} row(s) (not changeable until it ends)"}] ++
+          case p["current"] do
+            %{"call_id" => id, "label" => label, "phase" => phase, "seconds" => s} ->
+              [{:out, "    now  #{id}  #{label}  #{phase}  #{s}s"}]
+
+            _ ->
+              [{:out, "    now  (starting the REPL)"}]
+          end
+      end)
+
+    waiting = for q <- queued, do: {:out, "  queued   pass #{q["pass_id"]}  #{describe_ids(q["call_ids"])}"}
+    head ++ passes ++ waiting
   end
 
   defp outcome(%{method: method, ok?: true, result: result}), do: [{:out, "#{method}  ok  #{inspect(result)}"}]
@@ -50,13 +75,20 @@ defmodule XipeTotec.OutcomeText do
     end
   end
 
-  defp eval_call({:ok, %{repr: repr, display: display}}), do: "ok       repr=#{repr}  #{display}"
-  defp eval_call(:timeout), do: "timeout"
-  defp eval_call(:max_heap), do: "max_heap"
-  defp eval_call({:error, reason}), do: "crash    #{reason}"
+  defp eval_call({:ok, %{repr: repr, display: display}}, _id), do: "ok       repr=#{repr}  #{display}"
+  defp eval_call(:timeout, _id), do: "timeout"
+  defp eval_call(:max_heap, _id), do: "max_heap"
+  defp eval_call({:error, reason}, _id), do: "crash    #{reason}"
 
-  defp eval_call({:skipped, upstream_id}),
-    do: "skipped  upstream #{upstream_id} has no value to pass on -- evaluate it in the same command (not recorded)"
+  # not evaluated, not recorded: the upstream value can't be written into
+  # the call (never evaluated, or repr binary/unsupported -- Old.md §51)
+  defp eval_call({:skipped, upstream_id}, id),
+    do:
+      "skipped  upstream #{upstream_id} has no value that can be written into the call -- evaluate it in the same command, " <>
+        "or give a value in its place with `dialogue depends #{id}` (not recorded)"
 
-  defp eval_call(:aborted), do: "aborted  session ended before this call ran"
+  defp eval_call(:aborted, _id), do: "aborted  session ended before this call ran"
+
+  defp describe_ids(ids) when is_list(ids) and ids != [], do: "#{length(ids)} row(s)"
+  defp describe_ids(_ids), do: "every row"
 end

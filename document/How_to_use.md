@@ -162,9 +162,12 @@ $ xipe eval <R1> <R2>        # R1 を先に評価し、その結果で R2 を評
 ```
 
 - 並べて指定した行は、参照の順（参照先が先）に評価され、どれも記録される
-- 参照先を指定しなかった場合、参照先の値が表にあれば（`repr=exact`/`binary`）、その値を使う
-- 参照先の値が表から渡せない（まだ評価されていない、または `repr=unsupported`）ときは、参照先も
-  一緒に指定しないと評価できない。その行は `skipped` と理由が出て、表には何も記録されない
+- 参照先を指定しなかった場合、参照先の値が表にあり、ソースとして書ける（`repr=exact`）なら、その値を使う
+- 参照先の値が表から渡せない（まだ評価されていない、または `repr=binary`/`unsupported`）ときは、参照先も
+  一緒に指定しないと評価できない。その行は `skipped` と理由が出て、表には何も記録されない。
+  参照先を評価し直したくなければ、`xipe dialogue depends <その行の id>` で参照先の代わりの値を
+  入れて評価できる（§5）。`binary` は「バイト列では保存できるが、ソースとしては書けない」値
+  （例: `@derive {Inspect, only: …}` で欄を隠した構造体）で、その表示は読み戻せないので埋め込まない
 - 参照先が副作用の分類で評価できない（未分類、`writes` で `--include-writes` なし）ときも同じ
 - 参照が循環している行は評価されない
 
@@ -236,6 +239,23 @@ $ xipe eval
 | `row/check` | `call_ids`（省略で全件）`on`（既定 `error`） | 行が `on` の状態なら失敗する（§3.4） |
 | `row/update` | `id` `args` | 計算行の引数を変え（`row/add` と同じ検査）、**その行だけ**を評価する |
 | `eval/run` | `call_ids`（省略で全件）`include_writes=true` | `eval` と同じ（仕様 §16 の名前） |
+| `eval/status` | なし | いま評価中のパス: 言語・経過時間・対象の行の数と、いま評価している行・その段（下記）。サーバーでは順番待ちのパスも出る |
+
+**評価中の行は変えられない。** パスが走っている間、その対象の行への `row/update`・`row/set-result`・
+`row/remove` は `row_in_pass` で断られる（終わってからやり直す）。評価した値が、計算に使っていない
+引数の行に書かれるのを防ぐため。端末が別でも、CLI とサーバーのどちらから評価していても同じ
+（評価中のパスは `tables/project/<id>_<名前>/passes/` のファイルに残り、両方がそれを見る）。
+
+```
+$ xipe do eval/status
+eval/status  ok
+  running  pass 01M48MJ7ARMHHTZYCYFVSQR9SP  elixir  2s  2 row(s) (not changeable until it ends)
+    now  01M48MHW725HG4ERTCN0YY1R3S  S.slow/1  calling  2s
+```
+
+段は `calling`（呼び出しを送った）と `classifying`（呼び出しは戻り、値の判定 ── repr・compare ── をしている）。
+締め切りで止められた行は、`classifying` のあとなら `session_hung (the call returned; …)` と記録される
+（呼び出し自体は終わっていた）。いまの段が分かるのは Elixir だけで、OCaml・Haskell は `calling` のまま
 
 住所は列の組み合わせで絞り込む。使える列は `file`（相対パス）・`module`・`name`・
 `arity`（`anykey` でも可）・`row`（計算行の id）。
@@ -581,6 +601,7 @@ xipe eval                                # 何度でも。compare で変化を�
 | `tables/project/<id>_<名前>/book.jsonl` | Book。追記のみの JSON Lines で、同じ id の最後の行が現在の値 |
 | `tables/selection.json` | 選択中のプロジェクト（`xipe choice project` が書く） |
 | `tables/session.json` | 動いている `xipe start` の記録 |
+| `tables/project/<id>_<名前>/passes/` | いま評価中のパス（言語ごとに1ファイル。終われば消える。`eval/status`、評価中の行を変えさせない） |
 
 `book.jsonl` は追記だけで、書き換えない。壊れた行（書き込み途中で落ちたなど）は読み込み時に
 無視される。
@@ -681,7 +702,8 @@ xipe refresh -a     # 両方
 | 対話窓で、前の行で足したはずの関数・計算行が「無い」と言われる | 前の行がまだ終わっていない（行どうしは同時に走る）。返事を待つか `--` で1行にする（§6.2） |
 | `row/add: ... takes 1 arg(s), got 3` | 引数の数が合わない。リストを1引数で渡せない制限にも注意（§3.3） |
 | `row/add: ... is private` | `defp` の関数は計算行にできない |
-| `skipped  upstream ... has no value to pass on` | 参照先の値が表に無い（未評価・`unsupported`）か、参照先が評価できない。参照先の id も並べて指定する（§2.6） |
+| `skipped  upstream ... has no value that can be written into the call` | 参照先の値が表に無い（未評価）か、ソースとして書けない（`binary`・`unsupported`）か、参照先が評価できない。参照先の id も並べて指定するか、`dialogue depends` で値を入れる（§2.6） |
+| `row_in_pass: row ... is being evaluated` | その行はいま評価中。終わってから変える。何が走っているかは `xipe do eval/status`（§3.2） |
 | `crash` のスタックトレースの行番号がずれる | `mix.exs` のない対象では、抜き出した一時ファイル上の行番号になる |
 | `boot_failed: the REPL exited before it was ready` | 起動中に `iex` が終了した。たいていは対象のコードがコンパイルできない。続く出力にファイル名と行番号が出る |
 | `boot_failed`（`:timeout`） | `iex` が15秒以内に起動しなかった。Mix プロジェクトなら、一度 `mix compile` を済ませておく |

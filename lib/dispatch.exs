@@ -5,6 +5,7 @@ Code.require_file("project.exs", __DIR__)
 Code.require_file("address.exs", __DIR__)
 Code.require_file("graph_query.exs", __DIR__)
 Code.require_file("methods.exs", __DIR__)
+Code.require_file("passes.exs", __DIR__)
 Code.require_file("project_env.exs", __DIR__)
 
 defmodule XipeTotec.Dispatch do
@@ -97,8 +98,11 @@ defmodule XipeTotec.Dispatch do
   def handle(book, "row/add", _params, _ctx),
     do: {:error, book, invalid_params("row/add needs node (string) and args ([string])")}
 
-  def handle(book, "row/remove", %{"id" => call_id}, _ctx) when is_binary(call_id) do
-    {:ok, Core.remove_call(book, call_id), %{"id" => call_id}}
+  def handle(book, "row/remove", %{"id" => call_id}, ctx) when is_binary(call_id) do
+    case XipeTotec.Passes.refuse(ctx[:project_dir], call_id) do
+      nil -> {:ok, Core.remove_call(book, call_id), %{"id" => call_id}}
+      error -> {:error, book, error}
+    end
   end
 
   def handle(book, "row/remove", _params, _ctx),
@@ -216,10 +220,13 @@ defmodule XipeTotec.Dispatch do
   # this fits Dispatch's synchronous Book-in-Book-out contract exactly,
   # unlike "eval"/Runner's REPL-bound pseudo-method). New ground, not a v0.4
   # spec method; "row/" namespace for the same reason row/depends picked it.
-  def handle(book, "row/set-result", %{"id" => call_id, "result" => result}, _ctx)
+  def handle(book, "row/set-result", %{"id" => call_id, "result" => result}, ctx)
       when is_binary(call_id) and is_binary(result) do
     try do
-      {:ok, Core.set_result(book, call_id, result), %{"id" => call_id, "result" => result}}
+      case XipeTotec.Passes.refuse(ctx[:project_dir], call_id) do
+        nil -> {:ok, Core.set_result(book, call_id, result), %{"id" => call_id, "result" => result}}
+        error -> {:error, book, error}
+      end
     rescue
       # Core.set_result/3 -> fetch!/3 raises on an unknown call id, same
       # boundary-conversion reasoning as effect/set's own rescue above.
@@ -229,6 +236,37 @@ defmodule XipeTotec.Dispatch do
 
   def handle(book, "row/set-result", _params, _ctx),
     do: {:error, book, invalid_params("row/set-result needs id (string) and result (string)")}
+
+  # The passes being evaluated now (XipeTotec.Passes, 2026-10-06): each
+  # language group's rows, the row it is on, its phase and for how long.
+  # Read from files, so the CLI sees a server's pass and the other way
+  # round. Serve.Project adds its own queue ("queued").
+  def handle(book, "eval/status", _params, ctx) do
+    now = DateTime.utc_now()
+
+    running =
+      for record <- XipeTotec.Passes.running(ctx[:project_dir]) do
+        current =
+          case record["current"] do
+            %{"call_id" => id, "since" => since} = c ->
+              Map.merge(c, %{"label" => label(book, id), "seconds" => seconds_since(since, now)})
+
+            _ ->
+              nil
+          end
+
+        %{
+          "pass_id" => record["pass_id"],
+          "language" => record["language"],
+          "started_at" => record["started_at"],
+          "seconds" => seconds_since(record["started_at"], now),
+          "call_ids" => record["call_ids"] || [],
+          "current" => current
+        }
+      end
+
+    {:ok, book, %{"running" => running}}
+  end
 
   # The calc rows as a list (2026-09-26): what `xipe show` prints and a
   # client can render as the table. `call_ids` (optional) narrows it to
@@ -447,4 +485,20 @@ defmodule XipeTotec.Dispatch do
     links = for {id, row} <- book.links, row.node == node_id, do: Map.put(row, :id, id)
     %{"id" => node_id, "node" => node_row, "calls" => calls, "links" => links}
   end
+
+  defp label(book, call_id) do
+    Core.call_label(book, call_id) || call_id
+  rescue
+    _ -> call_id
+  end
+
+  defp seconds_since(iso, now) when is_binary(iso) do
+    case DateTime.from_iso8601(iso) do
+      {:ok, t, _} -> DateTime.diff(now, t)
+      _ -> nil
+    end
+  end
+
+  defp seconds_since(_iso, _now), do: nil
+
 end

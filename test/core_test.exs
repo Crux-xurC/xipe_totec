@@ -297,6 +297,32 @@ defmodule CoreTest do
       assert plan.cyclic_ids == MapSet.new(["c1", "c2"])
     end
 
+    test "a stored binary value is not written into the call: skipped, unless the row is evaluated in the same pass (Old.md §51)" do
+      # its result is only a display that doesn't read back -- embedded,
+      # `M.g(#P.S<a: 1, ...>)` was a syntax error
+      book =
+        Book.new()
+        |> Core.put_node("n1", pure_node("f"))
+        |> Core.put_node("n2", pure_node("g"))
+        |> Core.add_call("c1", %{node: "n1", args: []})
+        |> Core.set_result("c1", "unused")
+        |> then(fn b -> Book.put(b, :calls, "c1", Map.merge(Book.get(b, :calls, "c1"), %{result: "#P.S<a: 1, ...>", repr: "binary", bin: "g2gA"})) end)
+        |> Core.add_call("c2", %{node: "n2", args: ["⟦c1⟧"]})
+
+      plan = Core.plan_recalc(book, "pass1", call_ids: ["c2"])
+      assert plan.entries == []
+      assert [%{call_id: "c2", outcome: {:skipped, "c1"}}] = plan.skipped
+
+      # evaluated together: handed over through the session binding
+      plan = Core.plan_recalc(book, "pass1", call_ids: ["c1", "c2"])
+      assert Enum.map(plan.entries, & &1.call_id) == ["c1", "c2"]
+      assert List.last(plan.entries).args == ["xt_c1"]
+
+      # an exact value still is written in
+      exact = Book.put(book, :calls, "c1", Map.merge(Book.get(book, :calls, "c1"), %{result: "[1, 2]", repr: "exact"}))
+      assert [%{args: ["[1, 2]"]}] = Core.plan_recalc(exact, "pass1", call_ids: ["c2"]).entries
+    end
+
     test "an unresolvable reference cascades: a call depending on a skipped call is skipped too (Old.md §18's session_hung scenario)" do
       # Mirrors the real base->mid->top chain from §18/§19: c_base's node
       # was never classified (no effect_source: "user", as if the row had
