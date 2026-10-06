@@ -231,7 +231,7 @@ $ xipe eval
 | `card/get` / `card/search` | 住所（下記） | カード（関数＋その計算行＋link）を取り出す |
 | `cell/resolve` | `ref`（`⟦id⟧` の形） | その行の現在の値・repr・state |
 | `row/depends` | `call_ids` | その行と、参照で辿れる上流の行を、深い順に並べる |
-| `row/list` | `call_ids`（省略で全件） | 計算行の一覧（関数・引数・値・repr・state・compare）。`xipe show` の `row` 行と同じもの |
+| `row/list` | `call_ids`（省略で全件） | 計算行の一覧（関数・引数・値・repr・state・compare）。`xipe show` の `row` 行と同じもの。各行の `linked` は、その行の関数がまだあるか（`false` は scan で関数が消えて切れた行。`state` は最後の評価のままなので、`ok` でも切れていることがある。作り直す） |
 | `node/resolve` | 住所（下記） | 住所に当てはまる関数を1つに決め、その `id` を返す。0件は `not_found`、2件以上は `ambiguous`（候補付き） |
 | `row/check` | `call_ids`（省略で全件）`on`（既定 `error`） | 行が `on` の状態なら失敗する（§3.4） |
 | `row/update` | `id` `args` | 計算行の引数を変え（`row/add` と同じ検査）、**その行だけ**を評価する |
