@@ -97,7 +97,9 @@ row   01M3D3ZDR9MW08P2VZ6Q73E2RE  Calc.add/2  args=["1", "2"]  3  compare=none
 ```
 
 `row` は計算行（§2.5）で、id・関数・引数・いまの値（未評価なら `-`）・`compare` の順。
-値が `ok` でなければ末尾に `state=...` が付く。関数がソースから消えた行は `(node gone)` と出る。
+最後の評価が失敗した行は、値の代わりに失敗とその理由、前回の値を出す
+（`(error: timeout)  previous=0  state=eval_error`。表に残っている値は前回の評価のもの）。関数がソースから消えた行は
+`(node gone)` と出る。
 
 以降のコマンドでは、ここに出る node の id を使う。id を写す代わりに、`node/resolve` で
 関数の住所から id を引いて `$0.id` で渡すこともできる（§3.3）。

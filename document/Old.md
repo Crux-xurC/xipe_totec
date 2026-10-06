@@ -1990,3 +1990,17 @@ tezcatl と合同の軽いレビューで見つけた2点。
 `XT_CALLED` のあとの `session_hung`）、`core_test.exs` に1件（`binary` は `skipped`、同じパスなら束縛、`exact` は
 埋め込む。修正を外すと失敗）。作業用のコピーで CLI を2つ同時に動かし、評価中の `row/update` が断られ、
 ほかの行は変えられ、終われば変えられること、`eval/status` が行と段を出すことを確かめた
+
+## 52. `show` の失敗した行は、失敗とその理由を出す（S-2、2026-10-07、`~/my_app/tezcatl`セッション）
+
+`Core.apply_result` は、評価が失敗した行の `result` を前回の値のまま残す（Book は記録なので書き換えない）。
+`show`（CLI と対話窓が共通に使う `Show.lines`）はそれを値の欄に出していたので、`0  compare=same  state=eval_error`
+のように古い値が今の値に見えた（tezcatl の実地確認 S-2）。
+
+方針（crux）: **値は消さず、表示で示す**。結果はたいてい表で確かめるので、そこで失敗とその理由が分かればよい。
+tezcatl の表（`lib/xipe-rows.js`）はすでに失敗の行を「`→ (error)`」と出し、`state`・`error` の列を持っていた。
+`Show.lines` も合わせ、失敗の行は `(error: <理由>)  previous=<前回の値>  state=eval_error` と出す（前回の値が無ければ
+`previous=` は出さない。`compare` も前回の評価のものなので出さない）。
+
+テスト: `show_test.exs`（新規、4件。修正を外すと失敗の2件が落ちる）。tezcatl の E2E `xipe_input`・`xipe_skin`・
+`matrix_skin` も通過
