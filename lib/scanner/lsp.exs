@@ -311,7 +311,7 @@ defmodule XipeTotec.Scanner.Lsp do
       "initialize",
       %{
         "processId" => nil,
-        "rootUri" => "file://" <> root,
+        "rootUri" => file_uri(root),
         "capabilities" => %{
           "textDocument" => %{
             "documentSymbol" => %{"hierarchicalDocumentSymbolSupport" => true},
@@ -354,7 +354,15 @@ defmodule XipeTotec.Scanner.Lsp do
     :crypto.hash(:sha256, text) |> Base.encode16(case: :lower)
   end
 
-  defp uri(file), do: "file://" <> Path.expand(Path.join(file.root, file.path))
+  defp uri(file), do: file_uri(Path.expand(Path.join(file.root, file.path)))
+
+  # The path percent-encoded (2026-10-07): every byte but the unreserved ones
+  # and `/` as `%XX`, as vscode-uri writes it. The same as tezcatl's relay
+  # (`LspServer.file_uri/1`), which counts `didOpen` by the URI string -- the
+  # editor and this scanner must name a file alike. A raw space or non-ASCII
+  # name was not a valid URI, and a `#` or `%` in a path named another file.
+  @doc false
+  def file_uri(abs), do: "file://" <> URI.encode(abs, &(URI.char_unreserved?(&1) or &1 == ?/))
 
   defp relay_config(opts) do
     session =

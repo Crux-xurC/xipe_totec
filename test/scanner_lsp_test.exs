@@ -215,4 +215,15 @@ defmodule ScannerLspTest do
     assert Dialect.callee_key(%{"name" => "Calc.Inner.twice/1"}) == {"Calc.Inner", "twice", 1}
     assert Dialect.callee_key(%{"name" => "valid?/1"}) == nil
   end
+  # 2026-10-07 (tezcatl 課題 A8): the same URIs as tezcatl's relay
+  # (LspServer.file_uri/1, test/relay/lsp_uri_test.exs there), which counts
+  # didOpen by the URI string
+  test "file URIs are percent-encoded the way tezcatl's relay writes them" do
+    alias XipeTotec.Scanner.Lsp
+    assert Lsp.file_uri("/home/u/proj/lib/a.ex") == "file:///home/u/proj/lib/a.ex"
+    assert Lsp.file_uri("/a b/x.js") == "file:///a%20b/x.js"
+    assert Lsp.file_uri("/日本/x.js") == "file:///%E6%97%A5%E6%9C%AC/x.js"
+    assert Lsp.file_uri("/p#1/p%41.js") == "file:///p%231/p%2541.js"
+    assert Lsp.file_uri("/x?y/(z)") == "file:///x%3Fy/%28z%29"
+  end
 end
