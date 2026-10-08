@@ -562,9 +562,10 @@ tezcatl の対話窓はすべての行をこの形で送り、中身を解釈し
 ### 6.3 tezcatl から使う
 
 基本は tezcatl の開発シェルの `t` が、Emacs と同じく `xipe start` を `<dir>` なしで :4200 に
-バックグラウンドで起動する（:4200 が空いているときだけ。ログは `/tmp/tezcatl-xipe.log`）。
-tezcatl の中継はそこへつなぐだけなので、窓を閉じても止まらない。止めるときは
-`tables/session.json` の pid に SIGTERM を送る。対象は選択中のプロジェクトで、選ばれていなければ
+別のプロセスとして起動する（ログは `/tmp/tezcatl-xipe.log`）。`t` は前面で動き、Ctrl+C で
+Xipe Totec も止める（:4200 が使用中なら何も起動せずに断る）。`t -d` は :4200 が空いているときだけ
+背景で起動して戻り、止めるときは `tables/session.json` の pid に SIGTERM を送る。
+tezcatl の中継はそこへつなぐだけなので、窓を閉じても止まらない。対象は選択中のプロジェクトで、選ばれていなければ
 すぐ終わる（ログに出る）。対象を決めるのは Xipe Totec 側で、tezcatl は窓にすぎない。先に
 `xipe choice project` で選んでおくこと。
 

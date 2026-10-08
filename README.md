@@ -95,7 +95,7 @@ P1 の具体形: 副作用の分類（`pure`/`reads`/`writes`）は利用者が 
         │
    入口        CLI（main.exs）／ Serve.Project（GenServer）+ Serve.Socket（WebSocket）
         │ WebSocket（localhost）
-   tezcatl の `/xipe`（relay 側は実装済み。パネルは card/get の1回取得のみ）
+   tezcatl の `/xipe`（中継・対話窓 `input`・表 `row/list`/`card/get` まで実装済み。「tezcatl 連携」）
 ```
 
 スキャンと評価は言語で選ばれる。surface table が示す言語（`info.json` に登録済みの
@@ -125,13 +125,14 @@ disk とずれるファイルは、そのファイルだけ次の Scanner（Elix
 | 対話 | `InOut` / `Dialogue` / `Dialogue.Depends` / `Dialogue.Search` / `EvalTable` | 複数ターンの構造化対話（一覧は `InOut.programs/0`、CLI とサーバーで共通）、依存チェーン交渉、検索と、その `-e` が引く `eval_table`（計算行に関数と path を横付けした読み取り用の表） |
 | 人向けの入出力 | `Input` / `Help` / `OutcomeText` / `Show` / `Serve.Input` | 1行の読み方（CLI と同じ書き方）、`help` の表、結果・`show` の行（CLI と対話窓で共通）、`input` method |
 | サーバー | `Protocol` / `Serve.Project` / `Serve.Socket` | §16.3 の wire 形、1プロジェクト1GenServer、WebSocket の入口 |
-| プロジェクト | `Workspace` / `ProjectRegistry` / `Info` / `Repl.Language` | どのプロジェクトを対象にするかの解決、3桁 ID の登録、xipe_totec 自身の `info.json`（言語と拡張子、アダプタ一覧）と、このマシンで選択中のプロジェクト（`tables/selection.json`）、言語ごとの自己申告 |
+| プロジェクト | `Workspace` / `ProjectRegistry` / `ProjectConfig` / `ProjectEnv` / `Info` / `Repl.Language` | どのプロジェクトを対象にするかの解決、3桁 ID の登録、プロジェクトごとの設定（`project.json`、`xipe config`）、対象のツールを走らせる環境（対象の flake の devShell など）、xipe_totec 自身の `info.json`（言語と拡張子、アダプタ一覧）と、このマシンで選択中のプロジェクト（`tables/selection.json`）、言語ごとの自己申告 |
+| 評価の周り | `Passes` / `GitCtx` / `CommandLine` | いま評価中のパス（`passes/` のファイル。`eval/status`、評価中の行を変えさせない、§51）、評価した行に記録する git の出どころ、`xipe do` の引数をコマンド列に読む |
 
 ---
 
 ## いまどこまで動くか
 
-2026-09-27 時点。`./test/run.sh` の全44ファイル・440件がすべて通る。これとは別に、
+2026-10-08 時点。`./test/run.sh` の全46ファイル・468件がすべて通る。これとは別に、
 実機の REPL を起動するテスト（`test/live/`、`iex` 12件・`ocaml` 6件・`ghci` 7件。OCaml・Haskell 版は
 PATH に処理系が無ければ飛ばす）がある。
 
@@ -166,6 +167,7 @@ PATH に処理系が無ければ飛ばす）がある。
 | Tier 1 | `scan/run`・`row/add`・`row/remove`・`effect/set`・`card/get`・`card/search`・`graph/neighbors`・`graph/export`・`cell/resolve` | 実装済み |
 | 独自追加 | `row/depends`（上流依存チェーン）・`row/set-result`（値の手入力）・`row/list`（計算行の一覧）・`row/check`（条件に当たる行があれば失敗）・`node/resolve`（住所から node の id）・`notify/passCompleted`（評価回の完了通知） | 実装済み（仕様 v0.4 には無い） |
 | 独自追加 | `input`（1行をそのまま受け、CLI と同じ書き方で読む。tezcatl の対話窓用） | 実装済み（2026-09-27、`Old.md` §40） |
+| 独自追加 | `eval/status`（いま評価中のパス。評価中の行は変えられない） | 実装済み（2026-10-06、`Old.md` §51） |
 | 評価 | `eval`・`eval/run` | 実装済み。CLI（`xipe eval`／`xipe do ... eval`）は同期実行、`xipe serve` では非同期（`pass_id` を返す）。`eval/run` は `Pipeline`（`["eval"]`）経由 |
 | Pipeline 経由 | `row/update` | 実装済み。`["edit", "eval"]`：引数を変えてその行だけを評価する（Old.md §37） |
 | Tier 3 | `cell/complete` | 未実装 |
@@ -286,7 +288,7 @@ Mix プロジェクトではない（`mix.exs` なし）。tezcatl と同じ規�
 [tezcatl](../tezcatl) の relay の `/xipe` が、ブラウザ側のパネル（`panels/matrix.html` など）と
 Xipe Totec のサーバーをつなぐ。対象プロジェクトを決めるのは Xipe Totec（`xipe choice project`）で、
 tezcatl はその窓に過ぎない。基本は tezcatl の `t` が Emacs と同じく `xipe start` を `<dir>` なしで
-:4200 にバックグラウンドで起動し、中継はそこへ WebSocket でつなぐだけ（`xipe.json` の
+:4200 に別のプロセスとして起動し（`t -d` なら背景で）、中継はそこへ WebSocket でつなぐだけ（`xipe.json` の
 `mode: "connect"`、2026-09-28）。窓を閉じても止まらない。中継に起動させる `mode: "spawn"` もある
 （最後の窓が離れて45秒で止まる）。`xipe.json` のキー（`"."` など）はつなぐ先の名前で、パスではない。
 どのプロジェクトが開いているかは `initialize` の結果の `project`（`id`・`root`）で分かる。
