@@ -2004,3 +2004,28 @@ tezcatl の表（`lib/xipe-rows.js`）はすでに失敗の行を「`→ (error)
 
 テスト: `show_test.exs`（新規、4件。修正を外すと失敗の2件が落ちる）。tezcatl の E2E `xipe_input`・`xipe_skin`・
 `matrix_skin` も通過
+
+## 53. 引数の既定値を持つ関数は、受け付ける引数の数を人が `arity/set` で決める（2026-10-08、`~/my_app/tezcatl`セッション）
+
+tezcatl の追跡（`../tezcatl/document/2026-10-08_追跡.md` §2）で、`def scale(x, k \\ 2)` のカードが `scale/2` だけになると
+分かった。`scale(3)` の計算行は `row/add` が arity で断り、`scale(x)` と既定値に任せて呼ぶ関数からの link は
+`link_failures` にも出ずに落ちていた（参照一覧から漏れる）。自前の解析でも elixir-ls 経由でも同じ。トレーサーは呼び出しを
+実際の arity（`scale/1`）で記録し、node の照合キーは `{module, name, anykey = 2}` なので当たらない。
+
+方針（crux）: **受け付ける引数の数は人が決める**（`effect/set` と同じ。P1・P4・P9）。Scanner は自動では書き込まない。
+既定値の数え方は自前の解析（`Scanner.Elixir`）だけで、「一回やって駄目だったときに見せて、自分で入れてもらう」。
+計算行を保存するときに既定値で埋めて node の arity に合わせる案は採らなかった ── 既定値がモジュールの中のもの
+（`@default`・`helper()`）を指すと REPL では読めず、link の漏れも直らない。
+
+- `arity/set id=<node> arities=[1,2]`（`Methods`、対話窓からも）: node の `arities` に保存する。node の anykey（定義の arity）を
+  含み、それより大きい数は断る。anykey だけにすると消える。anykey が数でない node（OCaml・Haskell）は断る。
+  `anykey` と id は変わらないので、既存の Book と計算行はそのまま。再スキャンでも `effect` と同じく引き継ぐ（`Scanner.put_defs`）
+- 使うところ: `row/add`・`row/update` の確認（`Core.accepted_arities`）、link の照合（`Scanner.node_for` が、完全一致が無ければ
+  同じモジュール・名前で `arities` に含む node を探す ── 自前の解析・elixir-ls の両方がここを通る）、表示（node は
+  `M.scale/1..2`、計算行は呼ぶ arity の `M.scale/1`、`Core.call_label`）
+- 見せるところ: `row/add` が arity で断ったとき、`ctx.root` があればそのファイルを `Scanner.Elixir.default_arities/4` で読み、
+  「自前の解析では既定値の引数があり 1..2 で呼べます: arity/set id=… arities=[1,2] で決めてから」を足す。`scan/run` は、arity だけが
+  違って当たらなかった呼び出しを `arity_misses`（`link_failures` とは別。「読めなかった」ではないので link の掃除に関わらない）に出す
+
+テスト: `arity_set_test.exs`（新規、5件）。実機で、自前の解析と elixir-ls（mix プロジェクト、`via: stdio`）の両方で、`arity_misses` →
+`arity/set` → 再スキャンで link が付くこと、`scale(4)` の計算行が評価されることを確かめた

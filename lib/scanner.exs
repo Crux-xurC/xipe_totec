@@ -130,7 +130,9 @@ defmodule XipeTotec.Scanner do
           body_hash: def.body_hash,
           status: "live",
           effect: prior[:effect] || "unknown",
-          effect_source: prior[:effect_source]
+          effect_source: prior[:effect_source],
+          # what a person declared with arity/set (default arguments) stays, like effect
+          arities: prior[:arities]
         }
 
         {Book.put(book, :nodes, id, row), Map.put(node_ids, {def.module, def.name, def.anykey}, id)}
@@ -171,8 +173,40 @@ defmodule XipeTotec.Scanner do
     Enum.reduce(stale, book, &Book.delete(&2, :links, &1))
   end
 
-  @doc "The node id for `{module, name, anykey}`: this pass's `node_ids` first, then the book."
+  @doc """
+  The node id for `{module, name, anykey}`: this pass's `node_ids` first,
+  then the book -- and for an integer anykey (an arity), a node of that
+  module and name whose declared `arities` (`arity/set`) include it: a call
+  `scale(x)` to `def scale(x, k \\\\ 2)` is `scale/1` (crux 2026-10-08).
+  """
   @spec node_for(Book.t(), node_ids(), {String.t(), String.t(), term()}) :: String.t() | nil
-  def node_for(book, node_ids, {module, name, anykey} = key),
-    do: Map.get(node_ids, key) || Book.find_node_by_natural_key(book, module, name, anykey)
+  def node_for(book, node_ids, {module, name, anykey} = key) do
+    Map.get(node_ids, key) || Book.find_node_by_natural_key(book, module, name, anykey) ||
+      by_declared_arity(book, module, name, anykey)
+  end
+
+  defp by_declared_arity(book, module, name, arity) when is_integer(arity) do
+    Enum.find_value(book.nodes, fn {id, row} ->
+      if row.module == module and row.name == name and is_list(row[:arities]) and arity in row[:arities], do: id
+    end)
+  end
+
+  defp by_declared_arity(_book, _module, _name, _arity), do: nil
+
+  @doc """
+  A call that matched no node, but whose module and name have one with
+  another arity -- most likely a function with default arguments called
+  without them, before its arities were declared (`arity/set`). -> a note
+  for scan/run's `arity_misses` | nil. Calls to other projects' modules,
+  and to names with no node at all, are not ours to report.
+  """
+  @spec arity_miss(Book.t(), {String.t(), String.t(), term()}, String.t() | nil) :: map() | nil
+  def arity_miss(book, {module, name, arity}, caller_module) when is_integer(arity) do
+    Enum.find_value(book.nodes, fn {id, row} ->
+      if row.module == module and row.name == name and is_integer(row.anykey) and row.anykey != arity,
+        do: %{module: caller_module, node: id, label: "#{module}.#{name}", called: arity, anykey: row.anykey}
+    end)
+  end
+
+  def arity_miss(_book, _key, _caller_module), do: nil
 end

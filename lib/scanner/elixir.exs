@@ -188,7 +188,45 @@ defmodule XipeTotec.Scanner.Elixir do
           MapSet.member?(own_modules, module) and not MapSet.member?(failed_modules, module),
           do: id
 
-    {XipeTotec.Scanner.put_links(book, links, own_ids), failures}
+    # calls that missed only by arity (default arguments not declared yet):
+    # reported beside the failures, never counted as one (they sweep nothing)
+    misses =
+      for %{caller: {caller_module, _, _} = caller, callee: callee} <- edges,
+          XipeTotec.Scanner.node_for(book, node_ids, caller),
+          XipeTotec.Scanner.node_for(book, node_ids, callee) == nil,
+          miss = XipeTotec.Scanner.arity_miss(book, callee, caller_module),
+          uniq: true,
+          do: miss
+
+    {XipeTotec.Scanner.put_links(book, links, own_ids), failures ++ misses}
+  end
+
+  @doc """
+  The argument counts `module.name/arity` can be called with, read from
+  `source` (a pure AST walk): a head with default arguments
+  (`def scale(x, k \\\\ 2)`, with or without a body) makes `[1, 2]`. `nil`
+  when the function has none, isn't there, or the source doesn't parse.
+  Only ever *shown* -- on a refused `row/add` -- for a person to declare
+  with `arity/set` (crux 2026-10-08: the scanner never sets arities).
+  """
+  @spec default_arities(String.t(), String.t(), String.t(), non_neg_integer()) :: [non_neg_integer()] | nil
+  def default_arities(source, module, name, arity) do
+    with {:ok, quoted} <- Code.string_to_quoted(source) do
+      defaults =
+        for {^module, body} <- modules_in(quoted, nil),
+            {kind, _, [head | _]} <- flatten_block(body),
+            kind in [:def, :defp],
+            {fun, _, args} when is_atom(fun) and is_list(args) <- [unguarded(head)],
+            to_string(fun) == name and length(args) == arity,
+            do: Enum.count(args, &match?({:\\, _, [_, _]}, &1))
+
+      case Enum.max(defaults, fn -> 0 end) do
+        0 -> nil
+        d -> Enum.to_list((arity - d)..arity)
+      end
+    else
+      _ -> nil
+    end
   end
 
   # --- node extraction (pure AST walk, no compilation) ---

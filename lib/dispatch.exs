@@ -7,6 +7,7 @@ Code.require_file("graph_query.exs", __DIR__)
 Code.require_file("methods.exs", __DIR__)
 Code.require_file("passes.exs", __DIR__)
 Code.require_file("project_env.exs", __DIR__)
+Code.require_file("scanner/elixir.exs", __DIR__)
 
 defmodule XipeTotec.Dispatch do
   @moduledoc """
@@ -74,17 +75,26 @@ defmodule XipeTotec.Dispatch do
       "scanners" => report.scanners
     }
 
+    # calls that matched no node only by arity -- most likely default arguments
+    # not declared yet (arity/set, crux 2026-10-08); left out when there are none
+    result =
+      case Map.get(report, :arity_misses, []) do
+        [] -> result
+        misses -> Map.put(result, "arity_misses", Enum.map(misses, &arity_miss_note(new_book, &1)))
+      end
+
+
     {:ok, new_book, if(project_dir, do: Map.put(result, "env", env_status), else: result)}
   end
 
-  def handle(book, "row/add", %{"node" => node_id, "args" => args}, _ctx)
+  def handle(book, "row/add", %{"node" => node_id, "args" => args}, ctx)
       when is_binary(node_id) and is_list(args) do
     # A calc row is one call to one scanned node, so the node has to exist
     # and the args have to match its arity -- checked here rather than left
     # to the REPL, where an arity mismatch would only surface as a crash at
     # eval time. Old.md §32: `xipe do row/add ... args=3,` used to silently
     # mint a 2-arg row for a 1-arity function.
-    case check_args(book, node_id, args, "row/add") do
+    case check_args(book, node_id, args, "row/add", ctx[:root]) do
       :ok ->
         id = Id.ulid()
         new_book = Core.add_call(book, id, %{node: node_id, args: args})
@@ -120,6 +130,39 @@ defmodule XipeTotec.Dispatch do
       RuntimeError -> {:error, book, not_found("node", node_id)}
     end
   end
+
+  # the argument counts a function with default arguments can be called with
+  # (crux 2026-10-08): a person declares them, as effect/set -- the scanner
+  # only suggests (a refused row/add, scan/run's arity_misses)
+  def handle(book, "arity/set", %{"id" => node_id, "arities" => arities}, _ctx) when is_binary(node_id) do
+    node = Book.get(book, :nodes, node_id)
+    as = arities |> List.wrap() |> Enum.map(&to_arity/1)
+
+    cond do
+      node == nil ->
+        {:error, book, not_found("node", node_id)}
+
+      not is_integer(node[:anykey]) ->
+        {:error, book, invalid_params("arity/set: #{Core.node_label(node)} has no argument count (this language's node is not told apart by arity)")}
+
+      as == [] or Enum.any?(as, &is_nil/1) ->
+        {:error, book, invalid_params("arity/set needs arities (whole numbers, e.g. arities=[1,2])")}
+
+      node.anykey not in as ->
+        {:error, book, invalid_params("arity/set: arities must include #{node.anykey} (#{Core.node_label(node)} as defined)")}
+
+      Enum.any?(as, &(&1 > node.anykey)) ->
+        {:error, book, invalid_params("arity/set: #{Core.node_label(node)} takes at most #{node.anykey} arg(s)")}
+
+      true ->
+        new_book = Core.set_arities(book, node_id, as)
+        node = Book.get(new_book, :nodes, node_id)
+        {:ok, new_book, %{"id" => node_id, "arities" => Core.accepted_arities(node), "label" => Core.node_label(node)}}
+    end
+  end
+
+  def handle(book, "arity/set", _params, _ctx),
+    do: {:error, book, invalid_params("arity/set needs id (string) and arities (e.g. arities=[1,2])")}
 
   def handle(book, "effect/set", _params, _ctx),
     do:
@@ -366,8 +409,8 @@ defmodule XipeTotec.Dispatch do
   an integer) takes that many. Shared by `row/add` and `row/update`'s edit
   stage (`Pipeline`); `method` prefixes the messages.
   """
-  @spec check_args(Book.t(), String.t(), term(), String.t()) :: :ok | {:error, map()}
-  def check_args(book, node_id, args, method) do
+  @spec check_args(Book.t(), String.t(), term(), String.t(), String.t() | nil) :: :ok | {:error, map()}
+  def check_args(book, node_id, args, method, root \\ nil) do
     node = Book.get(book, :nodes, node_id)
 
     cond do
@@ -383,10 +426,14 @@ defmodule XipeTotec.Dispatch do
         {:error, invalid_params("#{method}: #{Core.node_label(node)} is private; the REPL can't call it")}
 
       # only an integer anykey is an argument count (Scanner.Elixir's arity);
-      # another scanner's anykey says nothing about how many args to expect
-      is_integer(node[:anykey]) and length(args) != node.anykey ->
+      # another scanner's anykey says nothing about how many args to expect.
+      # Default arguments: the counts a person declared (arity/set)
+      is_list(Core.accepted_arities(node)) and length(args) not in Core.accepted_arities(node) ->
+        takes = node |> Core.accepted_arities() |> Core.arities_text()
+
         {:error,
-         invalid_params("#{method}: #{Core.node_label(node)} takes #{node.anykey} arg(s), got #{length(args)}: #{inspect(args)}")}
+         invalid_params("#{method}: #{Core.node_label(node)} takes #{takes} arg(s), got #{length(args)}: #{inspect(args)}" <>
+           arity_hint(book, node_id, node, length(args), root))}
 
       true ->
         :ok
@@ -394,6 +441,40 @@ defmodule XipeTotec.Dispatch do
   end
 
   defp invalid_params(message), do: %{"code" => "invalid_params", "message" => message}
+
+  # a refused arg count: what xipe_totec's own reading of the source says
+  # (Scanner.Elixir.default_arities) -- shown, never set (crux 2026-10-08)
+  defp arity_hint(book, node_id, node, n, root) do
+    with true <- is_binary(root),
+         %{path: path} <- Book.get(book, :sheets, node[:sheet]),
+         {:ok, source} <- File.read(Path.join(root, path)),
+         [_, _ | _] = as <- XipeTotec.Scanner.Elixir.default_arities(source, node.module, node.name, node.anykey),
+         true <- n in as,
+         false <- as == Core.accepted_arities(node) do
+      " ── 自前の解析では既定値の引数があり #{Core.arities_text(as)} で呼べます: arity/set id=#{node_id} arities=[#{Enum.join(as, ",")}] で決めてから"
+    else
+      _ -> ""
+    end
+  end
+
+  defp to_arity(n) when is_integer(n) and n >= 0, do: n
+  defp to_arity(s) when is_binary(s) do
+    case Integer.parse(String.trim(s)) do
+      {n, ""} when n >= 0 -> n
+      _ -> nil
+    end
+  end
+  defp to_arity(_), do: nil
+
+  defp arity_miss_note(book, m) do
+    node = Book.get(book, :nodes, m.node) || %{}
+    %{
+      "path" => m.path, "module" => m.module, "node" => m.node,
+      "message" =>
+        "#{m.label}/#{m.called} として呼ばれていますが、node は #{Core.node_label(Map.merge(%{module: "", name: ""}, node))} です" <>
+          " ── 既定値の引数なら arity/set id=#{m.node} arities=[...] で決める（row/add で自前の解析の提案が出ます）"
+    }
+  end
 
   # `call_ids` for row/list and row/check: omitted or empty means every row
   # (oldest first); given ones must all exist.

@@ -148,7 +148,9 @@ defmodule XipeTotec.Project do
           {language, entry}
         end)
 
-      %{book: book, paths: paths, link_failures: failures, scanners: scanners}
+      # a scanner reports the calls that missed only by arity (Scanner.arity_miss/3) with its failures
+      {misses, failures} = Enum.split_with(failures, &Map.has_key?(&1, :called))
+      %{book: book, paths: paths, link_failures: failures, arity_misses: Enum.uniq(misses), scanners: scanners}
     after
       for {_language, %{scanner: scanner, ctx: ctx}} <- picked, function_exported?(scanner, :finish, 1), do: scanner.finish(ctx)
     end

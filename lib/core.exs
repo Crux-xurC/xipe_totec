@@ -108,14 +108,52 @@ defmodule XipeTotec.Core do
   @doc """
   A node's display label: `"Module.name/anykey"` -- `"Calc.add/2"` for
   Elixir, whose scanner puts the arity in `anykey` -- or just
-  `"Module.name"` when the node has no `anykey`.
+  `"Module.name"` when the node has no `anykey`. A node whose arities a
+  person declared (`arity/set`) shows them: `"M.scale/1..2"`, `"M.f/1,3"`.
   """
   @spec node_label(map()) :: String.t()
   def node_label(%{module: module, name: name} = node) do
-    case node[:anykey] do
-      nil -> "#{module}.#{name}"
-      key -> "#{module}.#{name}/#{key}"
+    case {node[:anykey], node[:arities]} do
+      {nil, _} -> "#{module}.#{name}"
+      {_key, [_, _ | _] = as} -> "#{module}.#{name}/#{arities_text(as)}"
+      {key, _} -> "#{module}.#{name}/#{key}"
     end
+  end
+
+  @doc "`[1, 2]` -> `\"1..2\"`, `[1, 3]` -> `\"1,3\"`, `[2]` -> `\"2\"`."
+  @spec arities_text([non_neg_integer()]) :: String.t()
+  def arities_text([first | _] = as) do
+    last = List.last(as)
+    if length(as) > 1 and as == Enum.to_list(first..last),
+      do: "#{first}..#{last}",
+      else: Enum.join(as, ",")
+  end
+
+  @doc """
+  The argument counts a node can be called with: what a person declared
+  (`arity/set`, for a function with default arguments: `def f(x, k \\\\ 2)`
+  is `f/1` and `f/2`), else its integer anykey alone; `nil` when the node's
+  anykey is no argument count (another language's scanner).
+  """
+  @spec accepted_arities(map()) :: [non_neg_integer()] | nil
+  def accepted_arities(node) do
+    case {node[:anykey], node[:arities]} do
+      {key, [_ | _] = as} when is_integer(key) -> as
+      {key, _} when is_integer(key) -> [key]
+      _ -> nil
+    end
+  end
+
+  @doc """
+  Declare the argument counts node `node_id` can be called with (crux
+  2026-10-08: a person decides, as with `effect/set`; the scanner never
+  sets it). Sorted, without duplicates; just the anykey clears it.
+  """
+  @spec set_arities(Book.t(), String.t(), [non_neg_integer()]) :: Book.t()
+  def set_arities(book, node_id, arities) do
+    row = fetch!(book, :nodes, node_id)
+    as = arities |> Enum.uniq() |> Enum.sort()
+    Book.put(book, :nodes, node_id, Map.put(row, :arities, if(as == [row[:anykey]], do: nil, else: as)))
   end
 
   @doc "Short display label for a call, \"Module.name/arity\" -- same format `GraphQuery`'s own node-label helper uses, reused here for the dependency-chain negotiation's `;; wN <label>` lines. `nil` if the call or its node no longer exists."
@@ -123,7 +161,11 @@ defmodule XipeTotec.Core do
   def call_label(book, call_id) do
     with call when not is_nil(call) <- Book.get(book, :calls, call_id),
          node when not is_nil(node) <- Book.get(book, :nodes, call.node) do
-      node_label(node)
+      # a node with declared arities (arity/set): the one this row calls, scale/1
+      case {node[:arities], call[:args]} do
+        {[_, _ | _], args} when is_list(args) -> "#{node.module}.#{node.name}/#{length(args)}"
+        _ -> node_label(node)
+      end
     else
       nil -> nil
     end

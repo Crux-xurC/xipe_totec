@@ -42,6 +42,7 @@ defmodule XipeTotec.Methods do
     "row/remove" => %{route: :dispatch, writes: true, args: "id=<call id>", summary: "計算行を消す"},
     "row/set-result" => %{route: :dispatch, writes: true, args: "id=<call id> result=<値>", summary: "評価せずに結果の値を手で入れる"},
     "effect/set" => %{route: :dispatch, writes: true, args: "id=<node id> effect=pure|reads|writes", summary: "関数の副作用を分類する（未分類の関数は評価しない）"},
+    "arity/set" => %{route: :dispatch, writes: true, args: "id=<node id> arities=[1,2]", summary: "引数の既定値で呼べる引数の数を決める（計算行と link に使う。node の数だけに戻すなら arities=[<その数>]）"},
     "card/get" => %{route: :dispatch, writes: false, args: "module= name= arity= file= row=", summary: "住所に合うカード（関数・計算行・link）を取り出す"},
     "card/search" => %{route: :dispatch, writes: false, args: "module= name= arity= file= row=", summary: "住所に合うカードを探す"},
     "cell/resolve" => %{route: :dispatch, writes: false, args: "ref=⟦<call id>⟧", summary: "参照の今の値を引く"},

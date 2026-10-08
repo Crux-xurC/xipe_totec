@@ -122,6 +122,17 @@ $ xipe do effect/set id=01M3D3Z10ZNS03HPV3Q9GGJZHT effect=pure
 評価はサンドボックスの中で動くわけではない。`writes` の関数を評価すれば、書き込みは
 実際に起こる。
 
+**引数の既定値がある関数**（`def scale(x, k \\ 2)`）は、カードが定義の数（`scale/2`）だけになる。`scale(3)` の計算行を
+作るには、呼べる引数の数を一度だけ決める（自動では決めない）:
+
+```
+$ xipe do arity/set id=<node> arities=[1,2]
+```
+
+決める前は、`row/add` が断るときに自前の解析の提案（「既定値の引数があり 1..2 で呼べます」）が出る。`scan` の結果の
+`arity_misses` には、既定値に任せて呼んでいて link にならなかった呼び出しが出る（決めて再スキャンすれば link になる）。
+表示は node が `scale/1..2`、計算行が呼ぶ数（`scale/1`）。戻すには `arities=[2]`（定義の数だけ）。
+
 ### 2.5 計算行を作って評価する
 
 計算行は「関数への1回の呼び出し」で、引数を保存しておき、何度でも評価し直せる。
@@ -231,6 +242,7 @@ $ xipe eval
 | `row/add` | `node` `args` | 計算行を作る。結果の `id` が新しい行の id |
 | `row/remove` | `id` | 計算行を消す |
 | `effect/set` | `id`（node）`effect` | 副作用を分類する |
+| `arity/set` | `id`（node）`arities` | 引数の既定値で呼べる引数の数を決める（§2.4） |
 | `row/set-result` | `id` `result` | 評価せずに、結果の値を手で書き込む（対象言語のリテラルで） |
 | `eval` | `call_ids`（省略で全件）`include_writes=true` | 評価する |
 | `card/get` / `card/search` | 住所（下記） | カード（関数＋その計算行＋link）を取り出す |

@@ -293,7 +293,16 @@ defmodule XipeTotec.Scanner.Lsp do
       failed = MapSet.new(failures, & &1.module)
       own = for {node, module, _} <- results, node in looked_at, not MapSet.member?(failed, module), do: node
 
-      {Scanner.put_links(book, links, own), failures}
+      # calls that missed only by arity (default arguments not declared yet), beside the failures
+      misses =
+        for {_node, module, {:ok, keys}} <- results,
+            key <- keys,
+            Scanner.node_for(book, node_ids, key) == nil,
+            miss = Scanner.arity_miss(book, key, module),
+            uniq: true,
+            do: miss
+
+      {Scanner.put_links(book, links, own), failures ++ misses}
     else
       failures =
         for {_node, module, _} <- entries, uniq: true,

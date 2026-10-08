@@ -132,7 +132,7 @@ disk とずれるファイルは、そのファイルだけ次の Scanner（Elix
 
 ## いまどこまで動くか
 
-2026-10-08 時点。`./test/run.sh` の全46ファイル・468件がすべて通る。これとは別に、
+2026-10-08 時点。`./test/run.sh` の全47ファイル・473件がすべて通る。これとは別に、
 実機の REPL を起動するテスト（`test/live/`、`iex` 12件・`ocaml` 6件・`ghci` 7件。OCaml・Haskell 版は
 PATH に処理系が無ければ飛ばす）がある。
 
@@ -168,6 +168,7 @@ PATH に処理系が無ければ飛ばす）がある。
 | 独自追加 | `row/depends`（上流依存チェーン）・`row/set-result`（値の手入力）・`row/list`（計算行の一覧）・`row/check`（条件に当たる行があれば失敗）・`node/resolve`（住所から node の id）・`notify/passCompleted`（評価回の完了通知） | 実装済み（仕様 v0.4 には無い） |
 | 独自追加 | `input`（1行をそのまま受け、CLI と同じ書き方で読む。tezcatl の対話窓用） | 実装済み（2026-09-27、`Old.md` §40） |
 | 独自追加 | `eval/status`（いま評価中のパス。評価中の行は変えられない） | 実装済み（2026-10-06、`Old.md` §51） |
+| 独自追加 | `arity/set`（引数の既定値で呼べる引数の数を人が決める。`row/add` と link に使う） | 実装済み（2026-10-08、`Old.md` §53） |
 | 評価 | `eval`・`eval/run` | 実装済み。CLI（`xipe eval`／`xipe do ... eval`）は同期実行、`xipe serve` では非同期（`pass_id` を返す）。`eval/run` は `Pipeline`（`["eval"]`）経由 |
 | Pipeline 経由 | `row/update` | 実装済み。`["edit", "eval"]`：引数を変えてその行だけを評価する（Old.md §37） |
 | Tier 3 | `cell/complete` | 未実装 |
