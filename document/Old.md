@@ -2029,3 +2029,18 @@ tezcatl の追跡（`../tezcatl/document/2026-10-08_追跡.md` §2）で、`def 
 
 テスト: `arity_set_test.exs`（新規、5件）。実機で、自前の解析と elixir-ls（mix プロジェクト、`via: stdio`）の両方で、`arity_misses` →
 `arity/set` → 再スキャンで link が付くこと、`scale(4)` の計算行が評価されることを確かめた
+
+## 54. `$n.…` が何も引けなかった `call_ids` は、全件の評価にしない（2026-10-09、`~/my_app/tezcatl`セッション）
+
+tezcatl の追跡（`../tezcatl/document/2026-10-09_追跡.md` §1）で、README の例どおりの `xipe do row/add … -- eval call_ids=$0.id` が、
+`row/add` が失敗すると Book の全件を評価すると分かった。コマンド列は失敗で止まらず（`Runner.run/4`）、失敗したコマンドへの
+`$0.id` は `nil` になる。`call_ids=$0.id` は `[…]` が無いのでただの文字列で、まるごと `nil` に置き換わり、`List.wrap(nil)` = `[]` が
+「`call_ids` を書かない ＝ 全件」と同じに読まれていた。pure・reads の行はすべて評価され、`include_writes=true` なら writes の行も走る。
+対話窓（`Serve.Project` のパス）も `Runner.run/4` を通るので同じ。
+
+方針（crux）: **書いたのに空の `call_ids` は断る**。`Runner` の `eval` は、`call_ids` が `nil` か、`nil` を含むリストなら
+`invalid_params`（「call_ids が空です（$n.… の参照先が無い…）。何も評価していません」）を返す。書かない・`[]` が全件なのは
+そのまま。`Pipeline.eval_params/1` も `nil` を `[]` に変えずに渡す（`eval/run` の経路）。コマンド列が失敗で止まらないのは変えない。
+
+テスト: `runner_test.exs`（`call_ids=$0.id` と `[$0.id]` の両方で断り、何も評価しない）・`pipeline_test.exs`（`eval_params` が `nil` を残す）。
+修正を外すと両方とも落ちることを確かめた。全体 475 件通過

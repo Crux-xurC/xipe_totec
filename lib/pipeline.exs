@@ -140,12 +140,14 @@ defmodule XipeTotec.Pipeline do
   @doc """
   The `"eval"` stage's own params for a method's `params`: `call_ids` as
   given (none: every row), else the single row `id`, and `include_writes`.
+  A `call_ids` given as `nil` (a `$n.path` that found nothing) stays `nil`,
+  for the `"eval"` to refuse -- never read as "every row" (`Runner`).
   """
   @spec eval_params(map()) :: map()
   def eval_params(params) do
     call_ids =
       cond do
-        Map.has_key?(params, "call_ids") -> List.wrap(params["call_ids"])
+        Map.has_key?(params, "call_ids") -> if(params["call_ids"] == nil, do: nil, else: List.wrap(params["call_ids"]))
         is_binary(params["id"]) -> [params["id"]]
         true -> []
       end

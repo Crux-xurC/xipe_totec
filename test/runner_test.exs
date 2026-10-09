@@ -323,6 +323,29 @@ defmodule RunnerTest do
     assert Book.get(new_book, :calls, added.result["id"]).result == "1"
   end
 
+  test "a $n.path that found nothing never turns an \"eval\" into every call in the book (2026-10-09)" do
+    book =
+      Book.new()
+      |> Core.put_node("n1", pure_node("f"))
+      |> Core.add_call("c1", %{node: "n1", args: ["1"]})
+
+    # row/add fails (no such node), so $0.id is nil: call_ids=$0.id (a plain
+    # string, as `xipe do ... call_ids=$0.id` gives) and [$0.id] both refuse
+    for ids <- ["$0.id", ["$0.id"]] do
+      commands = [
+        %{"method" => "row/add", "params" => %{"node" => "nope", "args" => ["1"]}},
+        %{"method" => "eval", "params" => %{"call_ids" => ids}}
+      ]
+
+      {new_book, [added, evaluated]} = Runner.run(book, ".", commands, sender: EchoSender, launch_opts: [], language: "elixir")
+
+      refute added.ok?
+      refute evaluated.ok?
+      assert %{"code" => "invalid_params", "message" => "eval: call_ids が空です" <> _} = evaluated.error
+      assert Book.get(new_book, :calls, "c1").eval_count == 0
+    end
+  end
+
   defmodule RecordingSender do
     # Records the launch message via the process dictionary (this all runs
     # synchronously in the test process, so Process.put/get round-trips

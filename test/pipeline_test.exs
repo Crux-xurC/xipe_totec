@@ -73,6 +73,12 @@ defmodule PipelineTest do
       assert_received {:evaluated, %{"call_ids" => []}}
     end
 
+    test "eval_params keeps a nil call_ids nil (a $n.path that found nothing), never every row" do
+      assert %{"call_ids" => nil} = Pipeline.eval_params(%{"call_ids" => nil})
+      assert %{"call_ids" => []} = Pipeline.eval_params(%{})
+      assert %{"call_ids" => ["c1"]} = Pipeline.eval_params(%{"call_ids" => "c1"})
+    end
+
     test "without a REPL in ctx the eval stage refuses cleanly", %{book: book} do
       assert {:error, ^book, %{"code" => "no_repl"}} = Pipeline.run("eval/run", book, %{}, %{root: "."})
     end

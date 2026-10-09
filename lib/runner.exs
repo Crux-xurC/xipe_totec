@@ -113,29 +113,9 @@ defmodule XipeTotec.Runner do
   end
 
   defp run_one(book, root, %{"method" => "eval", "params" => params}, opts) do
-    given_ids = params |> Map.get("call_ids", []) |> List.wrap()
-    # Omitted/empty call_ids means "every call in the book", matching the
-    # dedicated `xipe eval` CLI command's own default (main.exs's `eval/1`)
-    # -- without this, `xipe do ... -- eval` silently evaluates nothing
-    # instead of the whole book (2026-09-19 review finding).
-    call_ids = if given_ids == [], do: Map.keys(book.calls), else: given_ids
-
-    # "include_writes" (Old.md §16.2/§16.4, 2026-09-21): Core.plan_recalc/3
-    # (via Repl.Evaluator.run_pass/3, both already wired -- see the moduledoc
-    # note this fixes) has always accepted :include_writes, but nothing on the
-    # CLI side ever read it out of a command's own params, so writes-effect
-    # calc rows could never actually be opted into from here. truthy?/1 tolerates
-    # both a real JSON boolean (a direct Runner.run/4 caller) and the plain
-    # string "true" `xipe do ... include_writes=true` produces (parse_kv/1's
-    # generic key=value parsing never coerces to boolean).
-    include_writes = params |> Map.get("include_writes", false) |> truthy?()
-
-    case eval_groups(book, root, call_ids, opts) do
-      {:ok, groups, surface_rows, unplaced} ->
-        run_groups(book, root, groups, surface_rows, unplaced, call_ids, include_writes, opts)
-
-      {:error, error} ->
-        {book, %{method: "eval", ok?: false, result: nil, error: error}}
+    case given_call_ids(params) do
+      {:ok, given_ids} -> run_eval(book, root, params, given_ids, opts)
+      {:error, error} -> {book, %{method: "eval", ok?: false, result: nil, error: error}}
     end
   end
 
@@ -165,6 +145,46 @@ defmodule XipeTotec.Runner do
         {:ok, new_book, result} -> {new_book, %{method: method, ok?: true, result: result, error: nil}}
         {:error, unchanged_book, error} -> {unchanged_book, %{method: method, ok?: false, result: nil, error: error}}
       end
+    end
+  end
+
+  # `call_ids` written but empty-handed -- `nil`, or a list holding `nil`:
+  # a `$n.path` into a command that failed (or has no such key) resolves to
+  # `nil` (see run/4). Refused rather than read as "omitted": omitted means
+  # every call in the book, and `row/add ... -- eval call_ids=$0.id` after a
+  # failed row/add must not evaluate the whole book (tezcatl
+  # document/2026-10-09_追跡.md, crux 2026-10-09).
+  defp given_call_ids(params) do
+    ids = params |> Map.get("call_ids", []) |> List.wrap()
+
+    if Map.has_key?(params, "call_ids") and (params["call_ids"] == nil or Enum.any?(ids, &is_nil/1)),
+      do: {:error, %{"code" => "invalid_params", "message" => "eval: call_ids が空です（$n.… の参照先が無い ── 前のコマンドが失敗したか、そのキーが無い）。何も評価していません。全件を評価するなら call_ids を書かない"}},
+      else: {:ok, ids}
+  end
+
+  defp run_eval(book, root, params, given_ids, opts) do
+    # Omitted/empty call_ids means "every call in the book", matching the
+    # dedicated `xipe eval` CLI command's own default (main.exs's `eval/1`)
+    # -- without this, `xipe do ... -- eval` silently evaluates nothing
+    # instead of the whole book (2026-09-19 review finding).
+    call_ids = if given_ids == [], do: Map.keys(book.calls), else: given_ids
+
+    # "include_writes" (Old.md §16.2/§16.4, 2026-09-21): Core.plan_recalc/3
+    # (via Repl.Evaluator.run_pass/3, both already wired -- see the moduledoc
+    # note this fixes) has always accepted :include_writes, but nothing on the
+    # CLI side ever read it out of a command's own params, so writes-effect
+    # calc rows could never actually be opted into from here. truthy?/1 tolerates
+    # both a real JSON boolean (a direct Runner.run/4 caller) and the plain
+    # string "true" `xipe do ... include_writes=true` produces (parse_kv/1's
+    # generic key=value parsing never coerces to boolean).
+    include_writes = params |> Map.get("include_writes", false) |> truthy?()
+
+    case eval_groups(book, root, call_ids, opts) do
+      {:ok, groups, surface_rows, unplaced} ->
+        run_groups(book, root, groups, surface_rows, unplaced, call_ids, include_writes, opts)
+
+      {:error, error} ->
+        {book, %{method: "eval", ok?: false, result: nil, error: error}}
     end
   end
 

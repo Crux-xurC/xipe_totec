@@ -16,6 +16,9 @@
 `../tezcatl/forAI/progress.md` の同名の節を読む。既知の指摘と、判断済み（仕様どおり・受け入れ・
 決定済みで未実装）のものが載っている。
 
+`../tezcatl/document/Poca — 開発開始のための文書.md`（poca ── tezcatl を開く側のブラウザ、最後の方で作る別のプロジェクト）は、
+xipe_totec の実装作業では読まなくてよい（crux、2026-10-08）。
+
 仕様書 `document/xipe_totec_spec_v0.4.html` は叩き台。`Old.md` の決定と食い違うときは `Old.md` を優先する。
 
 ## テスト
