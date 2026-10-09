@@ -10,7 +10,7 @@ defmodule StoreTest do
 
   setup do
     path = Path.join(System.tmp_dir!(), "xipe_totec_store_test_#{System.unique_integer([:positive])}.jsonl")
-    on_exit(fn -> File.rm(path) end)
+    on_exit(fn -> File.rm(path); File.rm(path <> ".lock") end)
     {:ok, path: path}
   end
 
@@ -95,5 +95,41 @@ defmodule StoreTest do
 
     book = Store.load(path)
     assert book.calls["c1"].result == "2"
+  end
+  # -- 2026-10-09: a cut-off line, the write lock, catching up ----------------
+
+  test "an append after a line cut off by a crash starts a line of its own (the cut line alone is lost)", %{path: path} do
+    Store.append(path, %{type: "call", id: "a", args: []})
+    File.write!(path, ~s({"type":"call","id":"b","ar), [:append])
+    Store.append(path, %{type: "call", id: "c", args: []})
+    assert Store.load(path).calls |> Map.keys() |> Enum.sort() == ["a", "c"]
+  end
+
+  test "a lock whose owner is gone is taken over; one held by a running owner is waited for", %{path: path} do
+    File.write!(path <> ".lock", JSON.encode!(%{"os_pid" => "999999999", "os_started" => "never"}))
+    assert Store.with_lock(path, fn -> :ran end) == :ran
+    refute File.exists?(path <> ".lock")
+    # held by a running process (this one, as another writer would see it)
+    File.write!(path <> ".lock", JSON.encode!(XipeTotec.Session.owner()))
+    assert_raise RuntimeError, ~r/is held by another process/, fn -> Store.with_lock(path, fn -> :ran end, 50) end
+    File.rm!(path <> ".lock")
+  end
+
+  test "persist_diff_since: the rows another writer appended are folded in; ours win on the same row", %{path: path} do
+    Store.append(path, %{type: "call", id: "c1", args: ["1"], result: nil})
+    {server, pos} = Store.load_with_pos(path)
+    # the CLI, meanwhile: a row of its own, and a change of c1
+    cli0 = Store.load(path)
+    cli1 = cli0 |> Book.put(:calls, "c2", %{args: ["2"], result: nil}) |> Book.put(:calls, "c1", %{args: ["1"], result: "cli"})
+    Store.persist_diff(path, cli0, cli1, [:calls])
+    # the server writes its change of c1 (from the book it read before)
+    mine = Book.put(server, :calls, "c1", %{args: ["1"], result: "server"})
+    {merged, pos2} = Store.persist_diff_since(path, pos, server, mine, [:calls])
+    assert merged.calls["c2"].args == ["2"]
+    assert merged.calls["c1"].result == "server"
+    assert Store.load(path) == merged
+    assert pos2 == File.stat!(path).size
+    # nothing new: the book stays, the position too
+    assert Store.persist_diff_since(path, pos2, merged, merged, [:calls]) == {merged, pos2}
   end
 end

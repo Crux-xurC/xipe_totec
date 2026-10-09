@@ -144,6 +144,10 @@ defmodule XipeTotec.Serve.Project do
 
   @impl true
   def init(%{root: root, store_file: store_file} = opts) do
+    # the book, and the byte position read up to: later writes catch up from it
+    # with what the CLI appended meanwhile (Store.persist_diff_since/5, 2026-10-09)
+    {book, store_pos} = Store.load_with_pos(store_file)
+
     # `:programs` (InOut.programs(), default `%{}` -- no real dialogue
     # program exists yet, Old.md §16.4 step 4) is settable at
     # start_link/1 only so tests can inject a toy one (test/serve_project_test.exs);
@@ -154,7 +158,8 @@ defmodule XipeTotec.Serve.Project do
     # fake `:sender` here; a real deployment passes nothing).
     {:ok,
      %{
-       book: Store.load(store_file),
+       book: book,
+       store_pos: store_pos,
        root: root,
        project_id: Map.get(opts, :project_id),
        # tables/project/<id>_<name>/: its saved surface table (課題 ④) and
@@ -216,7 +221,7 @@ defmodule XipeTotec.Serve.Project do
 
     case result do
       {:ok, new_book, result} ->
-        Store.persist_diff(state.store_file, state.book, new_book, [
+        {new_book, state} = persist(state, new_book, [
           :sheets,
           :nodes,
           :calls,
@@ -257,7 +262,7 @@ defmodule XipeTotec.Serve.Project do
     {new_dialogue, new_book, outcome} =
       InOut.handle(dialogue, state.book, state.root, %{"method" => method, "params" => params}, Keyword.put_new(opts, :project_dir, state.project_dir), state.programs)
 
-    Store.persist_diff(state.store_file, state.book, new_book, [
+    {new_book, state} = persist(state, new_book, [
       :sheets,
       :nodes,
       :calls,
@@ -283,7 +288,7 @@ defmodule XipeTotec.Serve.Project do
       if outcome.ok? do
         results = Enum.filter(outcome.result["results"], &Map.has_key?(state.book.calls, &1.call_id))
         new_book = Core.apply_results(state.book, ctx, results)
-        Store.persist_diff(state.store_file, state.book, new_book, [:calls])
+        {new_book, state} = persist(state, new_book, [:calls])
         broadcast_changes(state.book, new_book, state.sessions)
 
         push(state.sessions, "notify/passCompleted", %{
@@ -308,7 +313,7 @@ defmodule XipeTotec.Serve.Project do
       case result do
         {:ok, scanned, reply} ->
           new_book = fold_scan(state.book, scanned)
-          Store.persist_diff(state.store_file, state.book, new_book, @all_tables)
+          {new_book, state} = persist(state, new_book, @all_tables)
           broadcast_changes(state.book, new_book, state.sessions)
           reply_scan(waiters, {:ok, reply})
           %{state | book: new_book}
@@ -363,10 +368,14 @@ defmodule XipeTotec.Serve.Project do
 
     case prepared do
       {:ok, new_book, result, eval_params} ->
-        if new_book != state.book do
-          Store.persist_diff(state.store_file, state.book, new_book, @all_tables)
-          broadcast_changes(state.book, new_book, state.sessions)
-        end
+        {new_book, state} =
+          if new_book != state.book do
+            {written, st} = persist(state, new_book, @all_tables)
+            broadcast_changes(state.book, written, state.sessions)
+            {written, st}
+          else
+            {new_book, state}
+          end
 
         state = %{state | book: new_book}
 
@@ -478,6 +487,16 @@ defmodule XipeTotec.Serve.Project do
   # "removed" notify method, so a tombstoned id (row/remove, or a rescan
   # dropping a node) is persisted (above) but not itself pushed as a
   # notification in this v0 (Old.md §9 known gap, not yet designed).
+  # A change written under the Store's lock (Store.persist_diff_since/5): what
+  # others -- the CLI -- appended since this server last read is folded in
+  # first, so the book kept here and broadcast is the file's, not one that
+  # missed their rows until a restart (課題 "CLIとサーバーの同時書き込み",
+  # crux 2026-10-06/10-09). -> {the book to keep and broadcast, state with the new store_pos}
+  defp persist(state, new_book, tables) do
+    {book, pos} = Store.persist_diff_since(state.store_file, state.store_pos, state.book, new_book, tables)
+    {book, %{state | store_pos: pos}}
+  end
+
   defp broadcast_changes(old_book, new_book, sessions) do
     for {id, row} <- new_book.nodes, Map.get(old_book.nodes, id) != row do
       push(sessions, "notify/nodeChanged", %{"id" => id, "row" => row})

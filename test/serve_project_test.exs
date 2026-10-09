@@ -104,6 +104,19 @@ defmodule ServeProjectTest do
     assert Map.has_key?(folded.calls, call_id)
   end
 
+  test "a row the CLI wrote while the server runs is in the server's book after its next write (2026-10-09)", %{store_file: store_file} do
+    # the CLI: load, change, persist_diff -- as main.exs does
+    cli0 = XipeTotec.Store.load(store_file)
+    cli1 = XipeTotec.Book.put(cli0, :calls, "from-cli", %{node: "n0", args: ["9"], result: nil, eval_count: 0})
+    XipeTotec.Store.persist_diff(store_file, cli0, cli1, [:calls])
+    refute Map.has_key?(Project.book().calls, "from-cli")
+    # the server's next write catches up first
+    {:ok, %{"id" => call_id}} = Project.request("row/add", %{"node" => "n0", "args" => []})
+    book = Project.book()
+    assert Map.has_key?(book.calls, "from-cli") and Map.has_key?(book.calls, call_id)
+    assert XipeTotec.Store.load(store_file).calls |> Map.keys() |> Enum.sort() == book.calls |> Map.keys() |> Enum.sort()
+  end
+
   test "request/3 surfaces a Dispatch error without touching the book", %{store_file: store_file} do
     assert {:error, %{"code" => "invalid_params"}} = Project.request("row/add", %{})
     assert XipeTotec.Store.load(store_file).calls == %{}
