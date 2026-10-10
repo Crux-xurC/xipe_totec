@@ -42,7 +42,7 @@ defmodule CoreTest do
     end
   end
 
-  describe "upstream_chain/2 (Old.md §16.3/§16.4)" do
+  describe "upstream_chain/2" do
     test "a straight chain c1 -> c2 -> c3 comes back deepest-first, self included" do
       book =
         Book.new()
@@ -121,7 +121,7 @@ defmodule CoreTest do
     end
   end
 
-  describe "exclusion_reason/3 (Old.md §33: why plan_recalc/3 leaves a call out)" do
+  describe "exclusion_reason/3 (why plan_recalc/3 leaves a call out)" do
     defp excl_book(effect, source) do
       Book.new()
       |> Core.put_node("n1", %{module: "M", name: "f", anykey: 1, effect: effect, effect_source: source})
@@ -202,7 +202,7 @@ defmodule CoreTest do
       assert arg == "#{placeholder} + 1"
     end
 
-    # 2026-09-26 (Old.md §36): an unsupported value from a pure function used
+    # an unsupported value from a pure function used
     # to be handed over by re-embedding its call; that ran f without a
     # record, so the row referencing it must now be evaluated together with it
     test "a plan-external unsupported+pure reference is not re-run behind the scenes: the dependent call is skipped",
@@ -222,11 +222,11 @@ defmodule CoreTest do
     end
 
     # These three used to assert that a plan-external `:binding` fallback
-    # gets scheduled as a normal entry -- that was the Old.md §18
-    # `session_hung` bug itself (a bare `xt_<id>` reference that nothing in
+    # gets scheduled as a normal entry -- that is the
+    # `session_hung` hang (a bare `xt_<id>` reference that nothing in
     # the pass ever binds fails Elixir's *compile*-time variable resolution
     # inside EvalTemplate's `spawn_monitor` closure, before any `XT_*`
-    # marker can print). `drop_unresolvable/2` (2026-09-22) now catches this
+    # marker can print). `drop_unresolvable/2` now catches this
     # at plan-build time and skips the call instead of scheduling a doomed
     # entry -- see its moduledoc in `core.exs`.
     test "a plan-external unsupported+non-pure reference leaves the dependent call skipped unless evaluated with it",
@@ -247,7 +247,7 @@ defmodule CoreTest do
       assert plan.skipped == []
     end
 
-    # 2026-09-26 (Old.md §36): the book records only evaluations a command
+    # the book records only evaluations a command
     # asked for -- no row is added to the plan on its own
     test "only the requested rows are planned: neither the rows referencing them nor the ones they reference", %{book: book} do
       book = Core.add_call(book, "c20", %{node: "n2", args: ["⟦c2⟧"]})
@@ -297,7 +297,7 @@ defmodule CoreTest do
       assert plan.cyclic_ids == MapSet.new(["c1", "c2"])
     end
 
-    test "a stored binary value is not written into the call: skipped, unless the row is evaluated in the same pass (Old.md §51)" do
+    test "a stored binary value is not written into the call: skipped, unless the row is evaluated in the same pass" do
       # its result is only a display that doesn't read back -- embedded,
       # `M.g(#P.S<a: 1, ...>)` was a syntax error
       book =
@@ -323,8 +323,8 @@ defmodule CoreTest do
       assert [%{args: ["[1, 2]"]}] = Core.plan_recalc(exact, "pass1", call_ids: ["c2"]).entries
     end
 
-    test "an unresolvable reference cascades: a call depending on a skipped call is skipped too (Old.md §18's session_hung scenario)" do
-      # Mirrors the real base->mid->top chain from §18/§19: c_base's node
+    test "an unresolvable reference cascades: a call depending on a skipped call is skipped too" do
+      # A base->mid->top chain: c_base's node
       # was never classified (no effect_source: "user", as if the row had
       # been poked into Store directly), so filter_by_effect/3 drops
       # c_base from scheduling entirely. c_mid references c_base -- an
@@ -352,7 +352,7 @@ defmodule CoreTest do
     end
   end
 
-  describe "plan_recalc/3 -- basis (compare's spec §6.4 B)" do
+  describe "plan_recalc/3 -- basis (what compare compares with)" do
     test "no prior result at all -> :none" do
       book = Book.new() |> Core.put_node("n1", pure_node("f")) |> Core.add_call("c1", %{node: "n1", args: ["1"]})
       assert [%{basis: :none}] = Core.plan_recalc(book, "pass1", call_ids: ["c1"]).entries
@@ -365,8 +365,8 @@ defmodule CoreTest do
         |> Core.add_call("c1", %{node: "n1", args: ["1"], result: "5", repr: "exact", prev: "1", prev_source: "auto"})
 
       # prev ("1") is one generation further back than result ("5") --
-      # basis must be R_old (result), matching spec §6.4's B = R_old rule,
-      # not the stale prev column (a real bug found and fixed 2026-09-18)
+      # basis must be the result on record,
+      # not the stale prev column
       assert [%{basis: {:exact, "5"}}] = Core.plan_recalc(book, "pass1", call_ids: ["c1"]).entries
     end
 
@@ -388,7 +388,7 @@ defmodule CoreTest do
       assert [%{basis: :none}] = Core.plan_recalc(book, "pass1", call_ids: ["c1"]).entries
     end
 
-    test "prev_source == \"user\": basis is the user-set prev column (P), overriding R_old (spec §6.4's B = P rule)" do
+    test "prev_source == \"user\": basis is the user-set prev column overriding the result on record" do
       book =
         Book.new()
         |> Core.put_node("n1", pure_node("f"))
@@ -415,7 +415,7 @@ defmodule CoreTest do
     end
   end
 
-  describe "set_result/3 (Old.md §16.4/§19, the dependency-chain negotiation's 'insert a value' step)" do
+  describe "set_result/3 (the dependency-chain negotiation's 'insert a value' step)" do
     setup do
       book =
         Book.new()

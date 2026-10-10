@@ -5,8 +5,7 @@ Code.require_file("../input.exs", __DIR__)
 
 defmodule XipeTotec.Dialogue.Search do
   @moduledoc """
-  `xipe search` (2026-09-27, `next_step.md` §1.1, crux's design of
-  2026-09-26): narrowing things down over several turns of one dialogue --
+  `xipe search`: narrowing things down over several turns of one dialogue --
   find rows in a table, take a column's values as a list, look those
   values up in the next table, and finally view the rows. The join is not
   in a query language; it is the turns.
@@ -14,7 +13,7 @@ defmodule XipeTotec.Dialogue.Search do
   Two tables: `-s` the project's surface table (`SurfaceTable`), `-e` the
   `eval_table` (`EvalTable`, calc rows with their function and path). Both
   are read afresh on every turn from the read-only `ctx` `InOut` hands in.
-  Nothing is evaluated or written (Old.md §36).
+  Nothing is evaluated or written.
 
   A turn (a leading `xipe` / `search` is ignored):
 
@@ -34,7 +33,7 @@ defmodule XipeTotec.Dialogue.Search do
       element (`call_ids=[x]`) or a reference (`⟦x⟧`) is replaced by the
       kept id first, e.g. `row/update id=x args=[3]`
 
-  Matching (crux, 2026-09-26): exact by default; `~<value>` is a substring
+  Matching: exact by default; `~<value>` is a substring
   match (`-e args ~⟦<id>⟧ id` -- the rows referring to a row); a number
   compares as its text (`anykey` `2` is `"2"`). `-` matches an empty cell
   (e.g. `-e module -`, rows whose function is gone). A list cell (`args`)
@@ -42,7 +41,7 @@ defmodule XipeTotec.Dialogue.Search do
   10 and the count.
 
   Every turn holds the dialogue except `quit dialogue` and `y` after a
-  view (§17's `11`, then `01`).
+  view.
   """
 
   @behaviour XipeTotec.Dialogue
@@ -57,7 +56,7 @@ defmodule XipeTotec.Dialogue.Search do
     state = %{list: nil, x: nil, confirm: false}
 
     case String.trim(Map.get(params, "line") || "") do
-      "" -> {:hold, state, "検索を始めます（-h で使い方、quit dialogue で終了）"}
+      "" -> {:hold, state, "Search started (-h for usage, quit dialogue to end)"}
       line -> answer(state, %{"text" => line}, ctx)
     end
   end
@@ -70,7 +69,7 @@ defmodule XipeTotec.Dialogue.Search do
     end
   end
 
-  def answer(state, _params, _ctx), do: {:hold, state, "1行で答えてください（-h で使い方）"}
+  def answer(state, _params, _ctx), do: {:hold, state, "answer in one line (-h for usage)"}
 
   defp strip(["xipe" | rest]), do: strip(rest)
   defp strip(["search" | rest]), do: rest
@@ -78,11 +77,11 @@ defmodule XipeTotec.Dialogue.Search do
 
   # -- turns ---------------------------------------------------------------
 
-  defp turn(["y"], _line, %{confirm: true}, _ctx), do: {:done, "検索を終了しました。", []}
-  defp turn(["n"], _line, %{confirm: true} = state, _ctx), do: {:hold, %{state | confirm: false}, "検索を続けます。"}
+  defp turn(["y"], _line, %{confirm: true}, _ctx), do: {:done, "Search ended.", []}
+  defp turn(["n"], _line, %{confirm: true} = state, _ctx), do: {:hold, %{state | confirm: false}, "Search continues."}
   defp turn(words, line, %{confirm: true} = state, ctx), do: turn(words, line, %{state | confirm: false}, ctx)
 
-  defp turn([], _line, state, _ctx), do: {:hold, state, "-h で使い方、quit dialogue で終了"}
+  defp turn([], _line, state, _ctx), do: {:hold, state, "-h for usage, quit dialogue to end"}
   defp turn(["-h"], _line, state, _ctx), do: {:hold, state, usage()}
 
   defp turn([flag, "view", column | columns], _line, state, ctx) when flag in ["-s", "-e"] do
@@ -93,7 +92,7 @@ defmodule XipeTotec.Dialogue.Search do
       hits = Enum.filter(rows, &(text(&1[column]) in wanted))
       shown = if columns == [], do: all, else: columns
       lines = hits |> Enum.take(@shown) |> Enum.map(fn row -> Enum.map_join(shown, "  ", &"#{&1}=#{text(row[&1])}") end)
-      {:hold, %{state | confirm: true}, Enum.join(["#{count(hits)}" | lines] ++ ["検索を終了しますか？y/n"], "\n")}
+      {:hold, %{state | confirm: true}, Enum.join(["#{count(hits)}" | lines] ++ ["End the search? y/n"], "\n")}
     else
       {:error, message} -> {:hold, state, message}
     end
@@ -126,7 +125,7 @@ defmodule XipeTotec.Dialogue.Search do
          {:ok, list} <- held(state),
          value when value != nil <- Enum.at(list, index - 1) do
       x = text(value)
-      {:hold, %{state | x: x}, "検索結果の#{index}番目の要素のIDを取得しました: #{x}（以降 x と書けます）"}
+      {:hold, %{state | x: x}, "took the id of element #{index} of the result: #{x} (write x for it from now on)"}
     else
       _ -> {:hold, state, "No match data"}
     end
@@ -135,7 +134,7 @@ defmodule XipeTotec.Dialogue.Search do
   defp turn(words, _line, state, _ctx) do
     case with_x(words, state.x) do
       {:ok, words} -> {:pass, state, Enum.map_join(words, " ", &quote_word/1)}
-      :no_x -> {:hold, state, "x がまだありません（get id で取り出してください）"}
+      :no_x -> {:hold, state, "there is no x yet (take one with get id)"}
     end
   end
 
@@ -154,21 +153,21 @@ defmodule XipeTotec.Dialogue.Search do
   defp known(all, columns) do
     case Enum.reject(columns, &(&1 in all)) do
       [] -> :ok
-      [c | _] -> {:error, "列 #{c} はありません（-h で列の一覧）"}
+      [c | _] -> {:error, "no such column: #{c} (-h lists the columns)"}
     end
   end
 
-  defp held(%{list: nil}), do: {:error, "保持しているリストがありません（先に -s か -e で探してください）"}
+  defp held(%{list: nil}), do: {:error, "no list is held (search with -s or -e first)"}
   defp held(%{list: list}), do: {:ok, list}
 
   defp found(hits, out, state) do
     list = hits |> Enum.map(& &1[out]) |> Enum.reject(&(text(&1) == "")) |> Enum.uniq_by(&text/1)
     shown = list |> Enum.take(@shown) |> Enum.map_join(", ", &text/1)
-    more = if length(list) > @shown, do: "（ほか #{length(list) - @shown} 件）", else: ""
-    {:hold, %{state | list: list}, "#{count(hits)}（#{out}: [#{shown}]#{more}）"}
+    more = if length(list) > @shown, do: " (#{length(list) - @shown} more)", else: ""
+    {:hold, %{state | list: list}, "#{count(hits)} (#{out}: [#{shown}]#{more})"}
   end
 
-  defp count(hits), do: "#{length(hits)}件ヒットしました。"
+  defp count(hits), do: "#{length(hits)} hit(s)."
 
   defp position([]), do: {:ok, 1}
 
@@ -216,15 +215,15 @@ defmodule XipeTotec.Dialogue.Search do
 
   defp usage do
     """
-    -s|-e <列> <値> [<取り出す列>]   <列> が <値> の行の <取り出す列>（既定 id）をリストにする
-    -s|-e <列> list <取り出す列>     保持中のリストの値ごとに <列> を探す（リストを置き換える）
-    -s|-e view <列> [<表示する列>...]  保持中のリストの値に合う行を表示する
-    get id [-n]                      リストの n 番目（1から、既定 1）を x として保持する
-    quit dialogue                    検索を終える
-    それ以外の行は普通のコマンドとして実行する（x は取り出した id に置き換える）
-    値: 既定は完全一致、~<値> は部分一致、- は空。-s は surface table、-e は eval_table
-    -s の列: #{Enum.join(@surface_columns, " ")}
-    -e の列: #{Enum.join(EvalTable.columns(), " ")}\
+    -s|-e <column> <value> [<out>]   rows whose <column> is <value>; their <out> (default id) become the list
+    -s|-e <column> list <out>        the same for every value in the held list (replaces the list)
+    -s|-e view <column> [<col>...]   show the rows matching the held list's values
+    get id [-n]                      keep the list's n-th value (from 1, default 1) as x
+    quit dialogue                    end the search
+    any other line runs as an ordinary command (x is replaced by the kept id)
+    values: exact by default, ~<value> is a substring match, - is empty. -s is the surface table, -e the eval_table
+    -s columns: #{Enum.join(@surface_columns, " ")}
+    -e columns: #{Enum.join(EvalTable.columns(), " ")}\
     """
   end
 end

@@ -4,35 +4,22 @@ Code.require_file("core.exs", __DIR__)
 
 defmodule XipeTotec.GraphQuery do
   @moduledoc """
-  `graph/neighbors` and `graph/export` (spec §16.3, Old.md §9,
-  2026-09-17). Built on the static `node --role("to")--> ref` call graph in
-  `:links` rows -- **not** `Core.reference_graph/1`, which is the `⟦id⟧`
-  *calc-row* reference graph Core uses for recalculation propagation. Spec's
-  own words for `graph/neighbors` are 受信元/送信先 (incoming/outgoing),
-  matching how link rows are described in the glossary ("関数の接続関係を
-  表す行。受信元…送信先のセルを持つ") -- a different graph than the one
-  Core already builds for a different purpose.
+  `graph/neighbors` and `graph/export`. Built on the static
+  `node --role("to")--> ref` call graph in `:links` rows -- **not**
+  `Core.reference_graph/1`, which is the `⟦id⟧` *calc-row* reference graph
+  used for evaluation order.
 
   `Scanner.scan_links/3` only ever writes `role: "to"` (node -> callee) --
   there is no stored `"from"` role, so "incoming" is always a reverse
   lookup over `ref`, never a direct table read.
 
-  Params shape (this module's own design choice -- §16.3 doesn't spell one
-  out): `graph/neighbors` takes `{"address": <§6.1 address>, "depth": n,
-  "direction": "in"|"out"|"both"}` rather than a flat address like
-  `card/get`, since it needs the extra depth/direction controls alongside
-  the address. `graph/export` adds `"format": "mermaid"|"dot"|"json"|
-  "doctest"`.
+  Params: `graph/neighbors` takes `{"address": <address object>,
+  "depth": n, "direction": "in"|"out"|"both"}` (the address nested, not
+  flat as in `card/get`). `graph/export` adds `"format":
+  "mermaid"|"dot"|"json"|"doctest"`.
 
-  `doctest` format is Old.md §9's 2026-09-17 decision applied: a
-  frozen per-card snapshot is not a new storage mechanism, just this export
-  format. Only the **table-fallback** path is implemented here (today's
-  stored values, no re-evaluation) -- the higher-fidelity "re-run through
-  the REPL in isolation first" path needs Evaluator (Tier 3, not built),
-  and the precedence between an existing frozen file and a fresh
-  table-derived one is still undecided (Old.md §9), so this module
-  doesn't attempt file-existence checks at all; that orchestration, if it's
-  wanted, belongs a level up.
+  The `doctest` format is written from the values stored in the table; it
+  does not re-evaluate anything and does not look at existing files.
   """
 
   alias XipeTotec.{Address, Book}
@@ -164,7 +151,7 @@ defmodule XipeTotec.GraphQuery do
 
     result =
       call_row.result ||
-        "(unevaluated -- table-fallback rendering, no REPL re-run; freshness precedence still undecided, Old.md §9)"
+        "(unevaluated -- rendered from the table, no REPL re-run)"
 
     "#   iex> #{node_row.name}(#{args})\n#   #{result}"
   end

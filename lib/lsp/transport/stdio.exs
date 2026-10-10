@@ -5,7 +5,7 @@ defmodule XipeTotec.Lsp.Transport.Stdio do
   @moduledoc """
   `Lsp.Transport` that starts the language server itself and speaks LSP over
   its stdin/stdout (the base protocol: `Content-Length` headers) -- for
-  scanning without tezcatl (Old.md §21.4, 2026-09-25). Slower than
+  scanning without tezcatl. Slower than
   `Lsp.Transport.Relay`: every scan starts a fresh server.
 
   Without a relay in between, this transport does the relay's part of the

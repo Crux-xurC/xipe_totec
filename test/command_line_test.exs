@@ -12,7 +12,7 @@ defmodule CommandLineTest do
       assert CommandLine.parse_value("[]") == []
     end
 
-    test "[10] is a one-element list (Old.md §32: a 1-arity row/add was unwritable before)" do
+    test "[10] is a one-element list (a 1-arity row/add was unwritable before)" do
       assert CommandLine.parse_value("[10]") == ["10"]
     end
 

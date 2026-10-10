@@ -40,7 +40,7 @@ defmodule ReplEvalResultTest do
       # bin stays the base64 string as-is -- Store persists every column via
       # JSON.encode!/1, and arbitrary :erlang.term_to_binary/1 bytes are not
       # valid JSON text, so base64 is the only JSON-safe form this can cross
-      # the Core boundary in (fixed 2026-09-18, wiring review).
+      # the Core boundary in .
       assert {:ok, %{repr: "binary", bin: ^encoded}} = binary.outcome
       assert :erlang.binary_to_term(Base.decode64!(encoded)) == :hello
     end

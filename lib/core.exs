@@ -2,17 +2,16 @@ Code.require_file("book.exs", __DIR__)
 
 defmodule XipeTotec.Core do
   @moduledoc """
-  Pure functions over `Book` (spec §4, Old.md §3-§4). No I/O, no
-  randomness, no clock reads: every id/timestamp this module needs is
-  supplied by the caller so it stays a genuinely pure `apply`. This module
-  does not evaluate anything -- see Old.md §4.4's 3-stage split:
+  Pure functions over `Book`. No I/O, no randomness, no clock reads: every
+  id/timestamp this module needs is supplied by the caller. This module
+  does not evaluate anything; evaluation is three stages:
 
     Core.plan_recalc   (here, pure)   -> Plan
     Evaluator.run       (elsewhere)   -> [Result]   -- the only impure step
     Core.apply_results  (here, pure)  -> Book
 
   Language independence: reference extraction is a pure text scan of `args`
-  for `⟦id⟧` tokens (spec §6.2) -- no target-language parsing, no REPL
+  for `⟦id⟧` tokens -- no target-language parsing, no REPL
   adapter involved anywhere in this module.
   """
 
@@ -63,7 +62,7 @@ defmodule XipeTotec.Core do
     Book.put(book, :calls, id, Map.put(row, :args, new_args))
   end
 
-  @doc "Manually set the 前回 (prev) column as an expectation value (spec §6.4, Old.md §2: does not bump eval_count)."
+  @doc "Manually set the prev column as an expectation value (does not bump eval_count)."
   @spec set_prev(Book.t(), String.t(), String.t()) :: Book.t()
   def set_prev(book, id, prev_value) do
     row = fetch!(book, :calls, id)
@@ -72,20 +71,11 @@ defmodule XipeTotec.Core do
 
   @doc """
   Directly write a user-supplied literal as a call's `result`, without any
-  evaluation (Old.md §16.4/§19, the dependency-chain negotiation's
-  "insert a value into X" step). `result_value` must already be valid
-  target-language source text for a literal -- `resolve_ref/4`'s own
-  "already exact" branch (below) embeds `result` verbatim into a
-  dependent call's generated expression, exactly the same as a real eval's
-  `display` value would be, so this function needs no new embedding logic
-  and no other part of Core needs to know a value was hand-supplied rather
-  than evaluated. Always classified `repr: "exact"` (never `"binary"` --
-  there's no evaluation step here to produce a `bin_base64`-style binary
-  fallback for an unsupported value; the human is expected to supply
-  something the target language can read back as a literal). Marked
-  `result_source: "user"` (mirrors `set_prev/3`'s `prev_source: "user"`)
-  purely for future display/debugging -- nothing in `Core` reads this
-  column back.
+  evaluation. `result_value` must be valid target-language source text for
+  a literal: `resolve_ref/4` embeds `result` verbatim into a dependent
+  call's expression, exactly as it would an evaluated value. Always
+  `repr: "exact"`. Marked `result_source: "user"` for display; nothing in
+  `Core` reads that column back.
   """
   @spec set_result(Book.t(), String.t(), String.t()) :: Book.t()
   def set_result(book, id, result_value) do
@@ -145,9 +135,9 @@ defmodule XipeTotec.Core do
   end
 
   @doc """
-  Declare the argument counts node `node_id` can be called with (crux
-  2026-10-08: a person decides, as with `effect/set`; the scanner never
-  sets it). Sorted, without duplicates; just the anykey clears it.
+  Declare the argument counts node `node_id` can be called with. A person
+  decides, as with `effect/set`; the scanner never sets it. Sorted,
+  without duplicates; just the anykey clears it.
   """
   @spec set_arities(Book.t(), String.t(), [non_neg_integer()]) :: Book.t()
   def set_arities(book, node_id, arities) do
@@ -176,7 +166,7 @@ defmodule XipeTotec.Core do
 
   @valid_effects ["pure", "reads", "writes", "unknown"]
 
-  @doc "Explicit effect assignment (spec §8.3) -- this is the *only* way effect_source becomes \"user\" in this build (Old.md §4.2: §8.2's automatic inference is out of scope)."
+  @doc "Explicit effect assignment -- the only way effect_source becomes \"user\" (effects are never inferred)."
   @spec set_effect(Book.t(), String.t(), String.t()) :: Book.t()
   def set_effect(book, node_id, effect) when effect in @valid_effects do
     row = fetch!(book, :nodes, node_id)
@@ -188,7 +178,7 @@ defmodule XipeTotec.Core do
   end
 
   # ---------------------------------------------------------------------
-  # reference graph (§6.2) -- pure text scan, no language parsing
+  # reference graph -- pure text scan, no language parsing
   # ---------------------------------------------------------------------
 
   @ref_re ~r/⟦([^⟧]+)⟧/u
@@ -208,7 +198,7 @@ defmodule XipeTotec.Core do
     for {id, row} <- book.calls, into: %{}, do: {id, refs_in_args(row.args)}
   end
 
-  @doc "The set of call ids that belong to a reference cycle (spec §6.6/§6.7)."
+  @doc "The set of call ids that belong to a reference cycle."
   @spec cyclic_ids(%{String.t() => [String.t()]}) :: MapSet.t()
   def cyclic_ids(graph) do
     {_, cyclic} =
@@ -268,28 +258,18 @@ defmodule XipeTotec.Core do
   end
 
   @doc """
-  The upstream `⟦id⟧` dependency chain of `call_ids` (Old.md §16.3/
-  §16.4, 2026-09-19/20-21 co-design): `call_ids` themselves plus every call
-  id (transitively) referenced by their own args, ordered deepest-first via
-  `topo_sort/2` -- the same "leaves before dependents" order `plan_recalc/3`
-  already relies on, and the exact "深い方から浅い方へ" order §16.4's
-  planned dependency-chain negotiation needs.
+  The upstream `⟦id⟧` dependency chain of `call_ids`: `call_ids` themselves
+  plus every call id (transitively) referenced by their own args, ordered
+  deepest-first via `topo_sort/2` (leaves before dependents, the order
+  `plan_recalc/3` uses).
 
-  Walks `reference_graph/1` *forward* (call -> what it references).
-  Distinct from `GraphQuery.graph/neighbors`,
-  which walks the static `:links` call graph (node calls node, from
-  `Scanner`) -- this walks the calc-row dependency graph (call references
-  call via `⟦id⟧` in args), a different edge type entirely.
+  Walks `reference_graph/1` *forward* (call -> what it references). This is
+  the calc-row dependency graph, not the static `:links` call graph
+  `GraphQuery` walks.
 
   An id in `call_ids` that isn't in `book.calls` contributes no
-  dependencies (silently -- `reference_graph/1` simply has no entry for
-  it) rather than erroring; this function is a graph query, not a
-  validator. A reference cycle can't be topologically sorted, but
-  `topo_sort/2`'s own `done`-marking still terminates (see its
-  moduledoc-adjacent comment) rather than looping forever -- the cyclic
-  members just come out in a non-meaningful (but stable) order, same as
-  everywhere else in `Core` that doesn't special-case cycles beyond not
-  hanging.
+  dependencies rather than erroring. Members of a reference cycle come out
+  in a stable but meaningless order; the walk still terminates.
   """
   @spec upstream_chain(Book.t(), [String.t()]) :: [String.t()]
   def upstream_chain(book, call_ids) do
@@ -299,11 +279,10 @@ defmodule XipeTotec.Core do
   end
 
   @doc """
-  Filter an affected set down to call ids that are actually allowed to run
-  (fix D): the node must have an explicit `effect/set` (effect_source ==
-  "user" -- §8.2's automatic inference is out of scope for this build, so a
-  node nobody has classified never runs, rather than silently defaulting to
-  "pure"). `unknown` is treated the same as `writes`.
+  Filter an affected set down to call ids that are allowed to run: the node
+  must have an explicit `effect/set` (effect_source == "user"). A node
+  nobody has classified never runs, rather than defaulting to "pure".
+  `unknown` is treated the same as `writes`.
   """
   @spec filter_by_effect(Book.t(), Enumerable.t(), keyword()) :: [String.t()]
   def filter_by_effect(book, call_ids, opts \\ []) do
@@ -330,8 +309,6 @@ defmodule XipeTotec.Core do
   (unknown call, circular reference, `filter_by_effect/3`); a call that
   passes all of these but still has no result was dropped later
   (`drop_unresolvable/2` reports those itself as `{:skipped, ref}`).
-  Old.md §33: without this, `xipe eval` on an unclassified node printed
-  only `1 command(s), 1 ok` and ran nothing.
   """
   @spec exclusion_reason(Book.t(), String.t(), keyword()) :: String.t() | nil
   def exclusion_reason(book, call_id, opts \\ []) do
@@ -384,7 +361,7 @@ defmodule XipeTotec.Core do
   end
 
   # ---------------------------------------------------------------------
-  # Plan (Old.md §4.4) -- pure. Never calls a REPL, never reads a
+  # Plan -- pure. Never calls a REPL, never reads a
   # clock, never touches git. `ctx` values that need those (commit info)
   # are supplied later, by the caller, to apply_results/3.
   # ---------------------------------------------------------------------
@@ -395,12 +372,12 @@ defmodule XipeTotec.Core do
     * `:include_writes` - also schedule writes/unknown nodes (still requires
       an explicit `effect/set`, per filter_by_effect/3)
 
-  Only the given rows are evaluated (2026-09-26, Old.md §36): the Book is
+  Only the given rows are evaluated: the Book is
   a chronological record, and every evaluation in it is one a command
   asked for. Neither the rows referencing a given row (downstream) nor
   the rows it references (upstream) are added -- to evaluate a chain,
-  name its rows together (How to use §2.6); a referenced row evaluated in
-  the same pass hands its value over through a session binding.
+  name its rows together; a referenced row evaluated in the same pass
+  hands its value over through a session binding.
 
   A row referencing one whose value the book can't hand over (never
   evaluated, or `unsupported`) and that isn't in the same pass
@@ -437,26 +414,16 @@ defmodule XipeTotec.Core do
     }
   end
 
-  # A `:binding` input (resolve_ref/4's catch-all) is only ever safe to
-  # embed as a bare session-variable reference when its `ref` is itself
-  # scheduled in this same pass (an `:in_plan` reference, bound by an
-  # earlier entry before this one runs) -- sessions never persist across
-  # separate `run_pass` calls (§16.4 addendum: the distributed-session
-  # design this branch originally assumed was withdrawn), so a `:binding`
-  # pointing outside the pass can never actually resolve. Left alone, the
-  # bare variable EvalTemplate embeds inside its `spawn_monitor` closure
-  # fails at *compile* time (Elixir resolves variables lexically) -- before
-  # `spawn_monitor` is even reached, so no `XT_*` marker is ever printed
-  # and the entry silently reads as `session_hung` after the fixed
-  # deadline, not a clean error (Old.md §18's unexplained hang;
-  # confirmed by code reading 2026-09-22, not reproduced live). Detecting
-  # this here -- a pure Book-level check, no REPL involved -- lets the
-  # call short-circuit to the existing (previously unproduced) `{:skipped,
-  # ref}` outcome instead of ever reaching the REPL. Skipping cascades
-  # (anything depending on a skipped call needs the same treatment), so
-  # this is a fixed-point removal: each pass rescans the whole remaining
-  # set against itself, and stops once nothing in it has an unresolvable
-  # binding left.
+  # A `:binding` input (resolve_ref/4's catch-all) can only be embedded as a
+  # session-variable reference when its `ref` is scheduled in this same
+  # pass (bound by an earlier entry): a session lasts one pass, so a
+  # `:binding` pointing outside the pass can never resolve. Sent anyway, the
+  # unbound variable fails to compile inside the REPL before any marker is
+  # printed, and the entry reads as `session_hung` after the deadline. So
+  # such a call is taken out here as `{:skipped, ref}` and never reaches the
+  # REPL. Skipping cascades (anything depending on a skipped call is
+  # skipped too), so this is a fixed-point removal: each round rescans the
+  # remaining set, and stops once nothing in it has an unresolvable binding.
   @spec drop_unresolvable(Book.t(), [String.t()]) :: {[String.t()], [map()]}
   defp drop_unresolvable(book, scheduled), do: shrink(book, MapSet.new(scheduled), [])
 
@@ -507,40 +474,22 @@ defmodule XipeTotec.Core do
         {new_arg, inputs_acc ++ more_inputs}
       end)
 
-    # basis (compare's "previous value" input): spec §6.4 names this B --
-    # "比較の基準Bを決める。Pの出どころがuserならB=P、そうでなければB=R_old"
-    # (P = the 前回/prev column, R_old = the result on record right before
-    # this evaluation overwrites it). Two cases:
+    # basis: the previous value this evaluation's result is compared with.
     #
-    # 1. `prev_source == "user"` (the user typed an expected value in via
-    #    `set_prev/3` -- not reachable through any Dispatch/CLI method yet,
-    #    only `Core.set_prev/3` directly, so this branch is currently dead
-    #    code in practice, flagged by review 2026-09-18 as a spec gap worth
-    #    closing now while it's cheap): B = P = `call.prev`. A user-typed
-    #    expectation is plain text the user wrote, not a captured runtime
-    #    value with a repr classification of its own -- always reconstructed
-    #    as `:exact` (re-run through `Code.eval_string/1` target-side).
-    # 2. Otherwise (prev_source auto or unset): B = R_old = whatever is
-    #    currently on record (`call.result`/`call.repr`/`call.bin`, about to
-    #    be rolled into `prev`/`prev_at` by apply_result once this pass's
-    #    result comes back) -- NOT the `prev` column itself, which already
-    #    lags one eval further back (apply_result sets `prev: row[:result]`
-    #    using the row as it stood *before* the result it's currently
-    #    applying). Using `prev` here would silently compare against a stale
-    #    value one generation too old (caught live, 2026-09-18: a same-args
-    #    re-eval right after a first eval showed basis == :none instead of
-    #    the just-stored result).
+    # 1. `prev_source == "user"` (an expectation set with `set_prev/3`):
+    #    the basis is `call.prev`, plain text the user wrote, always
+    #    reconstructed as `:exact`.
+    # 2. Otherwise: the basis is the result on record now
+    #    (`call.result`/`call.repr`/`call.bin`), which apply_result is about
+    #    to roll into `prev`. Not the `prev` column itself: that already
+    #    lags one evaluation further back.
     #
-    # Reconstructing either on the target node needs to know HOW, not just
-    # display text -- an `exact` value is re-run through
-    # `Code.eval_string/1`, a `binary` one through
-    # `Base.decode64!/1 |> :erlang.binary_to_term/1` (EvalTemplate builds the
-    # actual snippet; Core only picks which shape applies). A prior
-    # `unsupported` value has no reconstructible text at all, so it falls to
-    # `:none` same as "never evaluated" -- compare degrades to "skipped" for
-    # those, matching Old.md §28 C's "片側でも unsupported なら skipped".
-    # This supersedes Old.md §28 B's original `{:text, String.t()} | {:bin,
-    # binary()}` sketch.
+    # The REPL side needs to know how to rebuild the value, not just its
+    # display text: an `exact` value is evaluated from its text, a `binary`
+    # one decoded from base64 (EvalTemplate builds the snippet; Core only
+    # picks the shape). An `unsupported` value has no text to rebuild from,
+    # so it is `:none`, the same as "never evaluated", and compare reads
+    # "skipped".
     basis =
       cond do
         call[:prev_source] == "user" and call[:prev] not in [nil, ""] -> {:exact, call.prev}
@@ -564,12 +513,11 @@ defmodule XipeTotec.Core do
 
   defp binding_name(call_id), do: String.to_atom("xt_" <> String.replace(call_id, ~r/[^A-Za-z0-9_]/, "_"))
 
-  # Substitutes every ⟦ref⟧ token in `text` per spec §6.3's table, per the
-  # Old.md §28 B answer's division of labor: Core only ever does data-level
+  # Substitutes every ⟦ref⟧ token in `text`. Core only does data-level
   # substitution (embed a stored canonical value) or leaves a placeholder
-  # token + a typed `inputs` entry describing what belongs there -- it
-  # never builds a call expression itself (that's target-language syntax,
-  # the REPL adapter's job, §12.2).
+  # token plus a typed `inputs` entry describing what belongs there. It
+  # never builds a call expression: that is target-language syntax, the
+  # REPL adapter's job.
   defp resolve_refs(book, text, in_plan_set) do
     refs_in_args([text])
     |> Enum.reduce({text, []}, fn ref, {text, inputs} ->
@@ -579,9 +527,9 @@ defmodule XipeTotec.Core do
     end)
   end
 
-  # A plan-internal ref (evaluated later in this same pass) can only ever be
-  # a placeholder+binding -- its value does not exist yet when the plan is
-  # built (this was the bug fix that motivated the 3-stage split).
+  # A plan-internal ref (evaluated later in this same pass) can only be a
+  # placeholder+binding: its value does not exist yet when the plan is
+  # built.
   #
   # A plan-external ref with a stored exact repr is embedded as its own
   # literal canonical text -- pure string substitution.
@@ -590,19 +538,13 @@ defmodule XipeTotec.Core do
   # over -- never evaluated, binary or unsupported -- or a dangling/unknown
   # ref) is a `:binding` to a variable no earlier entry of the pass sets:
   # drop_unresolvable/2 turns the row into `{:skipped, ref}` before it
-  # reaches the REPL. The REPL session lives for one pass only, so no
-  # binding survives from another. An unsupported value from a pure
-  # function used to be handed over by re-embedding its call expression;
-  # that ran the referenced function without a record of it, so since
-  # 2026-09-26 (Old.md §36) it is left to the caller to evaluate that row
-  # in the same pass.
+  # reaches the REPL. The referenced function is never re-run implicitly;
+  # the caller evaluates that row in the same pass.
   #
-  # A binary value is not handed over either (2026-10-06, Old.md §51): its
-  # stored `result` is only its display, which by definition doesn't read
-  # back (embedded, `#P.S<a: 1, ...>` made the call a syntax error), and
-  # rebuilding it from `bin` is per-language work the plain command path
-  # doesn't take on. Such a value is the person's to settle: evaluate the
-  # referenced row in the same command, or give a value in its place
+  # A binary value is not handed over either: its stored `result` is only
+  # its display, which doesn't read back as source, and rebuilding it from
+  # `bin` is per-language work. The person settles such a value: evaluate
+  # the referenced row in the same command, or give a value in its place
   # (`dialogue depends`, which writes it with `row/set-result`).
   defp resolve_ref(book, ref, in_plan_set) do
     var = binding_name(ref)
@@ -622,7 +564,7 @@ defmodule XipeTotec.Core do
   end
 
   # ---------------------------------------------------------------------
-  # apply_results (Old.md §4.4) -- pure. `ctx` carries the git info
+  # apply_results -- pure. `ctx` carries the git info
   # the GenServer-side shell fetched (Core itself never touches git).
   # ---------------------------------------------------------------------
 
@@ -632,10 +574,8 @@ defmodule XipeTotec.Core do
     Enum.reduce(results, book, &apply_result(&2, ctx, &1))
   end
 
-  # Map.merge/2, not `%{row | ...}` -- rows are open, growing maps (the
-  # schema gains columns across spec versions, and a row folded from an
-  # older Store line may be missing a newer key), so a strict struct-style
-  # update that requires every key to pre-exist would be too brittle.
+  # Map.merge/2, not `%{row | ...}`: rows are open maps, and a row folded
+  # from an older Store line may be missing a newer key.
   defp apply_result(book, ctx, %{call_id: id, outcome: outcome} = result) do
     row = Book.get(book, :calls, id)
     bump = %{eval_count: (row[:eval_count] || 0) + 1}

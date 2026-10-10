@@ -2,25 +2,20 @@ Code.require_file("book.exs", __DIR__)
 
 defmodule XipeTotec.Address do
   @moduledoc """
-  spec §6.1 住所: an address is a set of columns (never a delimiter string),
-  every column an optional condition, combined to narrow down. A unique
-  match returns that target; several return candidates. Server-interface
-  example (§6.1, reused by §16.3 card/get): `{"file": "lib/shop/price.ex",
-  "name": "add_tax", "arity": 2}`.
+  An address is a set of columns (never a delimiter string), every column
+  an optional condition, combined to narrow down. A unique match returns
+  that target; several return candidates. Example:
+  `{"file": "lib/shop/price.ex", "name": "add_tax", "arity": 2}`.
 
   Shared by `card/get`/`card/search`/`graph/export`'s range selection
-  (Old.md §9, 2026-09-17) -- one resolver, several callers.
+  -- one resolver, several callers.
 
-  v0 scope: matches `:nodes` (optionally joined through `sheet` to the
-  owning sheet's `path`, for the spec's `file` column) and, directly, a
-  single `:calls` row by id (`row`). `type`/`hier` from the CLI's
-  address-option list (spec §15) are deliberately **not** silently ignored
-  -- `resolve/2` returns `{:error, {:unsupported_column, name}}` for them
-  rather than matching everything, since a silently-too-broad candidate set
-  would be a worse failure than a loud one. `hier` has no home yet because
-  node rows don't carry a hierarchy code (Old.md §8, still deferred);
-  `type` (restricting which table an address can hit) has no caller needing
-  it yet since v0's own callers are all node/call oriented.
+  Matches `:nodes` (optionally joined through `sheet` to the owning sheet's
+  `path`, for the `file` column) and, directly, a single `:calls` row by id
+  (`row`). The `type` and `hier` columns are not implemented: `resolve/2`
+  returns `{:error, {:unsupported_column, name}}` for them rather than
+  matching everything, since a silently-too-broad candidate set would be a
+  worse failure than a loud one.
   """
 
   alias XipeTotec.Book
@@ -28,20 +23,19 @@ defmodule XipeTotec.Address do
   @type address :: %{optional(String.t()) => String.t() | integer()}
   @type match :: {Book.table(), String.t(), Book.row()}
 
-  # `arity` (spec §6.1's own column name, and what tezcatl sends) is kept
-  # as an alias of `anykey`, the node column it now matches
+  # `arity` (what clients send) is an alias of `anykey`, the node column it matches
   @known_columns ~w(file module name anykey arity row)
 
   @doc """
   Resolve `address` against `book`. `{:ok, matches}` -- empty means no
-  match, one means a unique target, more than one means candidates (spec
-  §6.1); the caller decides what "unique" vs "candidates" means for its own
+  match, one means a unique target, more than one means candidates;
+  the caller decides what "unique" vs "candidates" means for its own
   response shape. `{:error, {:unsupported_column, name}}` if `address` uses
   a column this module doesn't implement yet; `{:error, {:bad_value, name,
   value}}` if `anykey`/`arity` is given as something that can't be one --
   neither an integer nor a string: a JSON `null` (a `$n.path` that named
   nothing, `Runner`), a list, an object. Refused rather than read as "no
-  match" (Old.md §54, §56: written but empty-handed is said so).
+  match".
   """
   @spec resolve(Book.t(), address) ::
           {:ok, [match]} | {:error, {:unsupported_column, String.t()} | {:bad_value, String.t(), term()}}

@@ -8,7 +8,7 @@ defmodule ServeProjectTest.ToyDialogue do
   # Same minimal fake as test/in_out_test.exs's ToyDialogue -- proves
   # request_dialogue/5's wiring (InOut -> Store persist -> notify
   # broadcast, all inside one GenServer.call) without a real dialogue
-  # program existing yet (Old.md §16.4 step 4 is still unbuilt).
+  # program.
   @behaviour XipeTotec.Dialogue
 
   @impl true
@@ -21,7 +21,7 @@ defmodule ServeProjectTest.ToyDialogue do
 end
 
 defmodule ServeProjectTest.RaisingDialogue do
-  # a program with a bug: what Serve.Project must survive (Old.md §56)
+  # a program with a bug: what Serve.Project must survive
   @behaviour XipeTotec.Dialogue
 
   @impl true
@@ -68,7 +68,7 @@ defmodule ServeProjectTest do
   alias XipeTotec.Serve.Project
 
   # Project is registered under its own module name (one `xipe serve` process
-  # = one project, Old.md §9) -- start/stop it around every test rather
+  # = one project) -- start/stop it around every test rather
   # than `async: true`, since two tests can't hold the same named GenServer
   # at once.
   setup context do
@@ -76,8 +76,8 @@ defmodule ServeProjectTest do
     File.mkdir_p!(Path.join(dir, "lib"))
     store_file = Path.join(dir, "book.jsonl")
 
-    # row/add requires an existing node with a matching arity (Dispatch,
-    # Old.md §32): seed the store before the project loads it.
+    # row/add requires an existing node with a matching arity (Dispatch):
+    # seed the store before the project loads it.
     nodes =
       XipeTotec.Book.new()
       |> XipeTotec.Core.put_node("n0", %{sheet: "s0", module: "M", name: "f0", anykey: 0})
@@ -115,7 +115,7 @@ defmodule ServeProjectTest do
     assert Map.has_key?(folded.calls, call_id)
   end
 
-  test "a row the CLI wrote while the server runs is in the server's book after its next write (2026-10-09)", %{store_file: store_file} do
+  test "a row the CLI wrote while the server runs is in the server's book after its next write", %{store_file: store_file} do
     # the CLI: load, change, persist_diff -- as main.exs does
     cli0 = XipeTotec.Store.load(store_file)
     cli1 = XipeTotec.Book.put(cli0, :calls, "from-cli", %{node: "n0", args: ["9"], result: nil, eval_count: 0})
@@ -127,7 +127,7 @@ defmodule ServeProjectTest do
     assert XipeTotec.Store.load(store_file).calls |> Map.keys() |> Enum.sort() == book.calls |> Map.keys() |> Enum.sort()
   end
 
-  test "a row the CLI wrote is there for the server's next read, and is broadcast (Old.md §56)", %{store_file: store_file} do
+  test "a row the CLI wrote is there for the server's next read, and is broadcast", %{store_file: store_file} do
     :ok = Project.attach(self())
     cli0 = XipeTotec.Store.load(store_file)
     cli1 = XipeTotec.Book.put(cli0, :calls, "from-cli", %{node: "n0", args: ["9"], result: nil, eval_count: 0})
@@ -142,7 +142,7 @@ defmodule ServeProjectTest do
   end
 
   @tag :empty_book
-  test "a scan after the CLI's scan starts from the CLI's nodes: no second id for the same function (Old.md §56)",
+  test "a scan after the CLI's scan starts from the CLI's nodes: no second id for the same function",
        %{dir: dir, store_file: store_file} do
     File.write!(Path.join(dir, "calc.exs"), "defmodule ServeScanCalc do\n  def add(a, b), do: a + b\nend\n")
     assert {:ok, %{"nodes" => 1}} = Project.request("scan/run", %{})
@@ -163,7 +163,7 @@ defmodule ServeProjectTest do
   end
 
   @tag programs: %{"toy/raise" => ServeProjectTest.RaisingDialogue}
-  test "a method that raises is answered internal_error; the server and its book live on (Old.md §56)", %{store_file: store_file} do
+  test "a method that raises is answered internal_error; the server and its book live on", %{store_file: store_file} do
     pid = Process.whereis(Project)
     import ExUnit.CaptureIO
 
@@ -179,7 +179,7 @@ defmodule ServeProjectTest do
     assert map_size(XipeTotec.Store.load(store_file).calls) == 1
   end
 
-  test "node/resolve with an arity that names nothing (a JSON null) is invalid_params, not a crash (Old.md §56)" do
+  test "node/resolve with an arity that names nothing (a JSON null) is invalid_params, not a crash" do
     pid = Process.whereis(Project)
     assert {:error, %{"code" => "invalid_params", "message" => message}} =
              Project.request("node/resolve", %{"module" => "M", "name" => "f1", "arity" => nil})
@@ -242,7 +242,7 @@ defmodule ServeProjectTest do
 
     assert_receive {:xipe_out, text}
     assert {:ok, {:notify, "notify/nodeChanged", %{"row" => %{"name" => "f"}}}} = XipeTotec.Protocol.decode(text)
-    # scan/run never touches :calls, and :sheets/:links have no notify method in §16.3
+    # scan/run never touches :calls, and :sheets/:links have no notify method
     refute_receive {:xipe_out, _more}, 50
   end
 
@@ -297,7 +297,7 @@ defmodule ServeProjectTest do
     assert message =~ "row/update needs id"
   end
 
-  # 2026-09-26 (Old.md §37): the edit is applied (and broadcast) at once,
+  # the edit is applied (and broadcast) at once,
   # the evaluation of that row alone goes to the pass queue
   @tag :gated_eval
   test "row/update edits at once and queues an eval of that row only", %{store_file: store_file} do

@@ -1,19 +1,15 @@
 defmodule XipeTotec.Repl.EvalTemplate do
   @moduledoc """
-  Assembles the Elixir call-expression text for a `Core.Plan.Entry`
-  (`document/repl-adapter-guide.md`'s `eval_template`, call-expression-
-  assembly half). Pure string manipulation -- no process spawning, no I/O.
+  Builds the Elixir text for a `Core.Plan.Entry`: the call expression and
+  everything wrapped around it. Pure string manipulation -- no process
+  spawning, no I/O.
 
-  Per Old.md §28 B's division of labor: Core hands over `args` with
-  embeddable references already substituted (exact) and the rest
-  left as placeholder tokens plus typed `inputs` (`core.exs`'s
-  `resolve_ref/4`). Every placeholder Core produces is already the final
-  text -- `xt_<call_id>`, a bare reference to the session variable an
-  earlier entry of the same pass binds (`:in_plan`) -- so the call
-  expression is the args joined as they are. (Until 2026-09-26 Core also
-  produced `:inline_call` placeholders, a referenced pure call to re-embed,
-  which this module expanded; that ran a function no command asked for, so
-  it was dropped, Old.md §36.)
+  Core hands over `args` with embeddable references already substituted
+  (exact) and the rest left as placeholder tokens plus typed `inputs`
+  (`Core.resolve_ref/4`). Every placeholder is already the final text --
+  `xt_<call_id>`, the session variable an earlier entry of the same pass
+  binds (`:in_plan`) -- so the call expression is the args joined as they
+  are.
   """
 
   @doc """
@@ -25,32 +21,23 @@ defmodule XipeTotec.Repl.EvalTemplate do
     "#{module}.#{name}(#{Enum.join(args, ", ")})"
   end
 
-  # compare's float tolerance (Old.md §28 C: "誤差の値は設定パラメータにする").
-  # No config-loading mechanism exists anywhere in this codebase yet (no
-  # config.json, nothing reads one) -- introducing one just for this one
-  # pair of numbers would be scope creep beyond what compare itself needs,
-  # so these stay fixed module attributes until a real config system exists
-  # to hang them off of. Flagged here rather than silently hardcoded inline.
+  # compare's float tolerance. Fixed here; not configurable.
   @default_float_rel_tol 1.0e-9
   @default_float_abs_tol 1.0e-9
 
   @doc """
-  Builds the full evaluation source text for `entry` (Old.md §10.3):
+  Builds the full evaluation source text for `entry`:
   call-expression assembly + the safety wrapper (spawn_monitor/max_heap/
-  timeout) + repr judgment (Old.md §10.3's a -> b -> c) + compare
-  judgment against `entry.basis` (Old.md §28 C, 2026-09-18) + marker-wrapped
-  printing, all as target-language text to be typed into the running REPL
-  session (never executed locally -- xipe_totec's own BEAM can't
-  necessarily `inspect`/reconstruct the target project's own types, and
-  compare has the exact same problem one level up: the *previous* value
-  may need reconstructing from text/binary too, so that reconstruction
-  and the comparison itself both have to happen target-side).
+  timeout) + repr judgment + compare judgment against `entry.basis` +
+  marker-wrapped printing, all as target-language text to be typed into
+  the running REPL session. Nothing is evaluated locally: xipe_totec's own
+  BEAM may not know the target project's types, and the *previous* value
+  may need rebuilding from text/binary too, so both the rebuilding and the
+  comparison happen in the session.
 
-  Always binds the result to `xt_<call_id>` as a top-level statement --
-  decided 2026-09-18: structurally required for any later `:in_plan`
-  reference in the same pass regardless of purity, and separately useful
-  for tezcatl-side integration (crux: a live, inspectable session variable
-  per evaluated call). The session, and so the binding, lasts one pass.
+  Always binds the result to `xt_<call_id>` as a top-level statement: a
+  later `:in_plan` reference in the same pass needs it. The session, and so
+  the binding, lasts one pass.
 
   `entry.call_id` doubles as the marker/variable-name suffix -- already
   unique (a ULID in production), no separate id generator needed.
@@ -69,30 +56,18 @@ defmodule XipeTotec.Repl.EvalTemplate do
     end
   end
 
-  # Review finding, 2026-09-18: an unclosed arg expression (`args: ["[1, 2"]`,
-  # say -- a plain-string arg column has no syntax check anywhere upstream)
-  # would previously get embedded into `call_expr` and written to the REPL
-  # regardless. A REPL sees an incomplete expression as "more input coming"
-  # (iex's own `...(N)>` continuation prompt) rather than an error -- it
-  # never emits ANY marker for this entry, and everything written
-  # afterward (the rest of a would-be marker-wrapped template, the *next*
-  # entry's whole template) gets silently absorbed into the same still-open
-  # expression instead of being parsed as separate statements. This was
-  # invisible to hang detection before §5.10's absolute deadline
-  # (`wait_result/6`) -- catching it here, before ever writing
-  # anything to the session, is strictly better than waiting out that
-  # deadline: the entry fails fast with the real reason instead of a
-  # generic "session_hung", and the session is never put in the
-  # continuation state in the first place.
+  # An unclosed arg expression (`args: ["[1, 2"]`) must never be written to
+  # the REPL: it reads as "more input coming", no marker is ever printed
+  # for this entry, and everything written afterward is absorbed into the
+  # open expression. Caught here, the entry fails at once with the real
+  # reason instead of `session_hung`.
   #
-  # Deliberately does NOT touch `call_expr` in the emitted text -- a
-  # fragment that doesn't parse standalone can't safely be spliced into
-  # ANY larger template (that would just move the same unparseable-input
-  # hazard one level up) -- this template only ever prints a diagnostic
-  # string built entirely on xipe_totec's own side.
+  # The emitted text does not contain `call_expr` itself -- a fragment that
+  # doesn't parse can't be spliced into any template -- only a diagnostic
+  # string built on this side.
   defp build_syntax_error(call_id, call_expr, reason) do
     message = "invalid call expression: #{inspect(reason)} -- #{call_expr}" |> String.replace("\n", "\\n")
-    "IO.puts(\"XT_ERROR_#{call_id} crash \" <> #{inspect(message)})\n"
+    "IO.puts(\"XT_ERROR_#{call_id} crash \" <> #{inspect(message, printable_limit: :infinity)})\n"
   end
 
   defp build_eval(entry, call_id, call_expr, timeout_ms, max_heap_words) do
@@ -124,7 +99,7 @@ defmodule XipeTotec.Repl.EvalTemplate do
         xt_val =
           case Code.with_diagnostics(fn ->
                  try do
-                   {:ok, elem(Code.eval_string(#{inspect(call_expr)}, xt_binding_#{suffix}, xt_env_#{suffix}), 0)}
+                   {:ok, elem(Code.eval_string(#{inspect(call_expr, printable_limit: :infinity)}, xt_binding_#{suffix}, xt_env_#{suffix}), 0)}
                  rescue
                    xt_e in [CompileError, SyntaxError, TokenMissingError] -> {:compile_error, xt_e}
                  end
@@ -141,9 +116,7 @@ defmodule XipeTotec.Repl.EvalTemplate do
       receive do
         {:xt_result, ^xt_pid_#{suffix}, xt_val} ->
           Process.demonitor(xt_ref_#{suffix}, [:flush])
-          # the call returned: what follows is judging the value (repr,
-          # compare), done here in the session -- Evaluator tells the two
-          # apart when the deadline hits (eval/status, Old.md §51)
+          # the call returned; what follows is judging the value
           IO.puts("XT_CALLED_#{call_id}")
 
           xt_oneline = fn s -> String.replace(s, "\\n", "\\\\n") end
@@ -159,7 +132,7 @@ defmodule XipeTotec.Repl.EvalTemplate do
               # instead of its fields (MapSet, Range). Raised here, in the
               # session rather than the child, it printed no marker: the
               # entry read as session_hung and the rest of the pass as
-              # aborted (2026-10-06).
+              # aborted.
               m when is_map(m) -> m |> Map.to_list() |> Enum.any?(fn {k, mv} -> f.(f, k) or f.(f, mv) end)
               _ -> false
             end
@@ -187,16 +160,7 @@ defmodule XipeTotec.Repl.EvalTemplate do
           xt_is_unsupported = xt_unsupported?.(xt_unsupported?, xt_val)
 
     #{compare_snippet(basis)}
-          # A single IO.puts/1 per branch, not one per field (fixed
-          # 2026-09-18, review finding): several separate IO.puts calls are
-          # each individually atomic at the group-leader level, but nothing
-          # stops a DIFFERENT process's own output (Logger output, or
-          # anything the evaluated call itself spawns and prints from) from
-          # being interleaved *between* our calls, landing inside the
-          # XT_BEGIN..XT_END span as a line that doesn't match the
-          # key=value format and breaks FieldDrip.Elixir.parse/1. One
-          # IO.puts of the whole joined block is one atomic write, so
-          # nothing else can land inside it.
+          # one IO.puts of the whole block: nothing else can print inside it
           cond do
             xt_is_unsupported ->
               IO.puts(
@@ -284,15 +248,10 @@ defmodule XipeTotec.Repl.EvalTemplate do
   # into other entries' args as :in_plan/:binding placeholder text.
   defp sanitize(call_id), do: String.replace(call_id, ~r/[^A-Za-z0-9_]/, "_")
 
-  # Emits the statements needed to bind `xt_compare` (a plain string --
-  # "none" | "skipped" | "changed" | "same", the same string-typed
-  # convention `Core`/`core_test.exs` already use for repr/compare, not
-  # atoms -- see Old.md §28 C and the B2 JSON-safety rule this mirrors).
-  # `:none` (never evaluated before) skips reconstruction/comparison
-  # machinery entirely, keeping the common "first eval of this call" case
-  # cheap; `xt_is_unsupported` (computed once above, for the repr cond
-  # too) makes an unsupported *new* value "skipped" regardless of basis,
-  # per Old.md §28 C's "either side unsupported -> skipped".
+  # Emits the statements that bind `xt_compare` (a plain string: "none" |
+  # "skipped" | "changed" | "same"). `:none` (never evaluated before) skips
+  # the rebuilding and comparison entirely. `xt_is_unsupported` makes an
+  # unsupported *new* value "skipped" regardless of basis.
   defp compare_snippet(:none), do: ~s(      xt_compare = "none"\n)
 
   defp compare_snippet({tag, prev_text}) when tag in [:exact, :binary] do
@@ -343,14 +302,14 @@ defmodule XipeTotec.Repl.EvalTemplate do
 
   defp reconstruct_snippet(:exact, prev_text) do
     """
-              {xt_prev_v, _} = Code.eval_string(#{inspect(prev_text)})
+              {xt_prev_v, _} = Code.eval_string(#{inspect(prev_text, printable_limit: :infinity)})
               {:ok, xt_prev_v}
     """
   end
 
   defp reconstruct_snippet(:binary, prev_base64) do
     """
-              {:ok, #{inspect(prev_base64)} |> Base.decode64!() |> :erlang.binary_to_term()}
+              {:ok, #{inspect(prev_base64, printable_limit: :infinity)} |> Base.decode64!() |> :erlang.binary_to_term()}
     """
   end
 end

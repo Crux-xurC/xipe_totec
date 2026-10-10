@@ -5,7 +5,7 @@ Code.require_file(Path.expand("../lib/runner.exs", __DIR__))
 Code.require_file(Path.expand("../lib/outcome_text.exs", __DIR__))
 
 # Answers every entry at once, and first tells the test what Passes holds
-# right then (the record a running pass leaves, Old.md §51)
+# right then (the record a running pass leaves)
 defmodule PassesTest.PeekingSender do
   @behaviour XipeTotec.Repl.Sender
 

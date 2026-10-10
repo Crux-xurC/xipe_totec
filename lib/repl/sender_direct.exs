@@ -4,41 +4,21 @@ Code.require_file("../project_env.exs", __DIR__)
 defmodule XipeTotec.Repl.Sender.Direct do
   @moduledoc """
   Default `Repl.Sender`: spawns the process locally via `erlexec`
-  (`:exec.run/2`), in its own process group (2026-09-22, Old.md §23
-  -- replaces the earlier bare-`Port` implementation). A bare `Port`
-  cannot create or signal a POSIX process group, which `kill/1`'s
-  group-wide SIGKILL and `interrupt/1`'s group-wide SIGINT both need:
-  without a group of its own, the REPL child shares xipe_totec's own
-  process group, so (a) a Ctrl-C on xipe_totec's own CLI process would
-  hit the REPL child too as collateral damage, and (b) a REPL that forks
-  its own children (`iex -S mix`'s build step, say) would leave those
-  orphaned by a single-pid kill. `{:group, 0}` (`:exec.run/2`'s own spawn
-  option) fixes both -- the child gets a session/group of its own, and
-  erlexec's own C helper delivers `kill/2`'s signal to that whole group.
-  Confirmed live 2026-09-22 against a plain-pipe `iex`: `:exec.kill(ospid,
-  2)` reaches BEAM's own SIGINT handler and drops it into the
-  interactive "BREAK: (a)bort..." menu, exactly as a real terminal's
-  Ctrl-C would -- no PTY required.
+  (`:exec.run/2`), in its own process group (`{:group, 0}`). `kill/1`'s
+  group-wide SIGKILL and `interrupt/1`'s group-wide SIGINT need that group:
+  without one, a Ctrl-C on xipe_totec's own CLI process would hit the REPL
+  too, and a REPL that forks children (`iex -S mix`'s build step) would
+  leave them orphaned by a single-pid kill.
 
-  xipe_totec earlier decided against `erlexec` for a *different* need
-  (the §16 WS server, which is the side being connected *to*, never
-  spawning anything) -- that reasoning never applied to this module's own
-  need (spawning the target REPL), and no longer holds now that group
-  isolation is required.
-
-  The returned `handle` is a `GenServer` pid, not the raw erlexec ospid:
+  The returned `handle` is a `GenServer` pid, not the erlexec ospid:
   `Repl.Sender`'s contract requires exit to show up as an `"XT_EXIT
-  <status>"` marker inside the ordinary `:data` stream rather than as
-  erlexec's own `:DOWN` monitor message, and requires
+  <status>"` marker inside the ordinary `:data` stream, and
   `write/2`/`kill/1`/`interrupt/1` to work against the same handle -- so
   this module owns the ospid privately and exposes only the generic
   contract.
 
-  Not supervised -- if the caller dies without calling `kill/1`, this
+  Not supervised: if the caller dies without calling `kill/1`, this
   GenServer (and the OS process group under it) is orphaned.
-  Session/process lifecycle beyond that is `Repl.Session`'s and,
-  eventually, `Evaluator`'s concern (プロセスアーキテクチャ, E in
-  Old.md §28), not this module's.
   """
 
   use GenServer
@@ -61,10 +41,9 @@ defmodule XipeTotec.Repl.Sender.Direct do
         files = Map.get(message, "files", [])
         spawn_args = with_files(args, files)
         argv = Enum.map([path | spawn_args], &String.to_charlist/1)
-        # binaries, not charlists: erlexec refused a flake's environment
-        # (ProjectEnv: empty values, UTF-8 text such as a shellHook) passed
-        # as charlists, and accepts the same values as binaries (checked
-        # 2026-09-26)
+        # binaries, not charlists: erlexec refuses a flake's environment
+        # (empty values, UTF-8 text) passed as charlists, and accepts the
+        # same values as binaries
         exec_env = Map.to_list(env)
         start_linked({argv, cwd, exec_env, self()})
     end
@@ -170,8 +149,7 @@ defmodule XipeTotec.Repl.Sender.Direct do
   # `:exec.stop/1` exists as a higher-level "try graceful, escalate"
   # helper built into erlexec itself, but `Evaluator` already owns that
   # escalation (`interrupt/1` first, `kill/1` as the guaranteed fallback)
-  # -- this callback itself stays a single unconditional SIGKILL, same
-  # contract the old Port-based implementation had.
+  # -- this callback itself stays a single unconditional SIGKILL.
   def handle_call(:kill, _from, %{ospid: ospid} = state) do
     _ = :exec.kill(ospid, @sigkill)
     {:reply, :ok, state}
@@ -190,11 +168,9 @@ defmodule XipeTotec.Repl.Sender.Direct do
     {:noreply, state}
   end
 
-  # stderr forwarded the same way stdout is -- the old Port implementation
-  # merged both into one stream via :stderr_to_stdout; erlexec keeps them
-  # as separate message tags, so this module does the merge itself here
-  # instead, same net effect for every downstream consumer (Scan/Parser
-  # never distinguished the two either).
+  # stderr forwarded the same way stdout is: erlexec keeps them as separate
+  # message tags, so this module merges them into one stream here, for every
+  # downstream consumer (Scan/Parser do not distinguish the two).
   def handle_info({:stderr, ospid, bin}, %{ospid: ospid, caller: caller} = state) do
     Kernel.send(caller, {self(), {:data, bin}})
     {:noreply, state}
@@ -207,16 +183,11 @@ defmodule XipeTotec.Repl.Sender.Direct do
 
   def handle_info(_other, state), do: {:noreply, state}
 
-  # erlexec's raw :DOWN reason (confirmed live, 2026-09-22): a clean exit
-  # 0 is reported as the bare atom `:normal`, not a tuple at all; any
-  # other exit_status packs a normal (nonzero) exit code as `code << 8`
-  # and a signal death as the bare signal number -- :exec.status/1 is
-  # erlexec's own decoder for that packed form. Signal deaths keep the
-  # pre-existing "128 + signal number" convention (matching what the old
-  # Port-based `kill -9` path produced, so a SIGKILL still shows up as
-  # status 137) for anyone already expecting that shape; normal exits
-  # print the plain code, matching every existing test (`"XT_EXIT 0"`,
-  # `"XT_EXIT 3"`, ...).
+  # erlexec's raw :DOWN reason: a clean exit 0 is the bare atom `:normal`;
+  # any other exit_status packs a nonzero exit code as `code << 8` and a
+  # signal death as the bare signal number (:exec.status/1 decodes that).
+  # A signal death is printed as "128 + signal number" (SIGKILL is 137), a
+  # normal exit as the plain code (`"XT_EXIT 0"`, `"XT_EXIT 3"`).
   defp exit_status_of(:normal), do: 0
 
   defp exit_status_of({:exit_status, raw}) do

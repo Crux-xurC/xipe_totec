@@ -33,7 +33,7 @@ defmodule ProjectTest do
     assert Project.find_sheets(dir) == ["lib/a.ex", "lib/b.ex"]
   end
 
-  test "find_sheets/1 also finds .exs files (a scripts-mode project, e.g. crux's own, has nothing under .ex at all)", %{
+  test "find_sheets/1 also finds .exs files (a scripts-mode project has nothing under .ex at all)", %{
     dir: dir
   } do
     File.write!(Path.join(dir, "lib/c.exs"), "defmodule ProjC do\n  def h(x), do: x\nend\n")
@@ -201,7 +201,7 @@ defmodule ProjectTest do
     assert names == [{"ProjA", "f"}, {"ProjB", "g"}, {"Toy", "circle"}, {"Toy", "square"}]
   end
 
-  test "with a saved surface table, scan_dir/3 reads only the files it lists (課題 ④)", %{dir: dir} do
+  test "with a saved surface table, scan_dir/3 reads only the files it lists", %{dir: dir} do
     table_file = Path.join(dir, "table.json")
     {_book, ["lib/a.ex", "lib/b.ex"], []} = Project.scan_dir(Book.new(), dir, table_file: table_file)
     assert File.exists?(table_file)

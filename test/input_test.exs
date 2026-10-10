@@ -96,7 +96,7 @@ defmodule InputTest do
     test "commands that need a terminal are refused, saying so" do
       for line <- ["choice project /x", "table generate", "start", "serve --port 1", "config", "refresh -a"] do
         assert {:error, message} = Input.parse(line)
-        assert message =~ "端末で xipe", line
+        assert message =~ "a terminal command, run as xipe", line
       end
     end
 
@@ -108,7 +108,7 @@ defmodule InputTest do
 
       assert {:commands, [%{"method" => "dialogue/depends", "params" => %{"call_id" => "c1"}}]} = Input.parse("dialogue depends c1")
       assert {:error, _} = Input.parse("dialogue depends /dir c1")
-      assert {:error, "保持している対話はありません"} = Input.parse("quit dialogue")
+      assert {:error, "no dialogue is held"} = Input.parse("quit dialogue")
     end
 
     test "anything else is an unknown command" do

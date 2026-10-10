@@ -60,7 +60,7 @@ defmodule ReplEvalTemplateTest do
   test "a :binding placeholder is left as the bare variable name" do
     # Hand-built rather than derived via entry_for/3: Core.plan_recalc/3 no
     # longer schedules an entry whose inputs contain an unresolved
-    # `:binding` (2026-09-22, `drop_unresolvable/2` skips the call instead
+    # `:binding` (`drop_unresolvable/2` skips the call instead
     # -- see core_test.exs's "...is unresolvable, so the dependent call is
     # skipped" tests). This test now exercises EvalTemplate.call_expression/1's
     # own handling of a `:binding` input directly, the shape
@@ -96,7 +96,7 @@ defmodule ReplEvalTemplateTest do
       # multiple lines and break the line-based marker parser
       assert Regex.scan(~r/inspect\([^)]*width: :infinity/, code) |> length() == 4
       # every receive branch that can end the wait demonitors -- fixed
-      # 2026-09-18: the timeout (`after`) branch used to skip this,
+      # the timeout (`after`) branch used to skip this,
       # leaking an unflushed :DOWN message into the session's mailbox
       # every time an eval timed out.
       assert Regex.scan(~r/Process\.demonitor/, code) |> length() == 3

@@ -5,7 +5,7 @@ Code.require_file(Path.expand("../lib/in_out.exs", __DIR__))
 defmodule InOutTest.ToyDialogue do
   # A minimal fake Dialogue program (mirrors ReplEvaluatorTest's
   # ToyLanguage) -- proves InOut's wiring/holding/2-bit derivation without
-  # any real dialogue program existing yet (Old.md §17: the
+  # any real dialogue program existing yet (the
   # dependency-chain negotiation is step 4, InOut is step 3).
   @behaviour XipeTotec.Dialogue
 
@@ -32,7 +32,7 @@ defmodule InOutTest do
   @programs %{"toy/negotiate" => ToyDialogue}
 
   # row/add now requires the node to exist with a matching arity
-  # (Dispatch, Old.md §32), so every book a row/add reaches carries these.
+  # (Dispatch), so every book a row/add reaches carries these.
   defp book do
     Book.new()
     |> XipeTotec.Core.put_node("N", %{module: "M", name: "n", anykey: 1})
@@ -53,7 +53,7 @@ defmodule InOutTest do
 
   test "a Pipeline-routed method (eval/run) is tagged 00 -- via_repl, not held" do
     # the book's rows aren't classified, so nothing reaches a REPL: this
-    # only proves the tag and that the pipeline runs (Old.md §37)
+    # only proves the tag and that the pipeline runs
     {dialogue, _book, outcome} = InOut.handle(nil, book(), ".", %{"method" => "eval/run", "params" => %{}})
 
     assert dialogue == nil

@@ -29,7 +29,7 @@ defmodule InfoTest do
 
     assert refreshed["languages"] == ["elixir", "haskell", "ocaml"]
     assert refreshed["extensions"] == %{"ex" => ["elixir"], "exs" => ["elixir"], "hs" => ["haskell"], "ml" => ["ocaml"]}
-    # each language's REPL and build-tool priority list (2026-09-26)
+    # each language's REPL and build-tool priority list
     assert refreshed["language_repls"] == %{"elixir" => "iex", "haskell" => "ghci", "ocaml" => "ocaml"}
 
     assert refreshed["build_tools"] == %{
@@ -44,7 +44,7 @@ defmodule InfoTest do
     assert refreshed["repls"] == ["placeholder"]
   end
 
-  test "refresh_languages/2 keeps a clashing extension as a list of every declaring language (Old.md §34)" do
+  test "refresh_languages/2 keeps a clashing extension as a list of every declaring language" do
     dir = Path.join(System.tmp_dir!(), "xipe_totec_info_lang_#{System.unique_integer([:positive])}")
     File.mkdir_p!(dir)
     on_exit(fn -> File.rm_rf!(dir) end)

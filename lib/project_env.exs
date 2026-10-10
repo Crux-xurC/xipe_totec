@@ -2,7 +2,7 @@ Code.require_file("project_config.exs", __DIR__)
 
 defmodule XipeTotec.ProjectEnv do
   @moduledoc """
-  The environment a project's own tools run in (Old.md §25.6, 2026-09-26):
+  The environment a project's own tools run in:
   one per project, used by everything xipe_totec starts for it -- the REPL
   (`Runner` → `Repl.Launch`'s `env`) and a language server it starts itself
   (`Lsp.Transport.Stdio`). A language server reached through tezcatl's
@@ -15,8 +15,8 @@ defmodule XipeTotec.ProjectEnv do
   is resolved again only as the project's `env.refresh` setting
   (`ProjectConfig`) allows. `nix develop` itself is never started, so the
   flake's `shellHook` doesn't run: variables it exports are not part of
-  the environment. A project without a `flake.nix` (`shell.nix` included,
-  課題.md) runs in xipe_totec's own environment, as before.
+  the environment. A project without a `flake.nix` (one with only a
+  `shell.nix` included) runs in xipe_totec's own environment.
 
   `resolve/3` returns `{env, status}`: `env` is the variables to add to the
   spawned process's environment (`%{}` for none), `status` what happened,

@@ -4,12 +4,10 @@ Code.require_file("serve_input.exs", __DIR__)
 
 defmodule XipeTotec.Serve.Socket do
   @moduledoc """
-  §16.1's WebSocket (localhost) entry, one `:cowboy_websocket` instance per
-  accepted connection (Old.md §9, 2026-09-17). A thin transport shell:
-  decode/encode via `Protocol`, forward real work to the single
-  `Serve.Project` GenServer. No auth -- spec §16.1: "いずれもローカルホスト
-  のみで待ち受け、認証は設けず" (every §16.1 entry point is localhost-only,
-  no auth by design).
+  The WebSocket (localhost) entry, one `:cowboy_websocket` instance per
+  accepted connection. A thin transport shell: decode/encode via
+  `Protocol`, forward real work to the single `Serve.Project` GenServer.
+  Localhost only, no authentication.
 
   ## Origin
 
@@ -26,30 +24,21 @@ defmodule XipeTotec.Serve.Socket do
   their Origin itself (tezcatl `AllowedOrigins`).
 
   `initialize`'s session state (`initialized?`, the client's declared
-  capabilities) lives here, not in `Serve.Project` -- decided 2026-09-17
-  because Xipe Totec is meant to work as an independent tool with several
-  simultaneous, unrelated entry points (§16.1: stdio / WS / LSP-stdio /
-  MCP), each naturally its own session; `Serve.Project` only ever holds the
-  one thing every entry point shares, the `Book`.
+  capabilities) lives here, per connection, not in `Serve.Project`, which
+  holds only what every connection shares, the `Book`.
 
-  `subscribe` is intercepted here too rather than reaching `Dispatch`: v0
-  broadcasts every `notify/*` to every attached session unconditionally
-  (`Serve.Project`), so subscribing doesn't change anything yet -- it's
-  accepted and acknowledged so a client doesn't have to special-case v0,
-  but is a no-op until per-topic filtering exists.
+  `subscribe` is answered here and is a no-op: every `notify/*` is
+  broadcast to every attached session unconditionally (`Serve.Project`).
 
   `state.dialogue` (`InOut.dialogue()`, `nil` if none held) is the other
-  piece of connection-local state living here (Old.md §17, §17's "1
-  connection = 1 dialogue" decision, 2026-09-20) -- every ordinary request
-  now goes through `Project.request_dialogue/5` instead of `request/3`, so
-  an unrelated method reaches `Dispatch`/`Pipeline`/`"eval"` exactly as
-  before regardless of whether a dialogue happens to be held at the time
-  (`InOut`'s own pass-through case). The reply envelope's `"from"`/
-  `"dialogue"` fields are Old.md §17.2's adapter-mode encoding of
-  `InOut`'s 2-bit tag; `outcome.ok?` decides whether `Protocol.encode_response/3`
-  gets `{:ok, ...}` or `{:error, ...}`.
+  piece of connection-local state: one connection, one dialogue. Every
+  ordinary request goes through `Project.request_dialogue/5`, so an
+  unrelated method reaches `Dispatch`/`Pipeline`/`"eval"` whether or not a
+  dialogue is held (`InOut`'s pass-through case). The reply envelope's
+  `"from"`/`"dialogue"` fields carry `InOut`'s tag; `outcome.ok?` decides
+  whether `Protocol.encode_response/3` gets `{:ok, ...}` or `{:error, ...}`.
 
-  `input` (2026-09-27) is handled here too, by `Serve.Input`: one line
+  `input` is handled here too, by `Serve.Input`: one line
   typed into tezcatl's dialogue window, answered with the text a person
   reads in `dialogue.text`. A line of commands runs in a process of its
   own and is answered when it ends (`state.inputs` holds its request id
@@ -130,13 +119,12 @@ defmodule XipeTotec.Serve.Socket do
         {:reply, {:text, reply(id, outcome)}, %{state | dialogue: new_dialogue}}
 
       {:ok, {:notify, _method, _params}} ->
-        # §16.3's client -> server list is all requests -- a client sending
-        # a notify has nothing this v0 does anything with.
+        # nothing here acts on a notify from a client
         {:ok, state}
 
       {:ok, {:response, _id, _outcome}} ->
-        # a reply to a provider/* request this server sent -- not built yet
-        # (Old.md §9: deferred), so nothing is pending to match it to.
+        # a reply to a provider/* request: this server sends none, so
+        # nothing is pending to match it to
         {:ok, state}
 
       {:error, _reason} ->
@@ -165,7 +153,7 @@ defmodule XipeTotec.Serve.Socket do
     :ok
   end
 
-  # the response with the §17.2 envelope (InOut's outcome shape)
+  # the response with the dialogue envelope (InOut's outcome shape)
   defp reply(id, outcome) do
     envelope = %{
       "from" => nil,

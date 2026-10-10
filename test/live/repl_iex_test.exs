@@ -12,8 +12,7 @@ Code.require_file(Path.expand("../../lib/repl/eval/scan/direct/iex.exs", __DIR__
 Code.require_file(Path.expand("../../lib/repl/eval/field_drip/elixir.exs", __DIR__))
 
 # Live verification against a real `iex`, not a stand-in `sh`/`cat`/`sleep`
-# (unlike the rest of the Repl.* test suite, per Old.md §28 G's split of pure/
-# fast-testable logic from live-process checks). NOT swept into test/run.sh
+# (unlike the rest of the Repl.* test suite). NOT swept into test/run.sh
 # (its glob is `test/*_test.exs`, non-recursive -- this lives one directory
 # deeper on purpose). Run directly: `elixir test/live/repl_iex_test.exs`.
 #
@@ -126,7 +125,7 @@ defmodule ReplLiveIexTest do
     out = collect_until(handle, "XT_END_c2", 5_000)
 
     # square(5) == 25 -- if xt_c1 had been left as the wrapped {:xt_ok, 5}
-    # status, this would crash instead (the bug caught and fixed 2026-09-18)
+    # status, this would crash instead
     assert out =~ "XT_BEGIN_c2\nrepr=exact\ntype=integer\ncompare=none\ndisplay=25\nXT_END_c2"
   end
 
@@ -155,7 +154,7 @@ defmodule ReplLiveIexTest do
 
   test "an unclosed arg expression is caught before ever touching the session -- no iex continuation prompt, no hang",
        %{handle: handle} do
-    # review finding, 2026-09-18: this used to put iex into its "...(N)>"
+    # this would otherwise put iex into its "...(N)>"
     # continuation prompt, silently absorbing everything sent afterward
     # (including the *next* entry's own template) forever -- confirms
     # EvalTemplate.build_syntax_error/3 fires instead of ever writing an

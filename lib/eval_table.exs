@@ -2,11 +2,10 @@ Code.require_file("book.exs", __DIR__)
 
 defmodule XipeTotec.EvalTable do
   @moduledoc """
-  `eval_table` (2026-09-27, `next_step.md` §1.1): the calc rows (`calls`)
-  with their function (`module`/`name`/`anykey`/`effect`/`visibility`) and
-  file (`path`) alongside, as one flat table. A read-only view of the Book,
-  not a store of its own -- `課題.md` §1-5's question ("does it overlap
-  `calls`?") answered: it is `calls`, joined once, here.
+  `eval_table`: the calc rows (`calls`) with their function
+  (`module`/`name`/`anykey`/`effect`/`visibility`) and file (`path`)
+  alongside, as one flat table. A read-only view of the Book, not a store
+  of its own.
 
   In the Book a calc row reaches its file only through its node
   (`calls.node` -> `nodes.sheet` -> `sheets.path`); this fixes that walk in

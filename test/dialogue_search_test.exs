@@ -70,27 +70,27 @@ defmodule DialogueSearchTest do
     {[t1, t2, t3, t4], _state} =
       turns(ctx, ["-s path lib/a.ex path", "-e path list id", "-e view id id name args", "y"])
 
-    assert t1 == {:hold, "1件ヒットしました。（path: [lib/a.ex]）"}
-    assert t2 == {:hold, "2件ヒットしました。（id: [c1, c2]）"}
-    assert {:hold, "2件ヒットしました。\nid=c1  name=f  args=1\nid=c2  name=f  args=⟦c1⟧\n検索を終了しますか？y/n"} = t3
-    assert t4 == {:done, "検索を終了しました。"}
+    assert t1 == {:hold, "1 hit(s). (path: [lib/a.ex])"}
+    assert t2 == {:hold, "2 hit(s). (id: [c1, c2])"}
+    assert {:hold, "2 hit(s).\nid=c1  name=f  args=1\nid=c2  name=f  args=⟦c1⟧\nEnd the search? y/n"} = t3
+    assert t4 == {:done, "Search ended."}
   end
 
   test "matching: ~ is a substring, - an empty cell, a number compares as text", %{ctx: ctx} do
     {[down, gone, arity, unclassified], _} =
       turns(ctx, ["-e args ~⟦c1⟧ id", "-e module -", "-e anykey 1", "-e effect unknown id"])
 
-    assert down == {:hold, "1件ヒットしました。（id: [c2]）"}
-    assert gone == {:hold, "1件ヒットしました。（id: [c4]）"}
-    assert arity == {:hold, "2件ヒットしました。（id: [c1, c2]）"}
-    assert unclassified == {:hold, "1件ヒットしました。（id: [c3]）"}
+    assert down == {:hold, "1 hit(s). (id: [c2])"}
+    assert gone == {:hold, "1 hit(s). (id: [c4])"}
+    assert arity == {:hold, "2 hit(s). (id: [c1, c2])"}
+    assert unclassified == {:hold, "1 hit(s). (id: [c3])"}
   end
 
   test "get id keeps x, and a passed-on line has x replaced", %{ctx: ctx} do
     {[_, got, pass, bad], state} =
       turns(ctx, ["-e path lib/a.ex", "get id -2", "row/update id=x 'args=[⟦x⟧]' -- row/list call_ids=[x]", "get id -9"])
 
-    assert {:hold, "検索結果の2番目の要素のIDを取得しました: c2" <> _} = got
+    assert {:hold, "took the id of element 2 of the result: c2" <> _} = got
     assert pass == {:pass, "row/update id=c2 args=[⟦c2⟧] -- row/list call_ids=[c2]"}
     assert bad == {:hold, "No match data"}
     assert state.x == "c2"
@@ -98,9 +98,9 @@ defmodule DialogueSearchTest do
 
   test "x before get id, an unknown column, list before any search", %{ctx: ctx} do
     {[no_x, column, no_list, plain], _} = turns(ctx, ["row/remove id=x", "-e nope 1", "-e id list id", "effect/set id=n2 effect=pure"])
-    assert {:hold, "x がまだありません" <> _} = no_x
-    assert {:hold, "列 nope はありません" <> _} = column
-    assert {:hold, "保持しているリストがありません" <> _} = no_list
+    assert {:hold, "there is no x yet" <> _} = no_x
+    assert {:hold, "no such column: nope" <> _} = column
+    assert {:hold, "no list is held" <> _} = no_list
     # an x inside a word (effect=..., n2) is not the variable
     assert plain == {:pass, "effect/set id=n2 effect=pure"}
   end
@@ -110,15 +110,15 @@ defmodule DialogueSearchTest do
     ctx = %{ctx | book: book}
 
     {[many, _view, go_on, again], _} = turns(ctx, ["-e name g", "-e view id id", "n", "-e name f"])
-    assert {:hold, "13件ヒットしました。（id: [c3, d01, d02, d03, d04, d05, d06, d07, d08, d09]（ほか 3 件））"} = many
-    assert go_on == {:hold, "検索を続けます。"}
-    assert {:hold, "2件ヒットしました。" <> _} = again
+    assert {:hold, "13 hit(s). (id: [c3, d01, d02, d03, d04, d05, d06, d07, d08, d09] (3 more))"} = many
+    assert go_on == {:hold, "Search continues."}
+    assert {:hold, "2 hit(s)." <> _} = again
   end
 
   test "-h lists both tables' columns", %{ctx: ctx} do
     {[{:hold, usage}], _} = turns(ctx, ["-h"])
-    assert usage =~ "-s の列: id path depth language repl build_tool"
-    assert usage =~ "-e の列: id node module"
+    assert usage =~ "-s columns: id path depth language repl build_tool"
+    assert usage =~ "-e columns: id node module"
   end
 
   test "through InOut: started with a first turn, quit dialogue ends it, a pass is left to the caller", %{book: book, dir: dir, project_dir: pd} do
@@ -127,7 +127,7 @@ defmodule DialogueSearchTest do
     start = %{"method" => "dialogue/search", "params" => %{"line" => "-e effect pure"}}
 
     {dialogue, ^book, outcome} = InOut.handle(nil, book, dir, start, opts, programs)
-    assert %{hold: true, text: "2件ヒットしました。（id: [c1, c2]）"} = outcome
+    assert %{hold: true, text: "2 hit(s). (id: [c1, c2])"} = outcome
     assert {Search, _} = dialogue
 
     pass = %{"method" => "dialogue/answer", "params" => %{"text" => "row/list"}}
@@ -135,16 +135,16 @@ defmodule DialogueSearchTest do
     assert %{hold: true, run: {:line, "row/list"}} = outcome
 
     {nil, ^book, outcome} = InOut.handle(dialogue, book, dir, %{"method" => "dialogue/quit", "params" => %{}}, opts, programs)
-    assert %{hold: false, ok?: true, text: "対話を終了しました。"} = outcome
+    assert %{hold: false, ok?: true, text: "The dialogue has ended."} = outcome
   end
 
   test "dialogue depends started with just a call_id builds its chain from the book", %{book: book, dir: dir} do
     start = %{"method" => "dialogue/depends", "params" => %{"call_id" => "c2"}}
     {dialogue, _book, outcome} = InOut.handle(nil, book, dir, start, [], InOut.programs())
     assert {XipeTotec.Dialogue.Depends, %{chain: [%{"id" => "c1"}, %{"id" => "c2"}]}} = dialogue
-    assert outcome.text =~ "c1 に値を入れて評価しますか"
+    assert outcome.text =~ "Supply a value for c1 and evaluate?"
 
     {nil, _book, outcome} = InOut.handle(nil, book, dir, %{start | "params" => %{"call_id" => "zz"}}, [], InOut.programs())
-    assert outcome.text =~ "zz はありません"
+    assert outcome.text =~ "There is no calc row zz"
   end
 end

@@ -122,13 +122,13 @@ defmodule ServeInputTest do
     {reply, _state} = input(state, "help", 7)
     assert %{"id" => 7, "result" => %{}, "dialogue" => %{"hold" => false, "text" => text}} = reply
     assert text == XipeTotec.Help.text(:window)
-    assert text =~ "\nrow/add: 計算行を作る"
+    assert text =~ "\nrow/add: make a calc row"
   end
 
   test "a line that can't be read is an input_error", %{state: state} do
     {reply, _state} = input(state, "choice project /x")
     assert %{"error" => %{"code" => "input_error", "message" => message}} = reply
-    assert message =~ "端末で xipe choice project"
+    assert message =~ "a terminal command, run as xipe choice project"
 
     {reply, _state} = input(state, "row/add 'unclosed")
     assert %{"error" => %{"code" => "input_error"}} = reply
@@ -204,7 +204,7 @@ defmodule ServeInputTest do
 
   test "search from the window: turns, a command passed on with x, an eval waited for, quit dialogue", %{state: state} do
     {reply, state} = input(state, "search")
-    assert %{"dialogue" => %{"hold" => true, "text" => "検索を始めます" <> _}} = reply
+    assert %{"dialogue" => %{"hold" => true, "text" => "Search started" <> _}} = reply
 
     # an ordinary command line inside the search runs (and the search stays held)
     {reply, state} = input(state, "effect/set id=n1 effect=pure -- row/add node=n1 args=[5]")
@@ -213,7 +213,7 @@ defmodule ServeInputTest do
     assert {XipeTotec.Dialogue.Search, _} = state.dialogue
 
     {reply, state} = input(state, "-e node n1")
-    assert %{"dialogue" => %{"hold" => true, "text" => "1件ヒットしました。" <> _}} = reply
+    assert %{"dialogue" => %{"hold" => true, "text" => "1 hit(s)." <> _}} = reply
 
     {_reply, state} = input(state, "get id")
     call_id = elem(state.dialogue, 1).x
@@ -223,10 +223,10 @@ defmodule ServeInputTest do
     assert text =~ "eval call #{call_id}  ok"
 
     {reply, state} = input(state, "-e result 1 id")
-    assert %{"dialogue" => %{"text" => "1件ヒットしました。（id: [" <> _}} = reply
+    assert %{"dialogue" => %{"text" => "1 hit(s). (id: [" <> _}} = reply
 
     {reply, state} = input(state, "quit dialogue")
-    assert %{"dialogue" => %{"hold" => false, "text" => "対話を終了しました。"}} = reply
+    assert %{"dialogue" => %{"hold" => false, "text" => "The dialogue has ended."}} = reply
     assert state.dialogue == nil
   end
 
@@ -236,11 +236,11 @@ defmodule ServeInputTest do
 
     {reply, state} = input(state, "dialogue depends #{target}")
     assert %{"dialogue" => %{"hold" => true, "text" => question}} = reply
-    assert question =~ "#{upstream} に値を入れて評価しますか"
+    assert question =~ "Supply a value for #{upstream} and evaluate?"
 
     {reply, state} = input(state, "y 7")
     assert %{"dialogue" => %{"hold" => false, "via_repl" => true, "text" => text}} = reply
-    assert text =~ "に値を注入し"
+    assert text =~ "Supplying a value for"
     assert text =~ "row/set-result  ok"
     assert text =~ "eval call #{target}  ok"
     assert state.dialogue == nil

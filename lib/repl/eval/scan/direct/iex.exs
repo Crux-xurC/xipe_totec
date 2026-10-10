@@ -5,24 +5,9 @@ defmodule XipeTotec.Repl.Eval.Scan.Direct.Iex do
   <status>` occurrence out of the buffer before it reaches the generic
   `Repl.Eval.Scan`.
 
-  Heartbeat marker stripping (`XT_HEARTBEAT`) was removed here 2026-09-22
-  (Old.md §23) along with the rest of the heartbeat mechanism --
-  hang detection is now `Sender.interrupt/1` + a fixed deadline, not
-  heartbeat liveness, so there is nothing left to strip. `XT_EXIT`
-  handling is unrelated to hang detection (it is `Sender`'s own exit
-  signal, §16.3's own protocol note) and stays.
-
-  The module path is two-dimensional on purpose (`Scan.<transport>.
-  <repl>`, 2026-09-18 -- crux's revision after noticing `Launch`/
-  `FieldDrip` are keyed by REPL/language while a transport-only `Scan.
-  Direct` broke that consistency): the noise this layer strips is
-  empirically a transport property (PTY echo/ANSI vs. plain-pipe silence,
-  confirmed live -- `Old.md` §10.4), but a given REPL
-  could turn out to have its own quirks beyond that, so both axes get an
-  explicit place rather than picking one and hoping it's the only one
-  that ever varies. Today only this one combination (`Direct` + `Iex`)
-  exists; `lib/repl/eval/scan/pty/` is an empty placeholder for when a
-  PTY-backed `Sender` exists.
+  The module path has two axes, `Scan.<transport>.<repl>`: the noise this
+  layer strips is mostly a transport property (PTY echo/ANSI vs. a silent
+  plain pipe), but a REPL can have quirks of its own.
 
   Confirmed live that a plain, non-PTY pipe has no input echo and no ANSI
   noise, so `clean/1` here has nothing else to strip beyond exit -- it

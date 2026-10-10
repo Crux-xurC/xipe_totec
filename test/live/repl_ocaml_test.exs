@@ -1,4 +1,4 @@
-# Live verification against a real plain `ocaml` toplevel (Old.md §42, §43),
+# Live verification against a real plain `ocaml` toplevel,
 # the OCaml counterpart of repl_iex_test.exs. NOT swept into test/run.sh. Needs
 # `ocaml` on PATH, and `dune` for the dune test -- e.g.
 # `nix shell nixpkgs#ocaml nixpkgs#dune_3 -c elixir test/live/repl_ocaml_test.exs`;

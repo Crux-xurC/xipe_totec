@@ -1,14 +1,12 @@
 defmodule XipeTotec.Id do
   @moduledoc """
-  ULID generation (spec §7.1): a time-sortable, unique value that is never
-  derived from a name or path -- the ID is the entity's actual identity.
+  ULID generation: a time-sortable, unique value that is never derived
+  from a name or path -- the ID is the entity's actual identity.
 
-  Namespaced under `XipeTotec.*` (like every other module in this project):
-  Scanner compiles modules extracted from the *target* project's own source
-  into this same BEAM to run the compiler tracer over them (spec §5.4 note in
-  Old.md, point F) -- an unnamespaced module name here could be
-  silently redefined by a target project that happens to define e.g. `Book`
-  or `Id` itself.
+  Every module here is namespaced under `XipeTotec.*`: the scanner compiles
+  the *target* project's modules into this same BEAM to trace them, so an
+  unnamespaced `Book` or `Id` could be silently redefined by a target that
+  defines one itself.
   """
 
   import Bitwise

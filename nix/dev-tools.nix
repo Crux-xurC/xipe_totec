@@ -3,8 +3,8 @@
 
 
 with pkgs; [
-  # --- Language servers (Scanner.Lsp が tezcatl なしで自分で起動するもの) ---
-  # Elixir: Lsp.Transport.Stdio が起動する elixir-ls。tezcatl の nix/dev-tools.nix と同じもの
-  # beamPackages 側を使い、xipe_totec と同じ Elixir/OTP でビルドされたものに揃える
+  # --- Language servers (the ones Scanner.Lsp starts itself, without tezcatl) ---
+  # Elixir: the elixir-ls Lsp.Transport.Stdio starts; the same one as tezcatl's nix/dev-tools.nix
+  # taken from beamPackages, so it is built with the same Elixir/OTP as xipe_totec
   beamPackages.elixir-ls
 ]

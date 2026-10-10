@@ -2,17 +2,10 @@ Code.require_file("book.exs", __DIR__)
 
 defmodule XipeTotec.Identity do
   @moduledoc """
-  Minimal rescan identity rule (spec §7.3, Old.md §4.5, fix E): reuse
-  an existing id only on an *exact* natural-key match. The fuller §7.3
-  table (name-changed-but-body-same, body-changed-but-name-same,
-  moved-file, needs_review) is out of scope for this build -- without even
-  this minimal rule, every rescan would mint fresh ids for every function
-  and every existing calc row would immediately become ref_error, which is
-  why this can't wait for the fuller version.
-
-  `XipeTotec.Scanner.Elixir.scan_defs/3` already applies this rule inline via
-  `Book.find_node_by_natural_key/4`; this module exists so the *policy* has
-  one obvious, citable home, separate from the AST-walking mechanics.
+  The rescan identity rule: an existing id is reused only on an *exact*
+  natural-key match (a sheet's path; a node's module, name and anykey).
+  A renamed or moved function, or one that was absent during a scan, gets a
+  new id and its calc rows stay with the old one.
   """
 
   alias XipeTotec.Book

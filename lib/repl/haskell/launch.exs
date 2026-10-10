@@ -2,7 +2,7 @@ Code.require_file("../embody.exs", __DIR__)
 
 defmodule XipeTotec.Repl.Haskell.Launch do
   @moduledoc """
-  Haskell's `launch` (GHCi, Old.md §45/§46): the same JSON-able message
+  Haskell's `launch` (GHCi): the same JSON-able message
   `Repl.Launch` builds, with GHCi's values.
 
   GHCi is started as
@@ -19,7 +19,7 @@ defmodule XipeTotec.Repl.Haskell.Launch do
     * `-v0`: no banner, no prompt; `-w`: no warnings in the output
     * `-fdefer-type-errors`: a `let` binding with a missing instance or a
       type error becomes a runtime TypeError, which is how `embody.hs` tells
-      exact / shown / typed apart (Old.md §45.1)
+      exact / shown / typed apart
     * `ready_probe` makes GHCi print `XT_READY` once the script is done
     * interruptible: SIGINT stops the running evaluation ("Interrupted.") and
       GHCi goes on reading (confirmed with GHC 9.10.3)

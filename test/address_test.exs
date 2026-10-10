@@ -25,7 +25,7 @@ defmodule AddressTest do
     assert Address.resolve(book, %{}) == {:ok, []}
   end
 
-  test "file + name + arity narrows to a unique node (spec §6.1 example shape)", %{book: book} do
+  test "file + name + arity narrows to a unique node", %{book: book} do
     address = %{"file" => "lib/shop/price.ex", "name" => "add_tax", "arity" => 2}
     assert {:ok, [{:nodes, "n1", _row}]} = Address.resolve(book, address)
   end
@@ -65,7 +65,7 @@ defmodule AddressTest do
     assert Address.resolve(book, %{"type" => "node"}) == {:error, {:unsupported_column, "type"}}
   end
 
-  test "an anykey/arity that is neither a number nor a string is refused, not raised on (Old.md §56)", %{book: book} do
+  test "an anykey/arity that is neither a number nor a string is refused, not raised on", %{book: book} do
     # a JSON null (a `$n.path` that named nothing), a list, an object, a boolean
     for bad <- [nil, [2], %{}, true] do
       assert Address.resolve(book, %{"name" => "add_tax", "arity" => bad}) == {:error, {:bad_value, "arity", bad}}

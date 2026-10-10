@@ -1,6 +1,6 @@
 defmodule XipeTotec.Session do
   @moduledoc """
-  The record a running `xipe start` leaves behind (2026-09-25), so every
+  The record a running `xipe start` leaves behind, so every
   other command can tell a session is up and act in its context instead of
   on the project `xipe choice project` selected: which project it serves,
   on which port, and -- when it was started by tezcatl -- where tezcatl's
@@ -13,7 +13,7 @@ defmodule XipeTotec.Session do
   never has to be cleaned up by hand. "Gone" is judged by the process's
   start time (`os_started`, from `ps`), not just by whether the pid exists:
   after a reboot or a long while the pid may belong to some other program,
-  which would otherwise pass for the session (2026-10-06).
+  which would otherwise pass for the session.
 
   Record keys (JSON, string keys): `os_pid`, `os_started` (the process's
   start time as `ps -o lstart=` prints it, or `nil` without `ps`), `port`,

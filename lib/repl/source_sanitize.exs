@@ -1,40 +1,28 @@
 defmodule XipeTotec.Repl.SourceSanitize do
   @moduledoc """
-  Closes a real gap found by review (2026-09-18): §11.5's `Project.find_sheets/1`
-  was extended to also find `.exs` files, and scripts-mode's default
-  `:launch_opts` (`Runner.default_launch_opts/1`) feeds that list straight
-  into `message["files"]`, which `Sender.Direct.with_files/2` turns into one
-  `-r <file>` per file. `-r` is a *real* `Code.require_file/1` -- it runs a
-  script's entire top-level, not just its `defmodule` forms. For a project
-  like xipe_totec's own or tezcatl's, whose root has an entry-point script
-  (`main.exs`) that starts a server as its last top-level statement, `xipe
-  eval` on that project would launch a whole nested server as a side effect
-  of just booting the REPL session. This is exactly the hazard `Scanner`'s
-  Fix F already closed for *scanning* (`Code.compile_quoted` over only the
-  `defmodule` forms) -- it had reopened one layer up, on the *loading* path,
-  which never went through `Scanner` at all.
+  Loads a scripts-mode project's files without running their top-level
+  code. Scripts mode hands every source file to the REPL as `-r <file>`,
+  and `-r` is a real `Code.require_file/1`: it runs a script's whole top
+  level, not just its `defmodule` forms. A project whose root has an
+  entry-point script (a `main.exs` that starts a server as its last
+  statement) would start that server just by booting the REPL session.
 
   `sanitize/2` writes, per file, a small *loader* script to a fresh temp
   directory and returns those loader paths in place of the originals. Each
   loader, when `-r`'d, parses the original file, keeps only its top-level
   `defmodule` forms (the same filter as `Scanner.only_defmodules/1`) and
   compiles them with `Code.compile_quoted(forms, original_path)` -- so a
-  script's own top-level side effects are never run, yet line numbers,
-  `__ENV__.file` and `__DIR__` all stay the original file's (2026-09-26: the
-  earlier version wrote `Macro.to_string/1` of the filtered AST to the temp
-  file, which reflowed the code -- stack traces pointed at lines of a deleted
-  temp copy, and compile-time `__DIR__` pointed at the temp dir, changing
-  what code built from it evaluated to).
+  script's top-level side effects never run, yet line numbers,
+  `__ENV__.file` and `__DIR__` all stay the original file's.
 
   The loader defines no module of its own (its filter is inlined, not a call
   into `Scanner`), so the REPL under evaluation holds only the project's own
   modules.
 
-  **Known limitations** (flagged rather than solved here):
-  - Cross-file compile-time dependencies (structs, macros, `import`) still
-    need the referencing file's `-r` to come *after* the referenced file's
-    -- this was already true of `find_sheets/1`'s plain alphabetical order
-    and isn't introduced by this module.
+  **Limitations**:
+  - Cross-file compile-time dependencies (structs, macros, `import`) need
+    the referencing file's `-r` to come *after* the referenced file's; the
+    files come in plain alphabetical order.
   - The original is read again when the REPL boots (right after `sanitize/2`),
     not snapshotted -- an edit landing in between is what gets loaded.
   - Temp files are not cleaned up automatically by this module -- see

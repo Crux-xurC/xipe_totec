@@ -17,10 +17,9 @@
 
       beamPackages = pkgs.beam.packages.erlang_27;
 
-      # WS server stack for spec §16's WebSocket entry (§16 サーバーインター
-      # フェース) -- cowlib/ranch/cowboy -- plus `gun`, the WS client
+      # WS server stack for the WebSocket entry -- cowlib/ranch/cowboy -- plus `gun`, the WS client
       # Scanner.Lsp's Lsp.Transport.Relay dials tezcatl's /lsp with.
-      # `erlexec` (2026-09-22, Old.md §23) is for a different spawn
+      # `erlexec` is for a different spawn
       # need: `Repl.Sender.Direct` uses it to launch the target project's
       # REPL in its own process group, so a hang/interrupt on that REPL
       # can be signaled group-wide without touching xipe_totec's own
@@ -45,10 +44,10 @@
 
           # This is not a Mix project (no mix.exs) -- main.exs Code.require_file's
           # everything under lib/, same convention as ../tezcatl. No Hex deps
-          # beyond cowlib/ranch/cowboy (nix/relay-packages.nix, 2026-09-17):
+          # beyond cowlib/ranch/cowboy (nix/relay-packages.nix):
           # Core/Store/Scanner/CLI still lean on Elixir 1.18's built-in JSON
           # module and the stdlib alone. cowboy is on PATH via buildInputs
-          # above but not required by any lib/*.exs yet -- the §16 WebSocket
+          # above but not required by any lib/*.exs yet -- the WebSocket
           # listener module itself is still unwritten.
 
           # No cd: every file xipe_totec itself reads/writes (info.json,

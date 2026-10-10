@@ -1,16 +1,14 @@
 defmodule XipeTotec.Lsp.Transport do
   @moduledoc """
   How `Scanner.Lsp` talks to a language server -- the scan-side counterpart
-  of `Repl.Sender` (Old.md §21.4, 2026-09-25). `Scanner.Lsp` only builds
-  JSON-RPC requests and reads their results; where the server lives is a
-  transport's business:
+  of `Repl.Sender`. `Scanner.Lsp` only builds JSON-RPC requests and reads
+  their results; where the server lives is a transport's business:
 
     * `Lsp.Transport.Relay` -- tezcatl's `/lsp` WebSocket relay, which
       already runs the server, answers `initialize` from its cache and
-      multiplexes it between the editor and any other consumer (spec §11's
-      "利用者が構成した多重化プロキシ")
-    * a stdio transport starting the server itself, for CLI use without
-      tezcatl -- planned
+      multiplexes it between the editor and any other consumer
+    * `Lsp.Transport.Stdio` -- starts the server itself, for CLI use
+      without tezcatl
 
   A connection is used from the process that opened it only (the caller
   receives the transport's messages), one request at a time.

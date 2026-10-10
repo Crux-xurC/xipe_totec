@@ -1,7 +1,7 @@
 defmodule XipeTotec.OutcomeText do
   @moduledoc """
-  A command list's outcomes (`Runner.run/4`'s) as the lines a person reads
-  (2026-09-27, moved out of `main.exs`): the CLI prints them, and the
+  A command list's outcomes (`Runner.run/4`'s) as the lines a person
+  reads: the CLI prints them, and the
   dialogue window (`input`) sends the same lines as `dialogue.text`, so a
   command reads the same in a terminal and in tezcatl.
 
@@ -81,7 +81,7 @@ defmodule XipeTotec.OutcomeText do
   defp eval_call({:error, reason}, _id), do: "crash    #{reason}"
 
   # not evaluated, not recorded: the upstream value can't be written into
-  # the call (never evaluated, or repr binary/unsupported -- Old.md §51)
+  # the call (never evaluated, or repr binary/unsupported)
   defp eval_call({:skipped, upstream_id}, id),
     do:
       "skipped  upstream #{upstream_id} has no value that can be written into the call -- evaluate it in the same command, " <>

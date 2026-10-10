@@ -9,9 +9,9 @@ Code.require_file("runner.exs", __DIR__)
 
 defmodule XipeTotec.Serve.Input do
   @moduledoc """
-  The `input` method (2026-09-27): one line typed into tezcatl's dialogue
+  The `input` method: one line typed into tezcatl's dialogue
   window, `{"text": <line>}`. tezcatl sends every line this way and never
-  interprets it (tezcatl `D-xipe対話窓`); what the line means is decided
+  interprets it; what the line means is decided
   here, the way emacs-vent's `kind:"input"` leaves it to Emacs.
 
     * a dialogue is held on this connection -> the line is its answer

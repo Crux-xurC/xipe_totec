@@ -3,18 +3,15 @@ Code.require_file("info.exs", __DIR__)
 
 defmodule XipeTotec.SurfaceTable do
   @moduledoc """
-  `surface_table` (Old.md §24): a project's file tree, flattened to
+  `surface_table`: a project's file tree, flattened to
   one row per file -- `id`/`path`/`depth`/`language`/`repl`/`build_tool`.
-  Deliberately shallow (no code-level parsing, unlike `Scanner`) -- it
-  exists so a future multi-language `xipe table generate`/`xipe choice
-  project` can tell which files belong to which language *before*
-  deciding which `Scanner`/REPL adapter to run over them, not to replace
-  `Scanner` itself.
+  Shallow (no code-level parsing, unlike `Scanner`): it says which files
+  belong to which language, which decides the `Scanner` and REPL adapter
+  run over them.
 
   `repl`/`build_tool` come from each language's own declaration
   (`Repl.Language.repl/0`/`build_tools/0`, recorded in info.json's
-  `language_repls`/`build_tools` by `xipe refresh -l`, Old.md §25.4,
-  2026-09-26): a row's `repl` is its language's REPL, and its `build_tool`
+  `language_repls`/`build_tools` by `xipe refresh -l`): a row's `repl` is its language's REPL, and its `build_tool`
   the first of its language's build tools with a marker matching at
   `dir`'s root (`nil` when none does, or for a row with no language). The
   check runs when the table is generated, not on every use -- a build tool
@@ -23,22 +20,15 @@ defmodule XipeTotec.SurfaceTable do
 
   `language` comes from `info.json`'s `extensions` map (extension → the
   languages declaring it), which `xipe refresh -l` builds from each
-  `Repl.Language` module's own `extensions/0` (Old.md §34). An extension
+  `Repl.Language` module's own `extensions/0`. An extension
   exactly one language declares gets that language; one no language
   declares, or one two or more languages both declare (`.h`, `.pl`,
-  `.cljc`, ...), gets `nil` -- an undecidable file is shown as undecided
-  (P9), not guessed at. Settling such a file by hand is a separate,
-  planned surface-table update command (課題.md).
+  `.cljc`, ...), gets `nil` -- an undecidable file is shown as undecided,
+  not guessed at, and is not read.
 
-  Regeneration is a **full overwrite**, not an append-log (`generate/2`'s
-  `old_rows` is read once, upfront, purely to keep `id`s stable across
-  reruns -- same `Identity`-module spirit `:sheets`/`:nodes` already use,
-  reused here directly rather than through `Identity` itself since this
-  table doesn't live in `Book`/`book.jsonl`, §24.1's storage-location
-  decision) -- deliberately not an incremental diff, per §21.1's own
-  conclusion that a full `scan/run`-style re-derivation sidesteps the
-  staleness/consistency problems an incremental design would otherwise
-  have to solve.
+  Regeneration is a **full overwrite**, not an append-log and not an
+  incremental diff. `generate/3`'s `old_rows` is read once, only to keep a
+  path's `id` stable across reruns.
   """
 
   alias XipeTotec.Id
@@ -102,7 +92,7 @@ defmodule XipeTotec.SurfaceTable do
   end
 
   @doc """
-  The rows a scan or an eval pass works from (課題 ④). With a saved
+  The rows a scan or an eval pass works from. With a saved
   `table_file`, its rows as they are -- unless the table is empty (never
   generated) or one of its paths no longer exists under `dir`, in which
   case the table is regenerated (`generate/3`, reusing ids) and saved

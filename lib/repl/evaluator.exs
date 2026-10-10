@@ -9,92 +9,51 @@ Code.require_file("eval/field_drip/elixir.exs", __DIR__)
 
 defmodule XipeTotec.Repl.Evaluator do
   @moduledoc """
-  The orchestration piece Old.md's status paragraph (2026-09-18) flags
-  as still missing: wires `Repl.Eval.Parser`'s output into
-  `Core.apply_results/3`, and drives a whole `Core.plan_recalc/3` Plan
-  through one launched REPL session, entry by entry, the same synchronous
-  one-shot shape `Project.scan_dir/2` already has (launch -> await_ready ->
-  write/collect per entry -> apply_results -> return). Scoped for the CLI's
-  `xipe eval` (main.exs) first, per Old.md's own note that this can be
-  built "thin" ahead of the async, notify/rowChanged-streaming `eval/run`
-  §16 server method (still `@not_implemented` in `Dispatch` on purpose --
-  that one needs a persistent per-project Evaluator process, pass_id
-  tracking across requests, `eval/cancel`, none of which a one-shot CLI
-  command needs).
+  Runs one evaluation pass: drives a `Core.plan_recalc/3` Plan through one
+  launched REPL session, entry by entry (launch -> await_ready ->
+  write/collect per entry -> apply_results -> return), and feeds
+  `Repl.Eval.Parser`'s output into `Core.apply_results/3`. Synchronous;
+  `Serve.Project` runs it in a process of its own.
 
   One pass is one REPL session, launched here and closed at the end of the
-  pass; nothing carries over to the next (2026-09-26: xipe_totec assumes the
-  evaluated functions are referentially transparent, so a session only has
-  to last as long as the evaluation that needs it -- spec v0.4's resident
-  session and its `lost` state were dropped, Old.md §35). A result's
-  `session_gen` is the pass id, recorded as the row's `session`.
+  pass; nothing carries over to the next. The evaluated functions are
+  assumed referentially transparent, so a session only has to last as long
+  as the evaluation that needs it. A result's `session_gen` is the pass id,
+  recorded as the row's `session`.
 
-  ## Language independence (fixed 2026-09-18, crux's own review)
+  ## Language independence
 
-  This module used to hardcode `alias`es straight to the Elixir adapter
-  modules (`Repl.Launch`, `Repl.EvalTemplate`, `Repl.Eval.Scan.Direct.Iex`,
-  `Repl.Eval.FieldDrip.Elixir`) -- fine while Elixir was the only language,
-  but it broke the "caller picks the concrete module explicitly, no
-  internal language-detection switch" idiom `document/repl-adapter-guide.md`
-  already establishes for `Repl.Eval.Parser.step/5`'s own `scan_module`/
-  `field_drip_module` arguments (its own moduledoc: "the caller already
-  knows the language from context"). Those four are now `run_pass/3` options
+  The four per-language modules are `run_pass/3` options
   (`:launch_module`/`:eval_template_module`/`:scan_module`/
-  `:field_drip_module`), defaulting to the Elixir ones so every existing
-  caller keeps working unchanged. **This does not add multi-language
-  *dispatch*** (something that looks at a node/project and decides which
-  language's modules to use) -- there is nothing to dispatch *to* yet, since
-  no second language adapter exists. It only removes the hardcoding, so
-  that whenever such a dispatcher is eventually built (or a caller that
-  already knows the target language, same as `Parser.step/5`'s own caller
-  today), it can hand this module a different four-module set without
-  editing `Evaluator` itself.
+  `:field_drip_module`), defaulting to the Elixir ones. This module never
+  looks at a node or project to pick a language; the caller (`Runner`)
+  does.
 
-  ## Hang detection (2026-09-22 rewrite -- see Old.md §23; the
-  ## heartbeat mechanism this section used to describe is gone)
+  ## Hang detection
 
-  Each entry's own `EvalTemplate`-generated code is already
-  self-terminating within `entry.limits.timeout` (its `spawn_monitor` +
-  `receive ... after` safety wrapper always emits a marker) -- **provided
-  the generated text actually gets submitted as a complete expression in
-  the first place.** Two distinct ways that can fail to happen, both
-  found by review (2026-09-18):
+  Each entry's generated code ends itself within `entry.limits.timeout`
+  (its safety wrapper always emits a marker) -- provided the text was
+  taken as a complete expression. Two ways that fails:
 
-  1. The *session itself* wedges solid enough that it stops scheduling
-     entirely (a busy NIF hogging the one OS thread running it, for
-     instance) -- nothing at all arrives on `handle` ever again.
-  2. A malformed argument (an unclosed bracket, say) makes the *call
-     expression itself* fail to parse as a complete Elixir form. A REPL
-     doesn't error on this -- it just waits for more input (iex's
-     `...(N)>` continuation prompt), silently absorbing everything
-     written afterward into the same still-open expression instead of
-     treating it as separate statements. `EvalTemplate.build/1` now
-     catches this specific case itself before ever emitting text that
-     could trigger it (`build_syntax_error/3`), but a hang-detection
-     design that only defends against (1) would still wait forever on
-     (2) if some future language's adapter doesn't have an equivalent
-     guard.
+  1. The session wedges so hard that it stops scheduling (a busy NIF, for
+     instance): nothing arrives on `handle` again.
+  2. A malformed argument (an unclosed bracket) leaves the call expression
+     incomplete. A REPL doesn't error on that; it waits for more input and
+     absorbs everything written afterward into the open expression.
+     `EvalTemplate.build/1` catches this case before emitting anything
+     (`build_syntax_error/3`), but another language's adapter may not.
 
-  `run_entries/8`/`wait_result/7` treat total silence (no `:data` chunk of
-  any kind) for longer than `entry.limits.timeout + <padding>` as a hang,
-  enforced as a **fixed wall-clock deadline computed once when an entry
-  starts waiting**, not a per-chunk-reset silence window: incoming data no
-  longer pushes the deadline back, so an entry that's absorbing endless
-  input into one open expression still times out at the same total
-  ceiling an entirely-silent session would.
+  So `run_entries/8`/`wait_result/7` enforce a **fixed wall-clock deadline
+  computed once when an entry starts waiting** (`entry.limits.timeout +
+  <padding>`), not a silence window reset by each chunk: incoming data
+  does not push the deadline back.
 
-  Once that deadline hits, `end_hung_session/3` tries `Sender.interrupt/1`
-  first when `message["interruptible"]` says the target REPL might
-  actually handle SIGINT (`Repl.Launch`'s own per-language field), gives
-  it a short grace window to exit on its own (evidenced by the ordinary
-  `XT_EXIT` marker), and unconditionally calls `Sender.kill/1` either way
-  as the guaranteed fallback (crux's "option A", 2026-09-22: this never
-  changes the stuck entry's own outcome, only how cleanly the process
-  group comes down first). The stuck entry is reported as `session_hung`
-  and every remaining entry as `:aborted` (Core's `apply_result/3` treats
-  `:aborted` as a pure no-op on the book -- same "node down -> abort the
-  rest of the pass" shape Old.md §28 D originally designed for
-  distributed-node death, now reused for this instead).
+  When the deadline hits, `end_hung_session/4` tries `Sender.interrupt/1`
+  first if `message["interruptible"]` says the REPL may handle SIGINT,
+  gives it a short grace window to exit on its own (the `XT_EXIT` marker),
+  and calls `Sender.kill/1` either way. The stuck entry is reported as
+  `session_hung` and every remaining entry as `:aborted` (a no-op on the
+  book in `Core.apply_result/3`).
   """
 
   alias XipeTotec.{Book, Core}
@@ -151,7 +110,7 @@ defmodule XipeTotec.Repl.Evaluator do
       judgment). `Runner` records it for `eval/status` (`XipeTotec.Passes`).
       An entry that hits the deadline after `XT_CALLED` is recorded as
       `session_hung` with that phase named: the call finished, judging its
-      value did not (2026-10-06, Old.md §51).
+      value did not.
 
   `plan.skipped` (rows `Core.plan_recalc/3` left out because a referenced
   row's value couldn't be handed over) is reported first in `results` and
@@ -240,9 +199,8 @@ defmodule XipeTotec.Repl.Evaluator do
     adapter.progress.(entry.call_id, "calling")
     sender.write(handle, adapter.eval_template.build(entry))
     grace_ms = hang_grace_ms || entry.limits.timeout + @default_deadline_padding_ms
-    # a fixed wall-clock deadline, not a per-chunk silence window -- see
-    # wait_result/7's comment for why this changed (2026-09-18 review
-    # finding).
+    # a fixed wall-clock deadline, not a per-chunk silence window (see
+    # wait_result/7)
     deadline = System.monotonic_time(:millisecond) + grace_ms
 
     case wait_result(handle, entry.call_id, "", pass_id, adapter, deadline, false) do
@@ -258,13 +216,11 @@ defmodule XipeTotec.Repl.Evaluator do
     end
   end
 
-  # On a confirmed hang, try the gentler Sender.interrupt/1 first when the
-  # adapter says this REPL might actually handle it (message's own
-  # "interruptible" field, Repl.Launch), and give it interrupt_grace_ms to
-  # exit on its own (evidenced by the ordinary XT_EXIT marker) before
-  # falling back to the unconditional Sender.kill/1 either way (crux's
-  # "option A", 2026-09-22 -- this never changes the stuck entry's own
-  # outcome, only how cleanly the process group comes down first).
+  # On a hang, try the gentler Sender.interrupt/1 first when the adapter
+  # says this REPL may handle it (the message's "interruptible"), and give
+  # it interrupt_grace_ms to exit on its own (the XT_EXIT marker) before
+  # the unconditional Sender.kill/1. This never changes the stuck entry's
+  # outcome, only how cleanly the process group comes down.
   defp end_hung_session(sender, handle, interruptible, interrupt_grace_ms) do
     if interruptible do
       sender.interrupt(handle)
@@ -289,20 +245,10 @@ defmodule XipeTotec.Repl.Evaluator do
   end
 
   # `deadline` is an absolute `System.monotonic_time(:millisecond)` value,
-  # fixed once per entry in run_entries/7 -- NOT reset on every received
-  # chunk the way it used to be. Review finding, 2026-09-18: an unclosed
-  # arg expression (now caught before this ever runs, by
-  # `EvalTemplate.build/1`'s own `build_syntax_error/3` path -- but a
-  # future language's `eval_template`-equivalent might not always catch
-  # every such case, and a session can get stuck for other reasons too)
-  # puts iex into its `...(N)>` continuation prompt, silently absorbing
-  # everything written afterward into the same still-open expression. A
-  # per-chunk-reset "silence since the last message" window (the old
-  # behavior) never elapses in that case -- this entry would wait forever.
-  # A fixed deadline computed once and never pushed back by incoming data
-  # closes that: no matter how much keeps arriving, this entry gives up at
-  # `grace_ms` total, same ceiling as before for the ordinary "truly
-  # silent" hang case.
+  # fixed once per entry in run_entries/8 and never pushed back by incoming
+  # data: a session absorbing input into one open expression keeps
+  # producing chunks, and a silence window reset by each chunk would never
+  # elapse.
   #
   # `called?`: the adapter already said the call returned (`XT_CALLED_<id>`)
   # -- told to `:progress` once, and named in the hung reason.

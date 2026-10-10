@@ -32,7 +32,7 @@ defmodule DispatchTest do
                "nodes" => 1,
                "links" => 0,
                "link_failures" => [],
-               # which scanner read the files, and why the preferred one didn't (spec §11.2)
+               # which scanner read the files, and why the preferred one didn't
                "scanners" => %{
                  "elixir" => %{
                    "scanner" => "XipeTotec.Scanner.Elixir",
@@ -63,14 +63,14 @@ defmodule DispatchTest do
       assert book == Book.new()
     end
 
-    test "rejects an unknown node (Old.md §32)" do
+    test "rejects an unknown node" do
       assert {:error, book, %{"code" => "not_found"}} =
                Dispatch.handle(Book.new(), "row/add", %{"node" => "nope", "args" => ["1"]}, %{})
 
       assert book.calls == %{}
     end
 
-    test "rejects args that don't match the node's arity, naming the function (Old.md §32)" do
+    test "rejects args that don't match the node's arity, naming the function" do
       book = Book.new() |> Core.put_node("n1", %{module: "M", name: "f", anykey: 1})
 
       assert {:error, ^book, %{"code" => "invalid_params", "message" => message}} =
@@ -268,7 +268,7 @@ defmodule DispatchTest do
     end
   end
 
-  describe "row/depends (Old.md §16.3/§16.4, not a v0.4 spec method)" do
+  describe "row/depends (not a v0.4 spec method)" do
     test "returns the upstream ⟦id⟧ chain, deepest-first, self included" do
       book =
         Book.new()
@@ -285,7 +285,7 @@ defmodule DispatchTest do
     end
   end
 
-  describe "row/set-result (Old.md §16.4/§19, the dependency-chain negotiation's stub-value step)" do
+  describe "row/set-result (the dependency-chain negotiation's stub-value step)" do
     test "writes a literal result with no evaluation, repr always \"exact\"" do
       book = Book.new() |> Core.add_call("c1", %{node: "n1", args: []})
 
@@ -312,7 +312,7 @@ defmodule DispatchTest do
     end
   end
 
-  # 2026-09-26: the calc rows as a table, an address to a node id, and a
+  # the calc rows as a table, an address to a node id, and a
   # check that fails a command list on a regression
   describe "row/list, node/resolve, row/check" do
     setup do
@@ -399,7 +399,7 @@ defmodule DispatchTest do
       assert {:error, ^book, %{"code" => "not_implemented"}} = Dispatch.handle(book, "row/update", %{}, %{})
     end
 
-    test "a method outside §16.3 entirely is unknown_method" do
+    test "a method outside the table entirely is unknown_method" do
       book = Book.new()
       assert {:error, ^book, %{"code" => "unknown_method", "message" => "not/a/method"}} =
                Dispatch.handle(book, "not/a/method", %{}, %{})

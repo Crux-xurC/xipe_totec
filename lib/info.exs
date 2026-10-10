@@ -1,31 +1,19 @@
 defmodule XipeTotec.Info do
   @moduledoc """
-  `info.json` (xipe_totec's own root, Old.md §24): xipe_totec's
-  bookkeeping about itself, not about any scanned target project's Book --
-  which languages/REPLs it currently has adapter modules for (`languages`/
-  `repls`). Which target project is selected is not kept here (it is
-  machine-local: `Workspace.selected/1`, `tables/selection.json`).
+  `info.json` (at xipe_totec's own root): xipe_totec's bookkeeping about
+  itself, not about any target project's Book -- which languages/REPLs it
+  has adapter modules for (`languages`/`repls`). Which target project is
+  selected is not kept here (it is machine-local: `Workspace.selected/1`,
+  `tables/selection.json`).
 
-  Deliberately **not** CWD-relative like `book.jsonl` (`main.exs`'s
-  `@store_file`) -- `book.jsonl`'s own convention (`Store.load/persist_diff`
-  read/write wherever the process's CWD happens to be) only works today
-  because the nix devShell's `xipe` wrapper always `cd`s to
-  `$XIPE_TOTEC_DIR` first (`flake.nix`'s shellHook). `info.json` instead
-  resolves its own path from `__DIR__` (this file's location under
-  `lib/`), so it finds xipe_totec's own root the same way regardless of
-  CWD -- this file's existence doesn't depend on that shellHook detail
-  continuing to hold.
+  Its path is resolved from `__DIR__`, so it is found regardless of the
+  process's working directory.
 
   `languages`/`extensions`/`repls` are refreshed from `lib/repl/language/`
-  and `lib/repl/eval/scan/<transport>/` (`xipe refresh`, `main.exs`), not
-  auto-run on every CLI invocation -- a deliberate registration step
-  (P4: "外部提供元は『提案』のみ、受け入れ検査を通ったものだけ採用"), same
-  spirit as the file itself, not silent inference. A `.exs` file present
-  under either directory is not proof it actually works (`document/
-  repl-adapter-guide.md`'s own 4-candidate-language chapter is full of
-  "要検証" caveats even once a file exists) -- `xipe refresh` just records
-  what's *present*; a crux confirming it live is what makes an entry
-  trustworthy, same as every other "実機確認済み" note in Old.md.
+  and `lib/repl/eval/scan/<transport>/` by `xipe refresh`, not on every CLI
+  invocation: registering an adapter is a deliberate step. `xipe refresh`
+  records what is *present*; a file being there does not prove the adapter
+  works.
   """
 
   @default_path Path.expand("../info.json", __DIR__)
@@ -57,15 +45,14 @@ defmodule XipeTotec.Info do
 
   @doc """
   Loads every `Repl.Language` module under `dir` (default
-  `lib/repl/language/`, Old.md §34) and sets:
+  `lib/repl/language/`) and sets:
 
-    * `info["languages"]` -- the sorted language names (file basenames,
-      today `["elixir"]`)
+    * `info["languages"]` -- the sorted language names (file basenames)
     * `info["extensions"]` -- extension → the sorted list of languages
       declaring it (`%{"ex" => ["elixir"], "exs" => ["elixir"]}`). A list,
       not a single name, so a clash (`.h`, `.pl`, `.cljc`, ...) is kept as
       data rather than resolved here; `SurfaceTable` leaves such files'
-      `language` as `nil` (P9)
+      `language` as `nil`
     * `info["language_repls"]` -- language → its `repl/0` (`%{"elixir" =>
       "iex"}`), the surface table's `repl` column
     * `info["build_tools"]` -- language → its `build_tools/0` priority list,

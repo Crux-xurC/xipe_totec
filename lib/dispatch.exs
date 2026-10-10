@@ -11,30 +11,19 @@ Code.require_file("scanner/elixir.exs", __DIR__)
 
 defmodule XipeTotec.Dispatch do
   @moduledoc """
-  §16.3 client -> server method table (Old.md §9, 2026-09-17). Stays as
-  pure as `Core` -- `handle/4` takes a `Book` and returns a `Book`. The one
-  exception is `scan/run`, which needs `ctx.root` to read source files off
-  disk (the same "orchestration one level above pure Core" shape
-  `XipeTotec.Project` itself already has). No method here ever touches
-  `Store` -- `Serve.Project` (not yet built) is the one place that diffs the
-  book before/after a `handle/4` call and persists whatever changed, the
-  same way `Project.persist_scan` already diffs `scan_dir`'s before/after --
-  just generalized from sheets/nodes/links to all six tables.
+  The client -> server method table. As pure as `Core`: `handle/4` takes a
+  `Book` and returns a `Book`. The one exception is `scan/run`, which needs
+  `ctx.root` to read source files. No method here touches `Store`; the
+  caller (`Serve.Project`, the CLI) persists what changed.
 
-  Tier map (Old.md §9): only Tier 1 methods actually do anything here.
-  Tier 2-5 methods are still real entries in `@not_implemented` (so an
-  unknown-method error and a not-implemented-yet error are visibly
-  different things to a client) but every one of them returns a clean
-  `{:error, book, reason}` instead of touching `Book` -- no half-fulfilled
-  contracts. `row/update` and `eval/run` are here too, only as a fallback:
-  they are `pipelines.json` methods, which `Runner` and `Serve.Project`
-  hand to `Pipeline` before a call ever reaches this module (Old.md §37).
+  A reserved but unbuilt method (`@not_implemented`) answers
+  `not_implemented`, so a client can tell it from an unknown method; it
+  never touches the `Book`. `row/update` and `eval/run` are in that set
+  only as a fallback: they are `pipelines.json` methods, which `Runner`
+  and `Serve.Project` hand to `Pipeline` before a call reaches this module.
 
-  `initialize`/`subscribe` are deliberately not entries here at all (not
-  even in `@not_implemented`) -- they're transport/session bookkeeping
-  (Old.md §9: session state lives in `Serve.Socket`, not
-  `Serve.Project`), not `Book` operations. `Serve.Socket` intercepts them
-  before a message ever reaches here.
+  `initialize`/`subscribe` are not entries here: they are session
+  bookkeeping, which `Serve.Socket` answers itself.
   """
 
   alias XipeTotec.{Address, Book, Core, GraphQuery, Id, Methods, Project, ProjectEnv}
@@ -44,7 +33,7 @@ defmodule XipeTotec.Dispatch do
 
   @valid_effects ["pure", "reads", "writes", "unknown"]
 
-  # Real methods (spec §16.3), genuinely not built yet -- see moduledoc --
+  # Real methods, genuinely not built yet -- see moduledoc --
   # plus the pipelines.json ones, as a fallback for a caller that reaches
   # here without checking Pipeline.handles?/1 first (XipeTotec.Methods).
   @not_implemented Methods.names([:pipeline, :not_implemented])
@@ -56,7 +45,7 @@ defmodule XipeTotec.Dispatch do
 
   def handle(book, "scan/run", _params, ctx) do
     root = Map.fetch!(ctx, :root)
-    # the project's saved surface table (課題 ④) and environment
+    # the project's saved surface table and environment
     # (ProjectEnv, for a language server the scan starts itself), when the
     # caller has a project
     project_dir = Map.get(ctx, :project_dir)
@@ -76,7 +65,7 @@ defmodule XipeTotec.Dispatch do
     }
 
     # calls that matched no node only by arity -- most likely default arguments
-    # not declared yet (arity/set, crux 2026-10-08); left out when there are none
+    # not declared yet (arity/set); left out when there are none
     result =
       case Map.get(report, :arity_misses, []) do
         [] -> result
@@ -92,8 +81,7 @@ defmodule XipeTotec.Dispatch do
     # A calc row is one call to one scanned node, so the node has to exist
     # and the args have to match its arity -- checked here rather than left
     # to the REPL, where an arity mismatch would only surface as a crash at
-    # eval time. Old.md §32: `xipe do row/add ... args=3,` used to silently
-    # mint a 2-arg row for a 1-arity function.
+    # eval time.
     case check_args(book, node_id, args, "row/add", ctx[:root]) do
       :ok ->
         id = Id.ulid()
@@ -132,7 +120,7 @@ defmodule XipeTotec.Dispatch do
   end
 
   # the argument counts a function with default arguments can be called with
-  # (crux 2026-10-08): a person declares them, as effect/set -- the scanner
+  #: a person declares them, as effect/set -- the scanner
   # only suggests (a refused row/add, scan/run's arity_misses)
   def handle(book, "arity/set", %{"id" => node_id, "arities" => arities}, _ctx) when is_binary(node_id) do
     node = Book.get(book, :nodes, node_id)
@@ -170,10 +158,7 @@ defmodule XipeTotec.Dispatch do
        invalid_params("effect/set needs id (string) and effect (#{Enum.join(@valid_effects, "|")})")}
 
   def handle(book, method, params, _ctx) when method in ["card/get", "card/search"] and is_map(params) do
-    # card/search's spec text additionally promises "型による逆引き"
-    # (reverse lookup by type) -- that needs a provider/* round trip to the
-    # client (Old.md §9: deferred, no client implements it yet), so for
-    # now both methods just run the same address resolution.
+    # card/get and card/search run the same address resolution
     case Address.resolve(book, params) do
       {:ok, matches} ->
         {:ok, book, %{"matches" => Enum.map(matches, &render_match(book, &1))}}
@@ -184,7 +169,7 @@ defmodule XipeTotec.Dispatch do
   end
 
   def handle(book, method, _params, _ctx) when method in ["card/get", "card/search"],
-    do: {:error, book, invalid_params("#{method} needs an address object (spec §6.1)")}
+    do: {:error, book, invalid_params("#{method} needs an address object")}
 
   def handle(book, "graph/neighbors", %{"address" => address} = params, _ctx) when is_map(address) do
     with {:ok, depth} <- normalize_depth(Map.get(params, "depth", 1)),
@@ -218,14 +203,10 @@ defmodule XipeTotec.Dispatch do
       {:error, book,
        invalid_params("graph/export needs address, format (mermaid|dot|json|doctest) under \"address\"/\"format\"")}
 
-  # Reclassified Tier 1 (was mistakenly left in @not_implemented, 2026-09-17
-  # -- see README's Tier table history): spec §6.3 says cell/resolve returns
-  # a reference's current value/repr/state, which is exactly what's already
-  # sitting on the referenced :calls row (Core.add_call/apply_result already
-  # maintain result/repr/state) -- a pure Book lookup, no Evaluator involved.
-  # `ref` must be a full "⟦id⟧" token (Core.refs_in_args/1's own extraction
-  # regex), not a bare id -- consistent with how refs appear everywhere else
-  # (arg strings, doctest export), so a client never needs a second format.
+  # cell/resolve returns a reference's current value/repr/state, which is
+  # what sits on the referenced :calls row -- a pure Book lookup.
+  # `ref` must be a full "⟦id⟧" token, not a bare id, as refs appear
+  # everywhere else (arg strings, doctest export).
   def handle(book, "cell/resolve", %{"ref" => ref}, _ctx) when is_binary(ref) do
     case Core.refs_in_args([ref]) do
       [id] ->
@@ -242,12 +223,8 @@ defmodule XipeTotec.Dispatch do
   def handle(book, "cell/resolve", _params, _ctx),
     do: {:error, book, invalid_params("cell/resolve needs \"ref\" (string, e.g. \"⟦01ABC...⟧\")")}
 
-  # Old.md §16.3/§16.4 (2026-09-19/20-21): the upstream ⟦id⟧
-  # dependency chain, not §16.3's original method table -- new ground, not
-  # a v0.4 spec method. "row/" matches row/add|remove's existing calc-row-
-  # level namespace; deliberately not under "graph/" (that prefix already
-  # means the static :links call graph, GraphQuery -- a different edge
-  # type, see Core.upstream_chain/2's own moduledoc).
+  # The upstream ⟦id⟧ dependency chain. Under "row/" (the calc-row level),
+  # not "graph/", which means the static :links call graph (GraphQuery).
   def handle(book, "row/depends", %{"call_ids" => call_ids}, _ctx) when is_list(call_ids) do
     if Enum.all?(call_ids, &is_binary/1) do
       {:ok, book, %{"chain" => Core.upstream_chain(book, call_ids)}}
@@ -259,12 +236,8 @@ defmodule XipeTotec.Dispatch do
   def handle(book, "row/depends", _params, _ctx),
     do: {:error, book, invalid_params("row/depends needs call_ids ([string])")}
 
-  # Old.md §16.4/§19 (2026-09-22): the dependency-chain negotiation's
-  # "insert a value into X" step -- writes a user-supplied literal straight
-  # into a call's result, no REPL involved (Core.set_result/3 is pure, so
-  # this fits Dispatch's synchronous Book-in-Book-out contract exactly,
-  # unlike "eval"/Runner's REPL-bound pseudo-method). New ground, not a v0.4
-  # spec method; "row/" namespace for the same reason row/depends picked it.
+  # Writes a user-supplied literal straight into a call's result, no REPL
+  # involved (Core.set_result/3 is pure).
   def handle(book, "row/set-result", %{"id" => call_id, "result" => result}, ctx)
       when is_binary(call_id) and is_binary(result) do
     try do
@@ -282,7 +255,7 @@ defmodule XipeTotec.Dispatch do
   def handle(book, "row/set-result", _params, _ctx),
     do: {:error, book, invalid_params("row/set-result needs id (string) and result (string)")}
 
-  # The passes being evaluated now (XipeTotec.Passes, 2026-10-06): each
+  # The passes being evaluated now (XipeTotec.Passes): each
   # language group's rows, the row it is on, its phase and for how long.
   # Read from files, so the CLI sees a server's pass and the other way
   # round. Serve.Project adds its own queue ("queued").
@@ -313,7 +286,7 @@ defmodule XipeTotec.Dispatch do
     {:ok, book, %{"running" => running}}
   end
 
-  # The calc rows as a list (2026-09-26): what `xipe show` prints and a
+  # The calc rows as a list: what `xipe show` prints and a
   # client can render as the table. `call_ids` (optional) narrows it to
   # those rows, in that order; otherwise every row, oldest first (ULIDs
   # sort by creation time).
@@ -325,8 +298,8 @@ defmodule XipeTotec.Dispatch do
     end
   end
 
-  # An address (spec §6.1, the same columns card/get takes) to the one node
-  # it names (2026-09-26), so a command list can go on with `$N.id` instead
+  # An address (the same columns card/get takes) to the one node
+  # it names, so a command list can go on with `$N.id` instead
   # of a copied ULID: `node/resolve module=Calc name=square arity=1 --
   # row/add node=$0.id ...`. A `row=<call id>` address names that row's
   # node. No match is not_found; several are "ambiguous", with the
@@ -361,7 +334,7 @@ defmodule XipeTotec.Dispatch do
   def handle(book, "node/resolve", _params, _ctx),
     do: {:error, book, invalid_params("node/resolve needs an address (file/module/name/arity/row)")}
 
-  # Fails when a row is in one of the `on` conditions (2026-09-26), so a
+  # Fails when a row is in one of the `on` conditions, so a
   # command list ending in `row/check` fails -- and `xipe do` exits 1 -- on
   # a regression: `... -- eval -- row/check on=error,changed`. Reads each
   # row's current columns, so after an `eval` earlier in the same list it
@@ -400,7 +373,7 @@ defmodule XipeTotec.Dispatch do
   end
 
   def handle(book, method, _params, _ctx) when method in @not_implemented,
-    do: {:error, book, %{"code" => "not_implemented", "message" => "#{method}: not implemented yet (Old.md §9 tier map)"}}
+    do: {:error, book, %{"code" => "not_implemented", "message" => "#{method}: not implemented yet"}}
 
   def handle(book, method, _params, _ctx),
     do: {:error, book, %{"code" => "unknown_method", "message" => method}}
@@ -444,14 +417,14 @@ defmodule XipeTotec.Dispatch do
 
   defp invalid_params(message), do: %{"code" => "invalid_params", "message" => message}
 
-  # Address.resolve/2's refusals as §16.3 errors
+  # Address.resolve/2's refusals as errors
   defp address_error({:unsupported_column, col}), do: %{"code" => "unsupported_column", "message" => col}
 
   defp address_error({:bad_value, col, value}),
-    do: invalid_params("#{col} が数でも文字列でもありません（#{inspect(value)} ── $n.… の参照先が無いか、[…] や {…} を書いた）。何も探していません")
+    do: invalid_params("#{col} is neither a number nor a string (#{inspect(value)} -- a $n.… reference that names nothing, or a […] or {…} was written). Nothing was looked up")
 
   # a refused arg count: what xipe_totec's own reading of the source says
-  # (Scanner.Elixir.default_arities) -- shown, never set (crux 2026-10-08)
+  # (Scanner.Elixir.default_arities) -- shown, never set
   defp arity_hint(book, node_id, node, n, root) do
     with true <- is_binary(root),
          %{path: path} <- Book.get(book, :sheets, node[:sheet]),
@@ -459,7 +432,7 @@ defmodule XipeTotec.Dispatch do
          [_, _ | _] = as <- XipeTotec.Scanner.Elixir.default_arities(source, node.module, node.name, node.anykey),
          true <- n in as,
          false <- as == Core.accepted_arities(node) do
-      " ── 自前の解析では既定値の引数があり #{Core.arities_text(as)} で呼べます: arity/set id=#{node_id} arities=[#{Enum.join(as, ",")}] で決めてから"
+      " -- the source shows default arguments, callable as #{Core.arities_text(as)}: declare them first with arity/set id=#{node_id} arities=[#{Enum.join(as, ",")}]"
     else
       _ -> ""
     end
@@ -479,8 +452,8 @@ defmodule XipeTotec.Dispatch do
     %{
       "path" => m.path, "module" => m.module, "node" => m.node,
       "message" =>
-        "#{m.label}/#{m.called} として呼ばれていますが、node は #{Core.node_label(Map.merge(%{module: "", name: ""}, node))} です" <>
-          " ── 既定値の引数なら arity/set id=#{m.node} arities=[...] で決める（row/add で自前の解析の提案が出ます）"
+        "called as #{m.label}/#{m.called}, but the node is #{Core.node_label(Map.merge(%{module: "", name: ""}, node))}" <>
+          " -- if these are default arguments, declare them with arity/set id=#{m.node} arities=[...] (a refused row/add suggests the counts)"
     }
   end
 
@@ -500,7 +473,7 @@ defmodule XipeTotec.Dispatch do
     end
   end
 
-  # `linked` (2026-10-06, 実地確認 X-1): whether the row's node still
+  # `linked`: whether the row's node still
   # exists. A rescan that removed it (a half-typed save, a commented-out
   # function) leaves the row pointing at the old id for good -- a rescan
   # of the restored function mints a new one -- while the row's `state`
@@ -557,18 +530,13 @@ defmodule XipeTotec.Dispatch do
 
   defp render_match(book, {:nodes, id, row}), do: compose_card(book, id, row)
 
-  # A "row=<call_id>" address resolves straight to a single :calls row
-  # (Address.resolve/2's own doing), but card/get's whole point is to
-  # return a card (spec glossary: "カード = 1関数分の行のまとまり"), not a
-  # bare row -- so compose the owning card the same way a module/name/arity
-  # address already does, just entering through the call's own `node`
-  # column instead of a direct node match (crux 2026-09-22 co-design: this
-  # unifies the two address styles onto one response shape now, rather than
-  # deferring it as a later addition).
+  # A "row=<call_id>" address resolves to a single :calls row, but
+  # card/get returns a card, so the owning card is composed the same way a
+  # module/name/arity address does, entering through the call's `node`
+  # column.
   defp render_match(book, {:calls, _id, row}), do: compose_card(book, row.node, Book.get(book, :nodes, row.node))
 
-  # spec glossary: "カード = 1関数分の行のまとまり" -- a node plus its own
-  # calc rows and link rows, not just the bare node row.
+  # A card: a node plus its own calc rows and link rows.
   defp compose_card(book, node_id, node_row) do
     calls = for {id, row} <- book.calls, row.node == node_id, do: Map.put(row, :id, id)
     links = for {id, row} <- book.links, row.node == node_id, do: Map.put(row, :id, id)

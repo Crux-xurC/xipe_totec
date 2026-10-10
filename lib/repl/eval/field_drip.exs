@@ -4,11 +4,8 @@ defmodule XipeTotec.Repl.Eval.FieldDrip do
   `type=`/`display=`/`bin_base64=` key=value lines `eval_template`
   writes) into the plain map `Repl.Eval.Result.success/3` expects.
 
-  Same shape as `Repl.Sender`/`Repl.Eval.Scan.Direct.Iex`: a behaviour,
-  with the caller (`Repl.Eval.Parser`) picking the concrete module
-  explicitly (`FieldDrip.Elixir`) -- the language is already known from
-  context, same as the REPL/transport choice for `Scan.<transport>.
-  <repl>`, so there's no separate language-detection step here.
+  A behaviour: the caller (`Repl.Eval.Parser`) passes the concrete module
+  for the language it already knows.
   """
 
   @callback parse(body :: String.t()) :: map()

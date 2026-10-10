@@ -3,21 +3,20 @@ Code.require_file("id.exs", __DIR__)
 
 defmodule XipeTotec.Scanner do
   @moduledoc """
-  The scan-side counterpart of the REPL adapter (Old.md §21.3): turns one
+  The scan-side counterpart of the REPL adapter: turns one
   project file into `node` rows (the cards) and `link` rows (static calls
   between them). Which implementation reads a file is the language's
   choice -- the language its surface-table row names declares one in
   `Repl.Language.scanner/0`, and `Project.scan_dir/2` uses it.
 
-  Implementations: `Scanner.Lsp.Elixir` (elixir-ls through tezcatl's `/lsp`
-  relay -- spec §11.1's main path, `XipeTotec.Scanner.Lsp`) and
-  `Scanner.Elixir` (Elixir's own parser and compiler tracer -- spec §11.1's
-  basic behavior, the fallback when no language server is reachable).
+  Implementations for Elixir: `Scanner.Lsp.Elixir` (elixir-ls, through
+  `XipeTotec.Scanner.Lsp`) and `Scanner.Elixir` (Elixir's own parser and
+  compiler tracer, the fallback when no language server is reachable).
 
-  A language may declare several, in priority order (spec §11.3):
+  A language may declare several, in priority order:
   `Project.scan_dir/3` calls each one's `begin/3` until one accepts, and
   records which one read the language's files, and why the ones before it
-  didn't (§11.2). A scanner without `begin/3` always accepts.
+  didn't. A scanner without `begin/3` always accepts.
 
   `put_defs/3` and `put_links/3` are the book-keeping every implementation
   shares: what a scanner itself contributes is only *which* definitions and
@@ -50,8 +49,8 @@ defmodule XipeTotec.Scanner do
 
   @doc """
   Pass 1: register `file`'s definitions as node rows on sheet `sheet_id`,
-  reusing an existing node's id on a (module, name, anykey) match (spec
-  §7.3), and drop the sheet's nodes that no longer appear.
+  reusing an existing node's id on a (module, name, anykey) match, and drop
+  the sheet's nodes that no longer appear.
   """
   @callback scan_defs(Book.t(), sheet_id :: String.t(), file()) :: {Book.t(), node_ids()}
 
@@ -108,9 +107,9 @@ defmodule XipeTotec.Scanner do
   @doc """
   Register `defs` as the node rows of sheet `sheet_id`: an existing node
   with the same (module, name, anykey) keeps its id and its `effect`
-  classification (spec §7.3's minimal rule), anything else gets a fresh id.
-  A node that used to be on this sheet but isn't among `defs` any more
-  (deleted, or renamed past what the minimal rule can follow) is removed,
+  classification, anything else gets a fresh id.
+  A node that was on this sheet but isn't among `defs` any more
+  (deleted or renamed) is removed,
   with every link touching it. Returns `{book, node_ids}` for this sheet.
   """
   @spec put_defs(Book.t(), String.t(), [definition()]) :: {Book.t(), node_ids()}
@@ -177,7 +176,7 @@ defmodule XipeTotec.Scanner do
   The node id for `{module, name, anykey}`: this pass's `node_ids` first,
   then the book -- and for an integer anykey (an arity), a node of that
   module and name whose declared `arities` (`arity/set`) include it: a call
-  `scale(x)` to `def scale(x, k \\\\ 2)` is `scale/1` (crux 2026-10-08).
+  `scale(x)` to `def scale(x, k \\\\ 2)` is `scale/1`.
   """
   @spec node_for(Book.t(), node_ids(), {String.t(), String.t(), term()}) :: String.t() | nil
   def node_for(book, node_ids, {module, name, anykey} = key) do

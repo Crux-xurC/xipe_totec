@@ -10,38 +10,26 @@ Code.require_file("passes.exs", __DIR__)
 
 defmodule XipeTotec.Runner do
   @moduledoc """
-  The "action" half of crux's 2026-09-18 input -> command list -> action
-  split: `main.exs`'s CLI is the first "input" front end onto this, but the
-  command list itself (a plain, JSON-encodable `[%{"method" =>, "params"
-  =>}, ...]`) is deliberately shaped like §16.3's own wire messages
-  (`Protocol`/`Dispatch`'s own `method`/`params` pair) rather than
-  something CLI-specific, so a second front end -- crux's stated target is
-  a future tezcatl integration, not yet designed -- can hand this module
-  the same list without needing a translation layer. `run/4` is this
-  module's one entry point; everything else here is private.
+  Runs a command list: a plain, JSON-encodable `[%{"method" =>, "params"
+  =>}, ...]`, shaped like the wire messages (`Protocol`/`Dispatch`'s
+  `method`/`params` pair), so the CLI and the server's `input` hand this
+  module the same thing. `run/4` is the one entry point.
 
   Three kinds of command, dispatched by method name:
 
-    * every method `Dispatch` already knows (`"row/add"`, `"effect/set"`,
+    * every method `Dispatch` knows (`"row/add"`, `"effect/set"`,
       `"scan/run"`, `"cell/resolve"`, `"graph/neighbors"`, ...) is handed
-      to `Dispatch.handle/4` unchanged -- this module adds nothing on top
-      of what §16 already specifies for those.
-    * `"eval"` is NOT a `Dispatch` method and never will be one here: it
-      needs live REPL I/O/timing `Dispatch`'s synchronous
-      Book-in-Book-out contract doesn't accommodate. Routed straight to
-      `Repl.Evaluator.run_pass/3` instead. It is the one primitive that
-      evaluates anything (Old.md §37): `"eval/run"`/`"row/update"` reach
+      to `Dispatch.handle/4` unchanged.
+    * `"eval"` is not a `Dispatch` method: it needs live REPL I/O, which
+      `Dispatch`'s synchronous Book-in-Book-out contract doesn't
+      accommodate. It goes to `Repl.Evaluator.run_pass/3`. It is the one
+      primitive that evaluates anything: `"eval/run"`/`"row/update"` reach
       it through `Pipeline`'s `"eval"` stage, and `Serve.Project`'s pass
       queue runs it for every asynchronous evaluation.
-    * any method `Pipeline.handles?/1` says yes to (`pipelines.json`'s own
-      entries -- `"eval/run"`/`"row/update"` today) is routed to
-      `Pipeline.run/4`, with this module's own `"eval"` handed in as the
-      `"eval"` stage (`ctx.eval`), checked *before* the plain-`Dispatch` case so it
-      never falls through to `Dispatch`'s own `@not_implemented` for these.
-      See `Pipeline`'s moduledoc for why these can't just be bigger
-      `Dispatch` clauses (same I/O-doesn't-fit-the-pure-contract reasoning
-      as `"eval"` above) and why `row/update` is "edit then eval" as a
-      composition rather than its own bespoke implementation.
+    * any method `Pipeline.handles?/1` says yes to (`pipelines.json`'s
+      entries) is routed to `Pipeline.run/4`, with this module's `"eval"`
+      handed in as the `"eval"` stage (`ctx.eval`). Checked *before* the
+      plain-`Dispatch` case.
 
   ## Cross-command references
 
@@ -51,9 +39,8 @@ defmodule XipeTotec.Runner do
   a plain string `"$<index>.<dotted.path>"` (`index` is 0-based position
   in this call's own `commands` list): e.g. `%{"id" => "$0.id"}` pulls
   `result["id"]` out of command 0's own result map. Resolved at *run*
-  time, one command before it executes -- the command list itself, before
-  that, is still inert data (unresolved `$0.id` strings and all), matching
-  the "コマンドリスト is just data" half of the split. Walks into lists and
+  time, one command before it executes -- until then the command list is
+  inert data (unresolved `$0.id` strings and all). Walks into lists and
   maps too, so `"args" => ["$0.id", "5"]` works. A reference to a command
   that failed (no result), or a path that isn't there, resolves to `nil`.
 
@@ -62,7 +49,7 @@ defmodule XipeTotec.Runner do
   rows, e.g. `$0.row.args`).
 
   Inside a larger string the reference is replaced only as a whole `⟦⟧`
-  cell reference (spec §6.2): `"⟦$0.id⟧"` becomes `"⟦<id>⟧"`, so a row can
+  cell reference: `"⟦$0.id⟧"` becomes `"⟦<id>⟧"`, so a row can
   reference a row added earlier in the same list. One that doesn't resolve
   to a string is left as written.
   """
@@ -152,24 +139,21 @@ defmodule XipeTotec.Runner do
   # a `$n.path` into a command that failed (or has no such key) resolves to
   # `nil` (see run/4). Refused rather than read as "omitted": omitted means
   # every call in the book, and `row/add ... -- eval call_ids=$0.id` after a
-  # failed row/add must not evaluate the whole book (tezcatl
-  # document/2026-10-09_追跡.md, crux 2026-10-09).
+  # failed row/add must not evaluate the whole book.
   defp given_call_ids(params) do
     ids = params |> Map.get("call_ids", []) |> List.wrap()
 
     if Map.has_key?(params, "call_ids") and (params["call_ids"] == nil or Enum.any?(ids, &is_nil/1)),
-      do: {:error, %{"code" => "invalid_params", "message" => "eval: call_ids が空です（$n.… の参照先が無い ── 前のコマンドが失敗したか、そのキーが無い）。何も評価していません。全件を評価するなら call_ids を書かない"}},
+      do: {:error, %{"code" => "invalid_params", "message" => "eval: call_ids is empty (a $n.… reference names nothing -- the earlier command failed, or it has no such key). Nothing was evaluated. To evaluate every row, leave call_ids out"}},
       else: {:ok, ids}
   end
 
   defp run_eval(book, root, params, given_ids, opts) do
-    # Omitted/empty call_ids means "every call in the book", matching the
-    # dedicated `xipe eval` CLI command's own default (main.exs's `eval/1`)
-    # -- without this, `xipe do ... -- eval` silently evaluates nothing
-    # instead of the whole book (2026-09-19 review finding).
+    # Omitted/empty call_ids means "every call in the book", as for the
+    # `xipe eval` command.
     call_ids = if given_ids == [], do: Map.keys(book.calls), else: given_ids
 
-    # "include_writes" (Old.md §16.2/§16.4, 2026-09-21): Core.plan_recalc/3
+    # "include_writes": Core.plan_recalc/3
     # (via Repl.Evaluator.run_pass/3, both already wired -- see the moduledoc
     # note this fixes) has always accepted :include_writes, but nothing on the
     # CLI side ever read it out of a command's own params, so writes-effect
@@ -188,7 +172,7 @@ defmodule XipeTotec.Runner do
     end
   end
 
-  # --- "eval": one REPL per language (2026-09-26, Old.md §39) ------------
+  # --- "eval": one REPL per language ------------
   #
   # A pass evaluates the requested rows grouped by their language -- the
   # surface-table `language` of the file their function is in. Each group
@@ -284,7 +268,7 @@ defmodule XipeTotec.Runner do
     succeeded = for {_language, _ids, {:ok, results, env_status}} <- ran, do: {results, env_status}
 
     cond do
-      # a single language that failed: the same error as before mixed-language support
+      # a single language that failed: its own error, as it is
       match?([_], ran) and match?([_], failed) ->
         [{_, _, error}] = failed
         {book, %{method: "eval", ok?: false, result: nil, error: error}}
@@ -301,7 +285,7 @@ defmodule XipeTotec.Runner do
         failed_not_run =
           for {language, ids, error} <- failed, id <- ids, do: %{"id" => id, "reason" => "the #{language} REPL: #{error["message"]}"}
 
-        # requested ids the plan never reached a REPL with, and why (Old.md §33)
+        # requested ids the plan never reached a REPL with, and why
         accounted = MapSet.new(Enum.map(results, & &1.call_id) ++ Enum.map(unplaced ++ failed_not_run, & &1["id"]))
 
         not_run =
@@ -367,7 +351,7 @@ defmodule XipeTotec.Runner do
 
   def failure_message(reason), do: inspect(reason)
 
-  # The REPL side of one language's pass (§26's table reference): the
+  # The REPL side of one language's pass: the
   # language must be registered in info.json, and its `Repl.Language`
   # module supplies both the four adapter modules and how to boot the REPL
   # for the build tool the surface table found. Adapter modules or

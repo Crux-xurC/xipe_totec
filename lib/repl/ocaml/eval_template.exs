@@ -2,11 +2,11 @@ Code.require_file("launch.exs", __DIR__)
 
 defmodule XipeTotec.Repl.Ocaml.EvalTemplate do
   @moduledoc """
-  OCaml's `eval_template` (Old.md §38/§42): one toplevel phrase per entry,
+  OCaml's `eval_template`: one toplevel phrase per entry,
   `Embody.run "<id>" "xt_<id>" <timeout ms> "<let xt_<id> = <call>;;>" <prev>;;`.
 
-  Every entry is wrapped in `embody` (next_step §2.5: the adapter wraps
-  each call, the user never does). The call itself travels as a string, so
+  Every entry is wrapped in `embody` (the adapter wraps each call, the
+  user never does). The call itself travels as a string, so
   the phrase written to the toplevel is always complete whatever the
   arguments hold -- an argument that doesn't parse is `embody`'s syntax
   error for that entry (`crash`), never a toplevel left waiting for more

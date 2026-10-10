@@ -9,7 +9,7 @@ Code.require_file("info.exs", __DIR__)
 
 defmodule XipeTotec.Project do
   @moduledoc """
-  Orchestrates a directory scan (spec §14.1): the two-pass
+  Orchestrates a directory scan: the two-pass
   `scan_defs/3` then `scan_links_report/3` sequencing a single file cannot
   do alone (a cross-file callee must already be registered before links
   are resolved -- see `XipeTotec.Scanner`'s moduledoc), with each file read
@@ -84,11 +84,11 @@ defmodule XipeTotec.Project do
 
   @doc """
   `scan_dir/3` plus, per language, which scanner read its files and why the
-  ones declared ahead of it didn't (spec §11.2): `%{book:, paths:,
+  ones declared ahead of it didn't: `%{book:, paths:,
   link_failures:, scanners: %{language => %{"scanner" => name, "skipped" =>
   [%{"scanner" => name, "reason" => text}]}}}`.
 
-  A language's scanners are tried in its declared order (spec §11.3): the
+  A language's scanners are tried in its declared order: the
   first whose `begin/3` accepts reads every file of that language. `opts`
   also takes `:scanner_opts`, handed to every `begin/3` (with `:files`, the
   language's paths, and `:next`, the scanners declared after it, added).

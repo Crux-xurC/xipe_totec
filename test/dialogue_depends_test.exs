@@ -26,7 +26,7 @@ defmodule DialogueDependsTest do
 
   test "start/1 with no upstream dependencies (chain is just the target) does nothing immediately" do
     assert {:done, text, []} = Depends.start(%{"chain" => [%{"id" => "w1", "label" => "M.w1/1"}]})
-    assert text =~ "上流依存を使い切りました"
+    assert text =~ "No upstream dependency is left"
   end
 
   test "\"n\" climbs one level and asks about the next-shallower dependency" do
@@ -40,7 +40,7 @@ defmodule DialogueDependsTest do
     {:hold, state, _} = Depends.start(%{"chain" => @chain})
     {:hold, state, _} = Depends.answer(state, %{"answer" => "n"})
     assert {:done, text, []} = Depends.answer(state, %{"answer" => "n"})
-    assert text =~ "何も実行しません"
+    assert text =~ "Nothing is run"
   end
 
   test "\"y\" with a value at the deepest step stubs it and evaluates everything above, target included" do
@@ -69,7 +69,7 @@ defmodule DialogueDependsTest do
     {:hold, state, _} = Depends.start(%{"chain" => @chain})
     assert {:hold, state2, text} = Depends.answer(state, %{"answer" => "maybe"})
     assert state2 == state
-    assert text =~ "y (と value) または n"
+    assert text =~ "Answer y (with a value) or n"
     assert text =~ "w3"
   end
 

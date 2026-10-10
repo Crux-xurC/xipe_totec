@@ -5,9 +5,8 @@ Code.require_file("methods.exs", __DIR__)
 defmodule XipeTotec.Input do
   @moduledoc """
   One line typed into tezcatl's dialogue window (the `input` method,
-  `{"text": <line>}`, 2026-09-27) -- what it means is decided here, never
-  by tezcatl (tezcatl `D-xipe対話窓`, Old.md §17.2). Pure: `parse/1` only
-  says what the line asks for; `Serve.Input` does it.
+  `{"text": <line>}`) -- what it means is decided here, never by tezcatl.
+  Pure: `parse/1` only says what the line asks for; `Serve.Input` does it.
 
   A line is written the way the CLI is: what follows `xipe` in a terminal
   (a leading `xipe` is allowed too). Words split on spaces; `'...'` and
@@ -55,13 +54,13 @@ defmodule XipeTotec.Input do
     end
   end
 
-  defp command([]), do: {:error, "空の行です（help で一覧）"}
+  defp command([]), do: {:error, "an empty line (help lists the commands)"}
   defp command(["help"]), do: {:text, Help.text(:window)}
 
   defp command(["help" | name]) do
     case Help.detail(Enum.join(name, " "), :window) do
       {:ok, text} -> {:text, text}
-      :error -> {:error, "help: #{Enum.join(name, " ")} というコマンドはありません（help で一覧）"}
+      :error -> {:error, "help: no such command: #{Enum.join(name, " ")} (help lists the commands)"}
     end
   end
 
@@ -69,7 +68,7 @@ defmodule XipeTotec.Input do
   defp command(["show"]), do: :show
   defp command(["scan"]), do: {:commands, [%{"method" => "scan/run", "params" => %{}}]}
   defp command(["scan", "--" | _] = words), do: command_list(words)
-  defp command([cmd, _ | _]) when cmd in ["show", "scan"], do: {:error, "#{cmd}: 対話窓では引数を取りません（対象は開いているプロジェクト）"}
+  defp command([cmd, _ | _]) when cmd in ["show", "scan"], do: {:error, "#{cmd}: takes no arguments in the dialogue window (it acts on the open project)"}
 
   defp command(["eval" | rest] = words) do
     if "--" in rest, do: command_list(words), else: eval_alone(rest)
@@ -81,11 +80,11 @@ defmodule XipeTotec.Input do
   defp command(["dialogue", "depends", call_id]),
     do: {:commands, [%{"method" => "dialogue/depends", "params" => %{"call_id" => call_id}}]}
 
-  defp command(["dialogue", "depends" | _]), do: {:error, "dialogue depends: 対話窓では dialogue depends <call_id> と書きます"}
-  defp command(["quit", "dialogue"]), do: {:error, "保持している対話はありません"}
+  defp command(["dialogue", "depends" | _]), do: {:error, "dialogue depends: in the dialogue window, write dialogue depends <call_id>"}
+  defp command(["quit", "dialogue"]), do: {:error, "no dialogue is held"}
 
-  defp command(["do", "--dir" | _]), do: {:error, "do: 対話窓では --dir を取りません（対象は開いているプロジェクト）"}
-  defp command(["do"]), do: {:error, "do: method がありません（help で一覧）"}
+  defp command(["do", "--dir" | _]), do: {:error, "do: takes no --dir in the dialogue window (it acts on the open project)"}
+  defp command(["do"]), do: {:error, "do: no method given (help lists them)"}
   defp command(["do" | rest]), do: {:commands, CommandLine.parse(rest)}
 
   defp command([first | rest] = words) do
@@ -95,7 +94,7 @@ defmodule XipeTotec.Input do
       two in Help.cli_only_commands() -> cli_only(two)
       first in Help.cli_only_commands() or first == "serve" -> cli_only(first)
       method?(first) -> command_list(words)
-      true -> {:error, "#{first} というコマンドはありません（help で一覧）"}
+      true -> {:error, "no such command: #{first} (help lists the commands)"}
     end
   end
 
@@ -106,7 +105,7 @@ defmodule XipeTotec.Input do
         {:commands, [%{"method" => "eval", "params" => %{"call_ids" => ids, "include_writes" => opts[:include_writes] || false}}]}
 
       {_opts, _ids, invalid} ->
-        {:error, "eval: 対話窓で使えない指定です: #{Enum.map_join(invalid, " ", &elem(&1, 0))}（id と --include-writes のみ）"}
+        {:error, "eval: not available in the dialogue window: #{Enum.map_join(invalid, " ", &elem(&1, 0))} (ids and --include-writes only)"}
     end
   end
 
@@ -124,7 +123,7 @@ defmodule XipeTotec.Input do
   end
 
   defp step(["scan"]), do: {:ok, %{"method" => "scan/run", "params" => %{}}}
-  defp step(["scan" | _]), do: {:error, "scan: 引数を取りません（対象は開いているプロジェクト）"}
+  defp step(["scan" | _]), do: {:error, "scan: takes no arguments (it acts on the open project)"}
 
   # `eval` as the method (`call_ids=[...]`) or as the shorthand (bare ids,
   # `--include-writes`), mixed freely
@@ -138,19 +137,19 @@ defmodule XipeTotec.Input do
         {:ok, %{"method" => "eval", "params" => params}}
 
       {_opts, _words, invalid} ->
-        {:error, "eval: 対話窓で使えない指定です: #{Enum.map_join(invalid, " ", &elem(&1, 0))}（id と --include-writes のみ）"}
+        {:error, "eval: not available in the dialogue window: #{Enum.map_join(invalid, " ", &elem(&1, 0))} (ids and --include-writes only)"}
     end
   end
 
   defp step([first | _] = group) do
     if method?(first),
       do: {:ok, hd(CommandLine.parse(group))},
-      else: {:error, "#{first}: コマンド列（--）の中では method 名か scan・eval を書きます（help で一覧）"}
+      else: {:error, "#{first}: in a command list (--), write a method name, scan or eval (help lists them)"}
   end
 
   defp quote_word(w), do: if(w == "" or String.match?(w, ~r/\s/), do: "'#{w}'", else: w)
 
-  defp cli_only(name), do: {:error, "#{name} は端末で xipe #{name} として実行するコマンドです（対話窓では使えません）"}
+  defp cli_only(name), do: {:error, "#{name} is a terminal command, run as xipe #{name} (not available in the dialogue window)"}
 
   @doc """
   The line's words: split on whitespace, `'...'`/`"..."` quoted runs kept
@@ -161,7 +160,7 @@ defmodule XipeTotec.Input do
   def words(line), do: words(String.graphemes(line), nil, nil, [])
 
   # current: the word being built (nil between words); quote: the open quote char
-  defp words([], _current, q, _acc) when q != nil, do: {:error, "閉じていない引用符 #{q} があります"}
+  defp words([], _current, q, _acc) when q != nil, do: {:error, "unclosed quote #{q}"}
   defp words([], nil, nil, acc), do: {:ok, Enum.reverse(acc)}
   defp words([], current, nil, acc), do: {:ok, Enum.reverse([current | acc])}
 

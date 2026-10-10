@@ -69,7 +69,7 @@ defmodule ReplSessionTest do
       assert hd(lines) == "line22"
     end
 
-    # 2026-09-26 (Old.md §25.3): after the banner, the probe is written and
+    # after the banner, the probe is written and
     # XT_READY is what proves the REPL evaluates input
     test "after the banner, writes ready_probe and waits for XT_READY" do
       # a tiny "REPL": banner, then runs each line it reads through sh

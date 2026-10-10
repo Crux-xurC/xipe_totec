@@ -4,7 +4,7 @@ System.put_env("XIPE_TOTEC_LSP", "off")
 
 Code.require_file(Path.expand("../lib/dispatch.exs", __DIR__))
 
-# Default arguments (crux 2026-10-08): `def scale(x, k \\ 2)` is scale/1 and
+# Default arguments: `def scale(x, k \\ 2)` is scale/1 and
 # scale/2, the node is scale/2. A person declares the counts with arity/set
 # (the scanner never does); a refused row/add shows what xipe_totec's own
 # reading of the source says, and scan/run's arity_misses the calls that
@@ -59,7 +59,7 @@ defmodule AritySetTest do
     assert result["link_failures"] == []
     assert [%{"path" => "lib/a.ex", "module" => "ArityA", "node" => scale, "message" => msg}] = result["arity_misses"]
     assert scale == node_id(book, "scale")
-    assert msg =~ "ArityA.scale/1 として呼ばれていますが、node は ArityA.scale/2 です"
+    assert msg =~ "called as ArityA.scale/1, but the node is ArityA.scale/2"
     assert msg =~ "arity/set id=#{scale}"
   end
 
@@ -67,13 +67,13 @@ defmodule AritySetTest do
     scale = node_id(book, "scale")
     assert {:error, ^book, %{"message" => msg}} = Dispatch.handle(book, "row/add", %{"node" => scale, "args" => ["3"]}, %{root: dir})
     assert msg =~ "takes 2 arg(s), got 1"
-    assert msg =~ "自前の解析では既定値の引数があり 1..2 で呼べます: arity/set id=#{scale} arities=[1,2]"
+    assert msg =~ "the source shows default arguments, callable as 1..2: declare them first with arity/set id=#{scale} arities=[1,2]"
     # without the root (no source to read): the plain refusal
     assert {:error, _, %{"message" => plain}} = Dispatch.handle(book, "row/add", %{"node" => scale, "args" => ["3"]}, %{})
-    refute plain =~ "自前の解析"
+    refute plain =~ "the source shows default arguments"
     # a function without defaults: no hint
     assert {:error, _, %{"message" => m2}} = Dispatch.handle(book, "row/add", %{"node" => node_id(book, "plain"), "args" => []}, %{root: dir})
-    refute m2 =~ "自前の解析"
+    refute m2 =~ "the source shows default arguments"
     assert Book.get(book, :nodes, scale)[:arities] == nil
   end
 

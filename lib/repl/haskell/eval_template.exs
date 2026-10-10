@@ -2,8 +2,8 @@ Code.require_file("launch.exs", __DIR__)
 
 defmodule XipeTotec.Repl.Haskell.EvalTemplate do
   @moduledoc """
-  Haskell's `eval_template` (Old.md §45/§46): six GHCi lines per entry,
-  every call wrapped in `embody.hs` (next_step §2.5):
+  Haskell's `eval_template`: six GHCi lines per entry,
+  every call wrapped in `embody.hs`:
 
       let xt_<id> = M.f (a) (b)
       let xt_<id>_w = Embody.whnf xt_<id>

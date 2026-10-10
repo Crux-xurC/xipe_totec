@@ -96,7 +96,7 @@ defmodule StoreTest do
     book = Store.load(path)
     assert book.calls["c1"].result == "2"
   end
-  # -- 2026-10-09: a cut-off line, the write lock, catching up ----------------
+  # -- a cut-off line, the write lock, catching up ----------------
 
   test "an append after a line cut off by a crash starts a line of its own (the cut line alone is lost)", %{path: path} do
     Store.append(path, %{type: "call", id: "a", args: []})

@@ -3,50 +3,38 @@ Code.require_file("dispatch.exs", __DIR__)
 
 defmodule XipeTotec.Pipeline do
   @moduledoc """
-  The data-driven "command input -> reference list -> actual operation"
-  routing crux asked for (2026-09-18 co-design): a method that combines
-  steps is a list of stages in `pipelines.json`, not code of its own.
-  `eval/run` and `row/update` go through it, on the CLI and the server
-  alike (Old.md §37).
+  Methods that combine steps: such a method is a list of stages in
+  `pipelines.json`, not code of its own. `eval/run` and `row/update` go
+  through it, on the CLI and the server alike.
 
-  ## Why this exists, not just a bigger `Dispatch` clause
+  ## Why not a `Dispatch` clause
 
-  `eval/run`/`row/update` both need a live REPL evaluation pass
-  (`row/update`'s spec text explicitly promises a recalc result back), which
-  is I/O and can take seconds -- `Dispatch.handle/4` is deliberately kept
-  pure (Book-in-Book-out, no I/O beyond `scan/run`'s file reads), and
-  `Serve.Project`'s `GenServer.call` is synchronous, so blocking either of
-  those on a live eval pass would freeze the whole project's request
-  handling for the duration (Old.md §28 E, never retracted post-pivot -- see
-  `document/Old.md` §10's intro). So this module is
-  deliberately called *around* `Dispatch`, not from inside it -- both
-  `Runner.run_one/4` (CLI) and `Serve.Project.handle_call/3` (§16 WS
-  server) check `handles?/1` first and call `run/4` (`prepare/4` on the
-  server) instead of `Dispatch.handle/4` when it does. `Dispatch`'s own `@not_implemented`
-  entries for these two stay as-is, as a fallback for any caller that
-  reaches `Dispatch.handle/4` directly without going through this module
-  first.
+  `eval/run`/`row/update` need a live REPL evaluation pass, which is I/O
+  and can take seconds. `Dispatch.handle/4` is pure (Book in, Book out, no
+  I/O beyond `scan/run`'s file reads), and `Serve.Project`'s
+  `GenServer.call` is synchronous, so evaluating inside either would hold
+  every other request for the duration. So this module is called *around*
+  `Dispatch`: `Runner.run_one/4` (CLI) and `Serve.Project` check
+  `handles?/1` first and call `run/4` (`prepare/4` on the server) instead
+  of `Dispatch.handle/4`. `Dispatch` answers `not_implemented` for these
+  two if reached directly.
 
   ## The registry
 
-  `pipelines.json` (xipe_totec's own checkout root -- `__DIR__`-relative,
-  not CWD-relative; see `load_registry/0`'s own comment for why) maps a
+  `pipelines.json` (at xipe_totec's own root, `__DIR__`-relative) maps a
   method name to an ordered list of stage names:
 
       {"eval/run": ["eval"], "row/update": ["edit", "eval"]}
 
   `row/update` is "edit (pure, `Core.edit_args`) then eval (of that row
-  only)" -- not two independently-invented implementations, but one small
-  pure stage followed by literally the same "eval" stage `eval/run` itself
-  is. This is the "shared root" crux pointed at: `row/update` gets its
-  evaluation by composition, the same way the CLI's `xipe do row/add --
-  eval` composes two already-built pieces rather than a bespoke third one.
+  only)": one small pure stage followed by the same "eval" stage `eval/run`
+  is.
 
   Stages run in order, threading the book forward; the first stage to
   return `{:error, ...}` stops the pipeline right there (a later stage
   never runs against a book an earlier stage refused to produce).
 
-  ## Stages (2026-09-26, Old.md §37)
+  ## Stages
 
   * `"edit"` -- pure: sets the calc row `params["id"]`'s `args` to
     `params["args"]` (checked like `row/add`, `Dispatch.check_args/4`)
@@ -54,7 +42,7 @@ defmodule XipeTotec.Pipeline do
     evaluates anything, handed in as `ctx.eval` (`fn book, eval_params ->
     {book, outcome} end`). It evaluates exactly the rows `eval_params/1`
     derives from the method's params -- `params["call_ids"]` (none: every
-    row), or the one row `params["id"]` -- never any other (Old.md §36)
+    row), or the one row `params["id"]` -- never any other
 
   Each stage's result map is merged into the next, so `row/update` answers
   with both the edited row and the evaluation. `"eval"` must be the last
@@ -69,18 +57,9 @@ defmodule XipeTotec.Pipeline do
 
   alias XipeTotec.Book
 
-  # `__DIR__`-relative (this file's own compile-time directory, `lib/`, so
-  # `../pipelines.json` is the xipe_totec checkout's root), NOT CWD-relative
-  # like `book.jsonl` -- `pipelines.json` is xipe_totec's own installation
-  # config (which methods this build knows how to pipeline), not something
-  # tied to whatever target project is being scanned/evaluated or to
-  # wherever the process happened to be launched from. `xipe serve` in
-  # particular is commonly spawned with CWD set to the *target* project's
-  # own root or some other directory entirely (tezcatl's `XipeConn` spawns
-  # it with `cd: install_dir`, which only happens to be xipe_totec's own
-  # checkout by convention, not by contract) -- a CWD-relative path would
-  # silently fall back to "no pipeline entries" the moment that convention
-  # doesn't hold.
+  # `__DIR__`-relative: `pipelines.json` belongs to this xipe_totec
+  # checkout, not to the target project or to wherever the process was
+  # started from.
   @registry_file Path.expand("../pipelines.json", __DIR__)
 
   @type result :: {:ok, Book.t(), map()} | {:error, Book.t(), map()}
@@ -177,7 +156,7 @@ defmodule XipeTotec.Pipeline do
 
   defp edit_stage(book, %{"id" => id, "args" => args}, ctx) when is_binary(id) do
     # a row a running pass is evaluating keeps its args until the pass
-    # ends (XipeTotec.Passes, Old.md §51)
+    # ends (XipeTotec.Passes)
     refused = XipeTotec.Passes.refuse(ctx[:project_dir], id)
 
     case Book.get(book, :calls, id) do

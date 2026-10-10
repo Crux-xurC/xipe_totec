@@ -2,7 +2,7 @@ Code.require_file("../embody.exs", __DIR__)
 
 defmodule XipeTotec.Repl.Ocaml.Launch do
   @moduledoc """
-  OCaml's `launch` (the plain `ocaml` toplevel, Old.md §38/§42): the same
+  OCaml's `launch` (the plain `ocaml` toplevel): the same
   JSON-able message `Repl.Launch` builds, with OCaml's values.
 
   The toplevel is started as `ocaml -init <init file>`. The init file
@@ -18,7 +18,7 @@ defmodule XipeTotec.Repl.Ocaml.Launch do
       toplevel print `XT_READY` once the init file is done
     * `exit_input` is `#quit;;`
     * interruptible: SIGINT stops the running phrase ("Interrupted.") and
-      the toplevel goes on reading (confirmed with OCaml 5.5.0, Old.md §42)
+      the toplevel goes on reading (seen with OCaml 5.5.0)
   """
 
 

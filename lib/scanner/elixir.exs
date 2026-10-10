@@ -4,8 +4,7 @@ Code.require_file("../scanner.exs", __DIR__)
 
 defmodule XipeTotec.Scanner.Elixir.Tracer do
   @moduledoc """
-  Compiler-tracer collector used by `XipeTotec.Scanner` (spec §11.1 基本動作:
-  "コンパイラトレーサー", Old.md §6's fix F). Handed to
+  Compiler-tracer collector used by `XipeTotec.Scanner`. Handed to
   `Code.put_compiler_option(:tracers, [__MODULE__])`; events are stashed in
   the calling process's dictionary (tracer callbacks run synchronously, in
   the same process that calls `Code.compile_quoted/2`) rather than in module
@@ -83,12 +82,11 @@ end
 
 defmodule XipeTotec.Scanner.Elixir do
   @moduledoc """
-  Basic-behavior scan (spec §11.1/§14.1): given one Elixir source file's
-  text, extract its `node` rows (module/function/arity/span/body_hash) via
+  Elixir's own scan: given one Elixir source file's text, extract its
+  `node` rows (module/function/arity/span/body_hash) via
   `Code.string_to_quoted!/2`, and its outgoing `link` rows via the compiler
-  tracer (Old.md fix F: compiled with `Code.compile_quoted/2` in this
-  process -- a separate BEAM from any live target application -- never by
-  executing the file's own top-level code).
+  tracer. The `defmodule` forms are compiled with `Code.compile_quoted/2`
+  in this process; the file's other top-level code is never executed.
 
   A caller-side node whose callee does not resolve to a *known project
   node* (e.g. `Enum.map`, anything outside the scanned sheets) produces no
@@ -119,7 +117,7 @@ defmodule XipeTotec.Scanner.Elixir do
   Pass 1: register this sheet's `node` rows (module/function/anykey/span/
   body_hash -- `anykey` is the arity: `add/2` and `add/3` are different
   functions), reusing existing ids on an exact (module, name, anykey) match
-  (§7.3 minimal rule) and minting a fresh id otherwise. Returns `{book,
+  and minting a fresh id otherwise. Returns `{book,
   node_ids}`, `node_ids` mapping `{module, name, arity} => id` for this
   sheet's own definitions -- pass every sheet's `node_ids`, merged, into
   `scan_links/4` once all sheets have been through this pass.
@@ -157,7 +155,7 @@ defmodule XipeTotec.Scanner.Elixir do
   running, `use` of a dependency that isn't loaded here). Its nodes are
   still in the book (`scan_defs/3` is a pure AST walk); only its outgoing
   links are unknown, so its existing link rows are kept as they were
-  rather than dropped as stale -- "couldn't look" is not "no calls" (P9).
+  rather than dropped as stale -- "couldn't look" is not "no calls".
   """
   @spec scan_links_report(Book.t(), %{tuple() => String.t()}, String.t() | Macro.t()) ::
           {Book.t(), [%{module: String.t(), reason: String.t()}]}
@@ -207,7 +205,7 @@ defmodule XipeTotec.Scanner.Elixir do
   (`def scale(x, k \\\\ 2)`, with or without a body) makes `[1, 2]`. `nil`
   when the function has none, isn't there, or the source doesn't parse.
   Only ever *shown* -- on a refused `row/add` -- for a person to declare
-  with `arity/set` (crux 2026-10-08: the scanner never sets arities).
+  with `arity/set`; the scanner never sets arities.
   """
   @spec default_arities(String.t(), String.t(), String.t(), non_neg_integer()) :: [non_neg_integer()] | nil
   def default_arities(source, module, name, arity) do
@@ -292,9 +290,7 @@ defmodule XipeTotec.Scanner.Elixir do
 
   defp span_of(meta), do: meta[:line]
 
-  # normalized "position stripped" hash (§9.2 body_hash) -- a real
-  # implementation would strip line/column meta from the *entire* clause
-  # body, not just hash the head; left simple pending the live-project pass
+  # a hash of the head with positions stripped (the body is not hashed)
   defp body_hash(term) do
     :crypto.hash(:sha256, :erlang.term_to_binary(strip_meta(term)))
     |> Base.encode16(case: :lower)
@@ -305,7 +301,7 @@ defmodule XipeTotec.Scanner.Elixir do
   defp strip_meta(list) when is_list(list), do: Enum.map(list, &strip_meta/1)
   defp strip_meta(other), do: other
 
-  # --- link extraction (compiles the AST in-process; §F) ---
+  # --- link extraction (compiles the AST in-process) ---
 
   # Fix F: compile *only* the defmodule forms, never the full file AST -- a
   # `.exs` script's other top-level statements (Application.ensure_all_started,
@@ -353,13 +349,9 @@ defmodule XipeTotec.Scanner.Elixir do
   defp module_names(form), do: form |> modules_in(nil) |> Enum.map(&elem(&1, 0))
 
   @doc """
-  Every top-level `defmodule` form in `quoted`, everything else dropped --
-  the Fix F filter itself (see moduledoc), exposed so other callers that
-  need the same "load only the module definitions, never execute a
-  script's other top-level statements" guarantee don't reimplement it.
-  `XipeTotec.Repl.SourceSanitize` is the other caller (2026-09-18, review
-  finding: the eval-launch path's `-r <file>` had reopened exactly the
-  hazard this filter exists to close).
+  Every top-level `defmodule` form in `quoted`, everything else dropped:
+  load the module definitions, never execute a script's other top-level
+  statements. `XipeTotec.Repl.SourceSanitize` uses the same filter.
   """
   @spec only_defmodules(Macro.t()) :: [Macro.t()]
   def only_defmodules({:__block__, _, stmts}), do: Enum.filter(stmts, &defmodule?/1)

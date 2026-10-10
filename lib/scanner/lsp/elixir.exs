@@ -3,7 +3,7 @@ Code.require_file("../lsp.exs", __DIR__)
 defmodule XipeTotec.Scanner.Lsp.Elixir do
   @moduledoc """
   Elixir through elixir-ls (`Scanner.Lsp`'s dialect for it). What elixir-ls
-  reports, checked against elixir-ls 0.30.0 (2026-09-25):
+  reports, checked against elixir-ls 0.30.0:
 
     * `documentSymbol`: modules are kind 2 with their name as written
       (`Inner` for `defmodule Inner` nested in `Calc`); functions are kind

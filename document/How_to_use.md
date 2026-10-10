@@ -467,16 +467,16 @@ tezcatl の対話窓では `search` で始め、1行が1ターン。
 
 ```
 $ xipe search -s path lib/calc.ex path
-1件ヒットしました。（path: [lib/calc.ex]）
+1 hit(s). (path: [lib/calc.ex])
 search> -e path list id
-2件ヒットしました。（id: [01M3…, 01M3…]）
+2 hit(s). (id: [01M3…, 01M3…])
 search> get id -2
-検索結果の2番目の要素のIDを取得しました: 01M3…（以降 x と書けます）
+took the id of element 2 of the result: 01M3… (write x for it from now on)
 search> eval x
   eval call 01M3…  ok       repr=exact  9  compare=none
 search> -e view id id name args result
 …
-検索を終了しますか？y/n
+End the search? y/n
 search> y
 ```
 
@@ -565,7 +565,7 @@ tezcatl の対話窓はすべての行をこの形で送り、中身を解釈し
 ```
 → {"jsonrpc":"2.0","id":3,"method":"input","params":{"text":"help"}}
 ← {"jsonrpc":"2.0","id":3,"result":{},"from":null,
-   "dialogue":{"hold":false,"via_repl":false,"text":"help: コマンドの一覧（…）  [<command>]\n…\nrow/add: 計算行を作る  node=<node id> args=[...]\n…"}}
+   "dialogue":{"hold":false,"via_repl":false,"text":"help: list the commands (…)  [<command>]\n…\nrow/add: make a calc row  node=<node id> args=[...]\n…"}}
 ```
 
 `help` の1行は「最初の `:` の前がコマンド、後ろが説明と引数」。tezcatl ではこの行をヤンクして

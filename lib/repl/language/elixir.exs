@@ -25,7 +25,7 @@ defmodule XipeTotec.Repl.Language.Elixir do
   def build_tools, do: [%{"name" => "mix", "markers" => ["mix.exs"]}]
 
   # elixir-ls through tezcatl's /lsp first; Elixir's own parser when no
-  # language server is reachable (spec §11.3)
+  # language server is reachable
   @impl true
   def scanner, do: [XipeTotec.Scanner.Lsp.Elixir, XipeTotec.Scanner.Elixir]
 
@@ -42,9 +42,8 @@ defmodule XipeTotec.Repl.Language.Elixir do
   # mix-mode: empty launch_opts, i.e. `Launch`'s own `iex -S mix` default.
   #
   # scripts-mode: `iex` with every project file `-r`'d -- never the
-  # *original* files (review finding, 2026-09-18): `-r` runs a script's whole
-  # top level, so a project with an entry-point script (xipe_totec's/
-  # tezcatl's own `main.exs` included) would run its side effects just from
+  # *original* files: `-r` runs a script's whole top level, so a project
+  # with an entry-point script (a `main.exs`) would run its side effects just from
   # booting the session. `SourceSanitize.sanitize/2` writes defmodule-only
   # copies to a temp dir instead, removed by the returned cleanup.
   @impl true

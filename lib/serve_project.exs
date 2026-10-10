@@ -10,53 +10,42 @@ Code.require_file("git_ctx.exs", __DIR__)
 
 defmodule XipeTotec.Serve.Project do
   @moduledoc """
-  "1プロジェクト1GenServer" (Old.md §3, §9 2026-09-17): the one place
-  in the §16 server that holds mutable state (`Book`). Everything else
-  (`Dispatch`, `Address`, `Core`, ...) stays a pure function over a `Book`
-  it's handed.
+  One project, one GenServer: the one place in the server that holds
+  mutable state (`Book`). Everything else (`Dispatch`, `Address`, `Core`,
+  ...) stays a pure function over a `Book` it's handed.
 
-  Runs a `Dispatch.handle/4` call (or, for any method `Pipeline.handles?/1`
-  says yes to -- `eval/run`/`row/update` today, 2026-09-18 -- a
-  `Pipeline.run/4` call instead, checked first: see `Pipeline`'s own
-  moduledoc for why these can't be plain `Dispatch` clauses), diffs the `Book` before/after with
-  `Store.persist_diff/4` (generalized from `Project.persist_scan`'s
-  sheets/nodes/links-only diff to all six tables -- a scan never touches
-  `calls`, but other methods will), and broadcasts `notify/rowChanged` /
-  `notify/nodeChanged` for whatever changed to every attached session.
-  There is no per-consumer id-rewriting here the way tezcatl's `LspServer`
-  has for `/lsp` -- Xipe Totec is the id-space owner for its own
-  request/response pairs (nothing upstream to protect from collisions), and
-  §16.2 already specifies the server broadcasts to every attached client
-  and leaves picking-what-you-need to each one.
+  Runs a `Dispatch.handle/4` call (or, for a method `Pipeline.handles?/1`
+  says yes to, `Pipeline` -- checked first), persists the difference
+  between the `Book` before and after (`Store`, all six tables), and
+  broadcasts `notify/rowChanged` / `notify/nodeChanged` for whatever
+  changed to every attached session. Request ids are not rewritten: every
+  attached client sees every broadcast and picks what it needs.
 
-  One `xipe serve <root>` process = one project = one of these, registered
-  under its own module name (no `{root, ...}` registry key needed the way
-  tezcatl's `LspRegistry` has one, since a second project just means a
-  second OS process on a second port).
+  One `xipe start` process = one project = one of these, registered under
+  its own module name (a second project is a second OS process on a second
+  port).
 
   ## Evaluation runs off this process
 
   `"eval"` and `"eval/run"` (the same operation here) never evaluate
   inside a `handle_call`: a pass can take as long as its REPL boot plus
-  every entry's timeout, and holding this GenServer for that long blocked
-  every other request from every session and, past `GenServer.call`'s 5s,
-  crashed the caller. Instead the request is answered at once with a
-  `pass_id` (`"status"` `"started"` or `"queued"`), the pass runs in a
-  separate process via `Runner.run/4` over a snapshot of the book, and on
-  completion its results are folded into the book *as it is then* (not
-  the snapshot -- other requests may have changed it meanwhile; a result
-  for a row removed during the pass is dropped), persisted, and broadcast
-  as the usual `notify/rowChanged` plus one `notify/passCompleted`
-  (`pass_id`, `ok`, and the wire-form `result` or `error`) -- this
-  server's own addition, the spec has no pass-level notify. One pass runs
-  at a time; later requests queue in arrival order.
+  every entry's timeout, which would hold every other request from every
+  session and outlast `GenServer.call`'s 5s. The request is answered at
+  once with a `pass_id` (`"status"` `"started"` or `"queued"`), the pass
+  runs in a separate process via `Runner.run/4` over a snapshot of the
+  book, and on completion its results are folded into the book *as it is
+  then* (not the snapshot -- other requests may have changed it meanwhile;
+  a result for a row removed during the pass is dropped), persisted, and
+  broadcast as the usual `notify/rowChanged` plus one
+  `notify/passCompleted` (`pass_id`, `ok`, and the wire-form `result` or
+  `error`). One pass runs at a time; later requests queue in arrival
+  order.
 
   ## So does scanning
 
   `"scan/run"` also runs off this process: with a language server behind
   it (`Scanner.Lsp`, possibly starting elixir-ls itself) a scan easily
-  outlasts `GenServer.call`'s 5s, which used to crash the caller and hold
-  every other request meanwhile. Unlike eval, the caller still gets the
+  outlasts `GenServer.call`'s 5s. Unlike eval, the caller still gets the
   scan's own result as its reply -- the reply is just deferred until the
   scan process reports. The scan reads a snapshot of the book; its sheets,
   nodes and links are then folded into the book *as it is then*, keeping
@@ -104,35 +93,29 @@ defmodule XipeTotec.Serve.Project do
   @spec detach(GenServer.server(), pid()) :: :ok
   def detach(pid \\ __MODULE__, session_pid), do: GenServer.cast(pid, {:detach, session_pid})
 
-  @doc "Run one §16.3 method call. `{:ok, result} | {:error, reason}` (both plain maps, ready for `Protocol.encode_response/2`)."
+  @doc "Run one method call. `{:ok, result} | {:error, reason}` (both plain maps, ready for `Protocol.encode_response/2`)."
   @spec request(GenServer.server(), String.t(), map()) :: {:ok, map()} | {:error, map()}
   # :infinity -- a scan/run reply waits for the scan itself (see moduledoc)
   def request(pid \\ __MODULE__, method, params), do: GenServer.call(pid, {:request, method, params}, :infinity)
 
   @doc """
-  `InOut`-routed variant of `request/3` (Old.md §17, 2026-09-20):
-  threads a per-connection `dialogue` (`InOut.dialogue()`, `nil` if none
-  held) through `InOut.handle/6` instead of calling `Dispatch`/`Pipeline`
-  directly. `Book` mutation still happens exactly once, inside this
-  GenServer's own serialized `handle_call` (same invariant `request/3` has
-  -- `InOut.handle/6` itself is pure, it's only ever called from in here),
-  so persisting the diff and broadcasting `notify/*` afterward works
-  identically to `request/3`'s own branch, just unconditionally (an
-  `InOut` outcome with `ok?: false` still leaves `Book` byte-identical, so
-  diffing/broadcasting against it is a harmless no-op rather than a
-  branch worth special-casing).
+  `InOut`-routed variant of `request/3`: threads a per-connection
+  `dialogue` (`InOut.dialogue()`, `nil` if none held) through
+  `InOut.handle/6` instead of calling `Dispatch`/`Pipeline` directly. The
+  `Book` still changes only inside this GenServer's serialized
+  `handle_call`; the diff is persisted and `notify/*` broadcast as for
+  `request/3` (an outcome with `ok?: false` leaves the `Book` unchanged, so
+  that is a no-op).
 
-  `dialogue` itself is NOT this GenServer's state -- the caller
-  (`Serve.Socket`, one process per connection) holds it and passes the
-  updated value back on its next call, same reasoning Old.md §17
-  already gave for keeping dialogue state connection-local rather than
-  project-wide.
+  `dialogue` is not this GenServer's state: the caller (`Serve.Socket`, one
+  process per connection) holds it and passes the updated value back on
+  its next call.
 
   `opts[:watch]` (a pid): when `method` starts an evaluation pass, that
   process is also sent `{:xipe_pass_done, pass_id, outcome}` when the pass
   ends -- `outcome` in `Runner.run/4`'s shape, its results limited to the
-  rows still in the book (2026-09-27, for `Serve.Input`, which waits for
-  a pass before running the rest of a typed line). Registered in the same
+  rows still in the book (`Serve.Input` waits for a pass before running
+  the rest of a typed line). Registered in the same
   call that queues the pass, so it can't miss a pass that ends at once.
   """
   @spec request_dialogue(GenServer.server(), InOut.dialogue(), String.t(), map(), keyword()) ::
@@ -145,13 +128,11 @@ defmodule XipeTotec.Serve.Project do
   @impl true
   def init(%{root: root, store_file: store_file} = opts) do
     # the book, and the byte position read up to: later writes catch up from it
-    # with what the CLI appended meanwhile (Store.persist_diff_since/5, 2026-10-09)
+    # with what the CLI appended meanwhile (Store.persist_diff_since/5)
     {book, store_pos} = Store.load_with_pos(store_file)
 
-    # `:programs` (InOut.programs(), default `%{}` -- no real dialogue
-    # program exists yet, Old.md §16.4 step 4) is settable at
-    # start_link/1 only so tests can inject a toy one (test/serve_project_test.exs);
-    # a real deployment never needs to pass it.
+    # `:programs` (default InOut.programs()) is settable so tests can
+    # inject a toy dialogue program.
     programs = Map.get(opts, :programs, InOut.programs())
 
     # `:eval_opts` goes to `Runner.run/4` for every pass (tests inject a
@@ -162,7 +143,7 @@ defmodule XipeTotec.Serve.Project do
        store_pos: store_pos,
        root: root,
        project_id: Map.get(opts, :project_id),
-       # tables/project/<id>_<name>/: its saved surface table (課題 ④) and
+       # tables/project/<id>_<name>/: its saved surface table and
        # environment (ProjectEnv); nil -> generated per call, xipe's own env
        project_dir: Map.get(opts, :project_dir),
        store_file: store_file,
@@ -183,7 +164,7 @@ defmodule XipeTotec.Serve.Project do
   # `internal_error`, and the book stays as it was: this process is linked to
   # `xipe start` itself, so letting it die took the whole server -- every
   # window's connection, the pass queue, a held dialogue -- down with one
-  # line (Old.md §56). Anything else that raises is a bug in here: let it show.
+  # line. Anything else that raises is a bug in here: let it show.
   @impl true
   def handle_call(msg, from, state) do
     call(msg, from, caught_up(msg, state))
@@ -206,15 +187,13 @@ defmodule XipeTotec.Serve.Project do
 
   # the first line says what; the rest (the stack) is in the server's own output
   defp internal_error(method, text) do
-    %{"code" => "internal_error", "message" => "#{method}: " <> (text |> String.split("\n") |> hd()) <> " ── xipe_totec の中の誤りです。何も変えていません"}
+    %{"code" => "internal_error", "message" => "#{method}: " <> (text |> String.split("\n") |> hd()) <> " -- an error inside xipe_totec. Nothing was changed"}
   end
 
   # Before a request reads the book, what the CLI appended to book.jsonl
   # since this server last read is folded in (and broadcast, as any change
-  # is): a scan started from a book that had not seen the CLI's scan minted
-  # a second node for a function the CLI had already given an id, and the
-  # first read after a CLI change answered from the old book (Old.md §56;
-  # until then only a write caught up, §55). One stat when nothing came.
+  # is), so a scan or a read never works from a book that missed the CLI's
+  # rows. One stat when nothing came.
   defp caught_up(msg, state) when msg == :book or (is_tuple(msg) and elem(msg, 0) in [:request, :request_dialogue]) do
     case Store.read_since(state.store_file, state.store_pos, state.book) do
       {_book, pos} when pos == state.store_pos ->
@@ -258,7 +237,7 @@ defmodule XipeTotec.Serve.Project do
 
   defp call({:request, method, params}, _from, state) do
     # Pipeline-routed methods checked first, never falling through to
-    # Dispatch's own @not_implemented for them (2026-09-18) -- same
+    # Dispatch's own @not_implemented for them -- same
     # handles?/1-then-run/4 shape Runner.run_one/4 uses for the CLI side,
     # both reading the same pipelines.json.
     result =
@@ -407,7 +386,7 @@ defmodule XipeTotec.Serve.Project do
   # A REPL method (XipeTotec.Methods' `repl`): a pipelines.json method's
   # stages before "eval" run here at once, their changes persisted and
   # broadcast like any request's; the "eval" stage -- or a plain "eval" --
-  # goes to the pass queue (Old.md §37). The reply merges both: e.g.
+  # goes to the pass queue. The reply merges both: e.g.
   # row/update's edited row plus the pass id.
   defp start_repl_method(method, params, watcher, state) do
     prepared =
@@ -532,15 +511,12 @@ defmodule XipeTotec.Serve.Project do
     end
   end
 
-  # notify/rowChanged and notify/nodeChanged only -- the spec has no
-  # "removed" notify method, so a tombstoned id (row/remove, or a rescan
-  # dropping a node) is persisted (above) but not itself pushed as a
-  # notification in this v0 (Old.md §9 known gap, not yet designed).
+  # notify/rowChanged and notify/nodeChanged only: a removed id (row/remove,
+  # or a rescan dropping a node) is persisted but not pushed.
   # A change written under the Store's lock (Store.persist_diff_since/5): what
   # others -- the CLI -- appended since this server last read is folded in
-  # first, so the book kept here and broadcast is the file's, not one that
-  # missed their rows until a restart (課題 "CLIとサーバーの同時書き込み",
-  # crux 2026-10-06/10-09). -> {the book to keep and broadcast, state with the new store_pos}
+  # first, so the book kept here and broadcast is the file's.
+  # -> {the book to keep and broadcast, state with the new store_pos}
   defp persist(state, new_book, tables) do
     {book, pos} = Store.persist_diff_since(state.store_file, state.store_pos, state.book, new_book, tables)
     {book, %{state | store_pos: pos}}

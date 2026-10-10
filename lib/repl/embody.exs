@@ -1,10 +1,9 @@
 defmodule XipeTotec.Repl.Embody do
   @moduledoc """
-  Where embody is (Old.md §44): the per-language fixed modules evaluated
-  rows are wrapped in (`embody.ml`, `embody.hs`), kept in their own
-  repository (git@github.com:Crux-xurC/embody.git). `$XIPE_TOTEC_EMBODY_DIR`,
-  else the `embody` directory next to this xipe_totec checkout
-  (`~/my_app/embody`).
+  Where embody is: the per-language fixed modules evaluated rows are
+  wrapped in (`embody.ml`, `embody.hs`), kept in their own repository
+  (git@github.com:Crux-xurC/embody.git). `$XIPE_TOTEC_EMBODY_DIR`, else the
+  `embody` directory next to this xipe_totec checkout.
   """
 
   @default_dir Path.expand("../../../embody", __DIR__)

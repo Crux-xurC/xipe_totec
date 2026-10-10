@@ -7,7 +7,7 @@ Code.require_file("../../scanner/haskell.exs", __DIR__)
 
 defmodule XipeTotec.Repl.Language.Haskell do
   @moduledoc """
-  Haskell's `Repl.Language` self-declaration (Old.md §45/§46). REPL: GHCi,
+  Haskell's `Repl.Language` self-declaration. REPL: GHCi,
   with `embody.hs` loaded next to the project's modules.
 
   Every project is loaded the same way: GHCi `:load`s its `.hs` files
@@ -16,7 +16,7 @@ defmodule XipeTotec.Repl.Language.Haskell do
   for `src/Geo/Shape.hs`, module `Geo.Shape`) and every module in scope as
   `*M`.
 
-  The build tool only changes how GHCi is started (Old.md §47): under
+  The build tool only changes how GHCi is started: under
   `cabal exec --offline --` or `stack exec --`, so the packages the project
   depends on are visible to it, the project's own modules still loaded
   from their sources as above -- every component (library, executables,
@@ -82,7 +82,7 @@ defmodule XipeTotec.Repl.Language.Haskell do
   store's package database doesn't exist yet), so the project is built
   first -- offline, output dropped, its failure not stopping GHCi (the
   sources are loaded by GHCi either way), as dune builds for `dune ocaml
-  top` (Old.md §43). The GHCi flags `Launch` appends reach `ghci` through
+  top`. The GHCi flags `Launch` appends reach `ghci` through
   `"$@"`, so nothing is quoted by hand.
   """
   @spec ghci(String.t() | nil) :: [String.t()]

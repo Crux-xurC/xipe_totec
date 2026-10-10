@@ -7,8 +7,8 @@ Code.require_file("../../scanner/ocaml.exs", __DIR__)
 
 defmodule XipeTotec.Repl.Language.Ocaml do
   @moduledoc """
-  OCaml's `Repl.Language` self-declaration (Old.md §38/§42). REPL: the
-  plain `ocaml` toplevel (not `utop`, crux 2026-09-26) with xipe_totec's
+  OCaml's `Repl.Language` self-declaration. REPL: the
+  plain `ocaml` toplevel (not `utop`) with xipe_totec's
   `embody.ml` loaded into it.
 
   Only `.ml` files are OCaml sources here (`.mli` are interfaces, nothing
@@ -16,8 +16,7 @@ defmodule XipeTotec.Repl.Language.Ocaml do
   `.ml` as the module its file name gives, without its top-level side
   effects (`Embody.load_all`), in an order their dependencies allow.
 
-  A dune project (`dune-project`, the build tool) adds two things (Old.md
-  §43):
+  A dune project (`dune-project`, the build tool) adds two things:
 
     * the libraries it depends on -- `dune ocaml top`'s directives, run
       inside the toplevel (the project's environment: its `OCAMLPATH`, its

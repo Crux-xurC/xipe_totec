@@ -7,13 +7,10 @@ defmodule XipeTotec.Repl.Eval.Parser do
   marker detection) + `FieldDrip.<language>` (per-language body parsing)
   + `Result` (Evaluator.Result conversion) into the one call a caller
   actually wants: "here's more output, is `call_id`'s result in there
-  yet?" (2026-09-18, crux's architecture).
+  yet?"
 
-  Takes `scan_module`/`field_drip_module` as plain arguments rather than
-  hardcoding either one, on purpose: this lets it stay fixed as more
-  REPL/transport or language targets are added later -- today only
-  `Scan.Direct.Iex` and `FieldDrip.Elixir` exist; this module doesn't
-  need to change when more are built.
+  `scan_module` and `field_drip_module` are arguments, so this module is
+  the same for every REPL and language.
   """
 
   alias XipeTotec.Repl.Eval.{Result, Scan}

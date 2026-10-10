@@ -16,7 +16,7 @@ defmodule ReplLaunchTest do
     assert message["files"] == []
     assert message["env"] == %{}
     assert message["ready_pattern"] == "Interactive Elixir"
-    # banner, then this echo (Old.md §25.3): the marker split in the source
+    # banner, then this echo: the marker split in the source
     assert message["ready_probe"] == ~s|IO.puts("XT_" <> "READY")\n|
     assert message["exit_input"] == "System.halt()\n"
     assert message["interruptible"] == true

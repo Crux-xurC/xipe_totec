@@ -1,6 +1,6 @@
 defmodule XipeTotec.ProjectConfig do
   @moduledoc """
-  A project's own settings (2026-09-26), kept in its
+  A project's own settings, kept in its
   `tables/project/<id>_<name>/project.json` next to the registry's match
   key `path` (`ProjectRegistry` reads only that key). Settings are per
   project only -- there is no machine-wide default to override; a key a

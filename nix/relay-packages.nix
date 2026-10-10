@@ -1,16 +1,16 @@
-# WS server stack for spec §16.1's "WebSocket（localhost）" entry point, plus
-# erlexec for §10's REPL process spawning (`Repl.Sender.Direct`, 2026-09-22 --
-# process-group isolation + group-wide interrupt/kill, Old.md §23).
+# WS server stack for the WebSocket (localhost) entry point, plus erlexec for
+# REPL process spawning (`Repl.Sender.Direct`: process-group isolation and
+# group-wide interrupt/kill).
 # Same packages, same versions, same hashes as ../../tezcatl/nix/relay-packages.nix
 # and ../../nix/exla-packages.nix (fetchHex hashes are content-addressed, so
 # copying is safe as long as the version matches -- both of those pin the
 # identical nixpkgs revision and erlang_27 that this flake.nix does).
 #
-# xipe_totec is the *server* being connected to for §16 (relay's /xipe
+# xipe_totec is the *server* being connected to (relay's /xipe
 # connects out to it), so it needs cowboy itself. `erlexec` came in once
-# `xipe eval` started spawning real OS processes of its own (§10), and
+# `xipe eval` started spawning real OS processes of its own, and
 # `gun` (a WS *client*) once the LSP-backed scanner started connecting out
-# to tezcatl's /lsp relay (Lsp.Transport.Relay, 2026-09-25) -- now the
+# to tezcatl's /lsp relay (Lsp.Transport.Relay) -- now the
 # same set as tezcatl's own file.
 { pkgs, beamPackages }:
 

@@ -1,7 +1,6 @@
 defmodule XipeTotec.CommandLine do
   @moduledoc """
-  `xipe do`'s argv → command-list parsing (split out of `main.exs` so it
-  can be tested, Old.md §32).
+  `xipe do`'s argv → command-list parsing.
 
       xipe do <method> [key=value...] [-- <method> [key=value...]]...
 
@@ -16,13 +15,11 @@ defmodule XipeTotec.CommandLine do
       `[1,2]` two. The only way to write a zero- or one-element list
       (`row/add`'s `args` for a 0/1-arity function, `eval`'s `call_ids`
       for a single call).
-    * anything else containing a comma -- a list (`args=1,2`, kept from
-      before brackets existed)
+    * anything else containing a comma -- a list (`args=1,2`)
     * anything else -- the plain string
 
   Not a general type system: an element that itself needs a literal comma
-  (e.g. an Elixir list literal as one argument, `[1,2]`) has no escape
-  hatch yet.
+  (e.g. an Elixir list literal as one argument, `[1,2]`) cannot be written.
   """
 
   @type command :: %{String.t() => term()}

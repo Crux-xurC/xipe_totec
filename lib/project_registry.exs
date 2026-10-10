@@ -1,32 +1,23 @@
 defmodule XipeTotec.ProjectRegistry do
   @moduledoc """
-  `tables/project/<id>_<name>/` (Old.md §24): resolves an arbitrary
-  target-project path to a stable 3-digit `id`, and back. This is the
-  piece §24.1 deferred from `xipe choice project`'s design -- the
-  directory's own `<id>_<name>` suffix is for human legibility only
-  (`ls tables/project/`), never the actual match key, since two
-  different real paths can share the same basename (`~/work/foo` vs.
-  `~/other/foo`). The real match key is `project.json`'s own `path`
-  field, one small file per project directory, always `Path.expand/1`-
-  normalized before it's written or compared (same reason `serve/1`'s
-  `root = Path.expand(...)` in `main.exs` normalizes -- `.`/`~`/relative
-  variants of the same directory must never register twice).
+  `tables/project/<id>_<name>/`: resolves an arbitrary
+  target-project path to a stable 3-digit `id`, and back. The directory's
+  `<id>_<name>` suffix is for human legibility only, never the match key:
+  two different paths can share a basename. The match key is
+  `project.json`'s `path` field, always `Path.expand/1`-normalized before
+  it is written or compared, so `.`/`~`/relative variants of one directory
+  never register twice.
 
   `id`s are 3-digit, zero-padded strings (`"001"`, not `1`) -- a human-
   facing selection token, not a Book-table row id (those stay ULID,
-  `Id.ulid/1`). `"000"` is reserved and never assigned here (§24.1's own
-  design: `xipe choice project` uses it as a transient "not registered
-  yet" signal in its own flow, never a value this module writes to
-  disk). `next_id/1` never reuses a deleted project's old id either --
+  `Id.ulid/1`). `"000"` is reserved ("not registered yet") and never
+  assigned here. `next_id/1` never reuses a deleted project's old id either --
   taking the max existing id + 1, not the first gap -- so a stale
   reference to a removed project can never silently resolve to a
   different, newer one.
 
-  Deliberately split from `surface_table` generation: `register/2` only
-  ever creates the id/directory/`project.json` -- it never touches
-  `table` (the `SurfaceTable` file). A future `xipe choice project`
-  decides whether to (re)generate the surface table; this module doesn't
-  make that call.
+  `register/2` only creates the id, the directory and `project.json`; it
+  never touches `table` (the `SurfaceTable` file).
   """
 
   @default_root Path.expand("../tables/project", __DIR__)

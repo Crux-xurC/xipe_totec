@@ -79,7 +79,7 @@ end
 
 defmodule ReplEvaluatorTest.CalledThenSilentSender do
   # The call returns (XT_CALLED_<id>) and then nothing more: judging the
-  # value never finishes -- the case eval/status names (Old.md §51)
+  # value never finishes -- the case eval/status names
   @behaviour XipeTotec.Repl.Sender
 
   def send(message) do
@@ -114,9 +114,7 @@ end
 # lib/repl/eval/{scan/direct/iex,field_drip/elixir}.exs. Exists only to
 # prove Evaluator.run_pass/3's :launch_module/:eval_template_module/
 # :scan_module/:field_drip_module options genuinely swap out the whole
-# adapter set (2026-09-18, crux's review: don't hardcode Elixir into
-# Evaluator, follow Parser.step/5's own "caller passes the modules"
-# pattern) rather than the defaults just happening to still work.
+# adapter set rather than the defaults just happening to still work.
 defmodule ReplEvaluatorTest.ToyLanguage do
   defmodule Launch do
     def build(opts) do

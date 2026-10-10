@@ -1,4 +1,4 @@
-# Live verification against a real GHCi (Old.md §45, §46), the Haskell
+# Live verification against a real GHCi, the Haskell
 # counterpart of repl_iex_test.exs. NOT swept into test/run.sh. Needs `ghci`
 # on PATH -- e.g. `nix shell nixpkgs#ghc -c elixir test/live/repl_haskell_test.exs`
 # -- and embody.hs (~/my_app/embody, or $XIPE_TOTEC_EMBODY_DIR); without
@@ -128,7 +128,7 @@ defmodule ReplLiveHaskellTest do
     assert r["c"].compare == "changed"
   end
 
-  # a cabal project (Old.md §47), copied (cabal writes dist-newstyle/ into
+  # a cabal project, copied (cabal writes dist-newstyle/ into
   # it; CABAL_DIR is a temp dir too), never built before: built, then GHCi
   # under `cabal exec --offline`, the project's own modules -- library and
   # executable -- still loaded from their sources

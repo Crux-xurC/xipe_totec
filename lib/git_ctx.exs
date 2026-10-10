@@ -1,16 +1,14 @@
 defmodule XipeTotec.GitCtx do
   @moduledoc """
-  The git provenance `Core.apply_results/3` records on every evaluated row
-  (Old.md §4.4: "git読み取りはGenServer側で行い、ここに渡すだけ" -- reading
-  git is the shell's job, not Core's/Evaluator's). Shared by the CLI and
-  `Serve.Project`, which reads it at the start of every pass.
+  The git provenance `Core.apply_results/3` records on every evaluated row.
+  Read by the caller (the CLI, or `Serve.Project` at the start of every
+  pass) and handed in; `Core` and `Evaluator` never run git themselves.
   """
 
   @doc """
   `%{commit:, commit_at:, dirty:}` for the repository `dir` is in. `dir`
   need not be a git repo at all (or `git` need not be installed) -- every
-  field just stays nil rather than raise, same "don't crash a whole eval
-  over an optional annotation" spirit as Dispatch's own error handling.
+  field just stays nil rather than raise.
   """
   @spec read(String.t()) :: %{commit: String.t() | nil, commit_at: String.t() | nil, dirty: boolean() | nil}
   def read(dir) do

@@ -35,8 +35,8 @@ end
 
 defmodule XipeTotec.Scanner.Lsp do
   @moduledoc """
-  An `XipeTotec.Scanner` over a language server (spec §11.1's main path,
-  Old.md §21.4). Per file: `textDocument/documentSymbol` gives the
+  An `XipeTotec.Scanner` over a language server. Per file:
+  `textDocument/documentSymbol` gives the
   definitions (pass 1); per definition, `textDocument/prepareCallHierarchy`
   at its name and `callHierarchy/outgoingCalls` give what it calls (pass 2).
   Callees are matched to nodes by the natural key the dialect reads off the
@@ -47,8 +47,8 @@ defmodule XipeTotec.Scanner.Lsp do
   `Scanner.Lsp.Dialect`) that implements `XipeTotec.Scanner` by delegating
   here with itself as the dialect -- `Scanner.Lsp.Elixir`.
 
-  The server is reached through an `Lsp.Transport`, tried in order (spec
-  §11.3): `Lsp.Transport.Relay` (tezcatl's `/lsp`, configured from the
+  The server is reached through an `Lsp.Transport`, tried in order:
+  `Lsp.Transport.Relay` (tezcatl's `/lsp`, configured from the
   `:lsp`/`:fs_root` scanner options, the running `xipe start` session's
   record, `XIPE_TOTEC_LSP_RELAY`/`XIPE_TOTEC_LSP_FS_ROOT`, and the
   `TEZCATL_RELAY_PORT`/`TEZCATL_FS_ROOT` a tezcatl-spawned xipe inherits),
@@ -92,7 +92,7 @@ defmodule XipeTotec.Scanner.Lsp do
       else: connect(dialect, root, language, opts)
   end
 
-  # Transports in spec §11.3's order -- tezcatl's relay (already running,
+  # Transports in order -- tezcatl's relay (already running,
   # shared with the editor), then a server of our own -- unless the caller
   # names one. The first that connects and initializes wins; if none does,
   # every one's reason is reported.
@@ -365,7 +365,7 @@ defmodule XipeTotec.Scanner.Lsp do
 
   defp uri(file), do: file_uri(Path.expand(Path.join(file.root, file.path)))
 
-  # The path percent-encoded (2026-10-07): every byte but the unreserved ones
+  # The path percent-encoded: every byte but the unreserved ones
   # and `/` as `%XX`, as vscode-uri writes it. The same as tezcatl's relay
   # (`LspServer.file_uri/1`), which counts `didOpen` by the URI string -- the
   # editor and this scanner must name a file alike. A raw space or non-ASCII

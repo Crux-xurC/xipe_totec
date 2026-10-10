@@ -1,16 +1,13 @@
 defmodule XipeTotec.Book do
   @moduledoc """
-  The in-memory current-state view (spec §4). Every table is `id => latest
-  row` -- Book never holds more than "current"; full history lives only in
-  the append-only Store (JSON Lines) and is folded into a Book at load time
-  (Old.md §3).
+  The in-memory current-state view. Every table is `id => latest row` --
+  Book never holds more than "current"; full history lives only in the
+  append-only Store (JSON Lines) and is folded into a Book at load time.
 
-  `link` rows have no independent identity in the spec's own JSON Lines
-  example (§4.6) -- they are wholly derived from source, never user-edited
-  (§4.4). Rather than special-case them as a plain list, we give each edge a
-  deterministic id derived from its own natural key (`node`, `role`, `ref`,
-  `clause`), so `links` can be an id-keyed map exactly like every other
-  table and reuse the same append/tombstone machinery in Store.
+  `link` rows are wholly derived from source and never user-edited. Each
+  edge gets a deterministic id from its natural key (`node`, `role`, `ref`,
+  `clause`), so `links` is an id-keyed map like every other table and uses
+  the same append/tombstone machinery in Store.
   """
 
   defstruct sheets: %{}, nodes: %{}, calls: %{}, links: %{}, runs: %{}, providers: %{}
@@ -51,8 +48,7 @@ defmodule XipeTotec.Book do
   end
 
   @doc """
-  The node id matching (module, name, anykey), if any (§7.3 minimal identity
-  rule). `anykey` is whatever the node's scanner put there to tell apart
+  The node id matching (module, name, anykey), if any. `anykey` is whatever the node's scanner put there to tell apart
   same-named functions in one module -- the arity for `Scanner.Elixir`
   (`add/2` and `add/3` are different functions), possibly `nil` for a
   language where the name alone is unique.

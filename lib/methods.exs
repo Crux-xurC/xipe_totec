@@ -1,8 +1,7 @@
 defmodule XipeTotec.Methods do
   @moduledoc """
   Every method a command list (`Runner`) or the WebSocket server
-  (`Serve.Project`) accepts, declared once (2026-09-26). Everything that used
-  to keep its own list of method names reads it from here: `Dispatch`'s
+  (`Serve.Project`) accepts, declared once. Read from here: `Dispatch`'s
   not-implemented set, `Serve.Project`'s asynchronous eval methods, and the
   CLI's read-only check (a command list made only of read-only methods
   doesn't warn about a running session).
@@ -14,8 +13,8 @@ defmodule XipeTotec.Methods do
         `scan/run` also reads files)
       * `:repl` -- `Runner`'s `"eval"`, which drives the target's REPL
       * `:pipeline` -- `pipelines.json`/`Pipeline`, a list of stages whose
-        last may be `"eval"` (Old.md §37)
-      * `:not_implemented` -- a spec §16.3 method not built yet
+        last may be `"eval"`
+      * `:not_implemented` -- a reserved method name, answered `not_implemented`
     * `writes` -- whether it can change the Book
     * `repl` -- whether the server runs it as an asynchronous eval pass
       (`Serve.Project`: `{"status": "started"}` then `notify/passCompleted`;
@@ -37,25 +36,25 @@ defmodule XipeTotec.Methods do
   @type spec :: %{route: route(), writes: boolean(), repl: boolean(), args: String.t(), summary: String.t() | nil}
 
   @methods %{
-    "scan/run" => %{route: :dispatch, writes: true, summary: "ソースを読み、カードと link を更新する"},
-    "row/add" => %{route: :dispatch, writes: true, args: "node=<node id> args=[...]", summary: "計算行を作る"},
-    "row/remove" => %{route: :dispatch, writes: true, args: "id=<call id>", summary: "計算行を消す"},
-    "row/set-result" => %{route: :dispatch, writes: true, args: "id=<call id> result=<値>", summary: "評価せずに結果の値を手で入れる"},
-    "effect/set" => %{route: :dispatch, writes: true, args: "id=<node id> effect=pure|reads|writes", summary: "関数の副作用を分類する（未分類の関数は評価しない）"},
-    "arity/set" => %{route: :dispatch, writes: true, args: "id=<node id> arities=[1,2]", summary: "引数の既定値で呼べる引数の数を決める（計算行と link に使う。node の数だけに戻すなら arities=[<その数>]）"},
-    "card/get" => %{route: :dispatch, writes: false, args: "module= name= arity= file= row=", summary: "住所に合うカード（関数・計算行・link）を取り出す"},
-    "card/search" => %{route: :dispatch, writes: false, args: "module= name= arity= file= row=", summary: "住所に合うカードを探す"},
-    "cell/resolve" => %{route: :dispatch, writes: false, args: "ref=⟦<call id>⟧", summary: "参照の今の値を引く"},
-    "graph/neighbors" => %{route: :dispatch, writes: false, args: "address=<住所> [depth=N] [direction=in|out|both]", summary: "呼び出し関係の近いものを引く"},
-    "graph/export" => %{route: :dispatch, writes: false, args: "address=<住所> format=mermaid|dot|json|doctest [depth=N]", summary: "呼び出し関係を書き出す"},
-    "row/depends" => %{route: :dispatch, writes: false, args: "call_ids=[...]", summary: "計算行の上流の依存（⟦id⟧）をたどる"},
-    "row/list" => %{route: :dispatch, writes: false, args: "[call_ids=[...]]", summary: "計算行の一覧"},
-    "eval/status" => %{route: :dispatch, writes: false, args: "", summary: "いま評価中のパス（行・段・経過時間）を見る。評価中の行は変えられない"},
-    "row/check" => %{route: :dispatch, writes: false, args: "[on=error,changed,unevaluated] [call_ids=[...]]", summary: "条件に当たる計算行があれば失敗する"},
-    "node/resolve" => %{route: :dispatch, writes: false, args: "module= name= arity= file= row=", summary: "住所から関数（node）の id を引く"},
-    "eval" => %{route: :repl, writes: true, repl: true, args: "[call_ids=[...]] [include_writes=true]", summary: "指定した計算行を REPL で評価する"},
-    "eval/run" => %{route: :pipeline, writes: true, repl: true, args: "[call_ids=[...]] [include_writes=true]", summary: "指定した計算行を REPL で評価する"},
-    "row/update" => %{route: :pipeline, writes: true, repl: true, args: "id=<call id> args=[...]", summary: "引数を変えて、その行だけを評価する"},
+    "scan/run" => %{route: :dispatch, writes: true, summary: "read the sources and update the cards and links"},
+    "row/add" => %{route: :dispatch, writes: true, args: "node=<node id> args=[...]", summary: "make a calc row"},
+    "row/remove" => %{route: :dispatch, writes: true, args: "id=<call id>", summary: "remove a calc row"},
+    "row/set-result" => %{route: :dispatch, writes: true, args: "id=<call id> result=<value>", summary: "set a result value by hand, without evaluating"},
+    "effect/set" => %{route: :dispatch, writes: true, args: "id=<node id> effect=pure|reads|writes", summary: "classify a function's side effects (an unclassified function is never evaluated)"},
+    "arity/set" => %{route: :dispatch, writes: true, args: "id=<node id> arities=[1,2]", summary: "declare the argument counts default arguments allow (used for calc rows and links; arities=[<the node's own count>] resets it)"},
+    "card/get" => %{route: :dispatch, writes: false, args: "module= name= arity= file= row=", summary: "get the card (function, calc rows, links) an address names"},
+    "card/search" => %{route: :dispatch, writes: false, args: "module= name= arity= file= row=", summary: "find the cards matching an address"},
+    "cell/resolve" => %{route: :dispatch, writes: false, args: "ref=⟦<call id>⟧", summary: "look up a reference's current value"},
+    "graph/neighbors" => %{route: :dispatch, writes: false, args: "address=<address> [depth=N] [direction=in|out|both]", summary: "the neighbours in the call graph"},
+    "graph/export" => %{route: :dispatch, writes: false, args: "address=<address> format=mermaid|dot|json|doctest [depth=N]", summary: "export the call graph"},
+    "row/depends" => %{route: :dispatch, writes: false, args: "call_ids=[...]", summary: "walk calc rows' upstream dependencies (⟦id⟧)"},
+    "row/list" => %{route: :dispatch, writes: false, args: "[call_ids=[...]]", summary: "list the calc rows"},
+    "eval/status" => %{route: :dispatch, writes: false, args: "", summary: "the passes being evaluated now (rows, phase, elapsed time); a row being evaluated cannot be changed"},
+    "row/check" => %{route: :dispatch, writes: false, args: "[on=error,changed,unevaluated] [call_ids=[...]]", summary: "fail if any calc row meets the conditions"},
+    "node/resolve" => %{route: :dispatch, writes: false, args: "module= name= arity= file= row=", summary: "look up a function's (node's) id from an address"},
+    "eval" => %{route: :repl, writes: true, repl: true, args: "[call_ids=[...]] [include_writes=true]", summary: "evaluate the given calc rows in the REPL"},
+    "eval/run" => %{route: :pipeline, writes: true, repl: true, args: "[call_ids=[...]] [include_writes=true]", summary: "evaluate the given calc rows in the REPL"},
+    "row/update" => %{route: :pipeline, writes: true, repl: true, args: "id=<call id> args=[...]", summary: "change a row's arguments and evaluate that row only"},
     "cell/complete" => %{route: :not_implemented, writes: false},
     "edit/propose" => %{route: :not_implemented, writes: false},
     "edit/apply" => %{route: :not_implemented, writes: true},

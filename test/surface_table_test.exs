@@ -7,7 +7,7 @@ defmodule SurfaceTableTest do
 
   alias XipeTotec.SurfaceTable
 
-  # What `xipe refresh -l` records in info.json today (Old.md §34) --
+  # What `xipe refresh -l` records in info.json today --
   # passed explicitly so these tests don't read the real info.json.
   @info %{
     "extensions" => %{"ex" => ["elixir"], "exs" => ["elixir"]},
@@ -108,7 +108,7 @@ defmodule SurfaceTableTest do
     assert SurfaceTable.load(path) == rows
   end
 
-  test "generate/3 leaves language nil for an extension two languages both declare (P9, Old.md §34)", %{dir: dir} do
+  test "generate/3 leaves language nil for an extension two languages both declare", %{dir: dir} do
     File.write!(Path.join(dir, "x.h"), "")
     rows = SurfaceTable.generate(dir, [], put_in(@info, ["extensions", "h"], ["c", "cpp"]))
     row = Enum.find(rows, &(&1["path"] == "x.h"))
@@ -120,7 +120,7 @@ defmodule SurfaceTableTest do
     assert dir |> SurfaceTable.generate([], %{}) |> Enum.all?(&(&1["language"] == nil))
   end
 
-  # 2026-09-26: build tools come from each language's declaration (info.json)
+  # build tools come from each language's declaration (info.json)
   describe "build_tool detection" do
     @multi %{
       "extensions" => %{"ex" => ["elixir"], "hs" => ["haskell"]},
@@ -156,7 +156,7 @@ defmodule SurfaceTableTest do
     end
   end
 
-  # 課題 ④: scan/eval read the saved table instead of generating it every time
+  # scan/eval read the saved table instead of generating it every time
   describe "rows/3" do
     # outside `dir`, like the real tables/project/<id>_<name>/table
     setup do

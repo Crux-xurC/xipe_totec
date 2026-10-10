@@ -2,7 +2,7 @@ Code.require_file("methods.exs", __DIR__)
 
 defmodule XipeTotec.Help do
   @moduledoc """
-  What `help` prints (2026-09-27, `next_step.md` §1.0): one line per
+  What `help` prints: one line per
   command, `<command>: <what it does>  <how its arguments are written>`.
   The CLI (`xipe help`) and the dialogue window (`input` `help`,
   `XipeTotec.Input`) both print from here, so the two never drift apart.
@@ -33,7 +33,7 @@ defmodule XipeTotec.Help do
     %{
       name: "help",
       args: "[<command>]",
-      summary: "コマンドの一覧（<command> を付けるとその説明）",
+      summary: "list the commands (with <command>, describe it)",
       window: true,
       detail: """
       Every command below that takes an optional <dir> acts on the selected project
@@ -46,11 +46,11 @@ defmodule XipeTotec.Help do
       `do` command list.
       """
     },
-    %{name: "version", args: "", summary: "版を表示する", window: true, detail: nil},
+    %{name: "version", args: "", summary: "print the version", window: true, detail: nil},
     %{
       name: "choice project",
       args: "<path>",
-      summary: "プロジェクトを登録（初回）して選ぶ",
+      summary: "register a project (the first time) and select it",
       window: false,
       detail: """
       register <path> if new (generating its surface table) and make it the selected
@@ -60,7 +60,7 @@ defmodule XipeTotec.Help do
     %{
       name: "table generate",
       args: "[<path>]",
-      summary: "ファイル→言語/REPL/ビルドツールの表を作り直す",
+      summary: "regenerate the file -> language/REPL/build tool table",
       window: false,
       detail: """
       regenerate <path>'s surface table (registering it if new) and save it to
@@ -71,21 +71,21 @@ defmodule XipeTotec.Help do
     %{
       name: "scan",
       args: "[<dir>]",
-      summary: "ソースを読み、カードと link を更新する",
+      summary: "read the sources and update the cards and links",
       window: true,
       detail: "scan the project's source files and update its book (the window: no <dir>)\n"
     },
     %{
       name: "show",
       args: "[<dir>]",
-      summary: "シート・関数・link・計算行を表示する",
+      summary: "show the sheets, functions, links and calc rows",
       window: true,
       detail: "print the project's sheets, nodes, links and calc rows (with values) (the window: no <dir>)\n"
     },
     %{
       name: "eval",
       args: "[<dir>] [id...] [--mix] [--include-writes]",
-      summary: "計算行を REPL で評価する（id 省略時は全件）",
+      summary: "evaluate calc rows in the REPL (all of them without an id)",
       window: true,
       detail: """
       launch the project's REPL and (re)evaluate the given calc-row ids (default: every
@@ -99,7 +99,7 @@ defmodule XipeTotec.Help do
     %{
       name: "do",
       args: "[--dir <dir>] <method> [key=value...] [-- <method> [key=value...]]...",
-      summary: "method を順に実行する（下の method 一覧）",
+      summary: "run methods in order (the methods are listed below)",
       window: true,
       detail: """
       run one or more methods (the method lines of `help`) or the "eval" pseudo-method
@@ -124,10 +124,10 @@ defmodule XipeTotec.Help do
     %{
       name: "search",
       args: "[<turn>]",
-      summary: "表を絞り込む対話を始める（-h で使い方）",
+      summary: "start a dialogue that narrows the tables down (-h for usage)",
       window: true,
       detail: """
-      narrow things down over several turns (Dialogue.Search, next_step §1.1): -s the
+      narrow things down over several turns (Dialogue.Search): -s the
       surface table, -e the eval_table (calc rows with their function and path).
         -s|-e <column> <value> [<out>]   rows whose <column> is <value>; their <out>
                                          (default id) values become the held list
@@ -142,17 +142,17 @@ defmodule XipeTotec.Help do
     %{
       name: "quit dialogue",
       args: "",
-      summary: "保持している対話（search など）を終える",
+      summary: "end the held dialogue (search etc.)",
       window: true,
       detail: nil
     },
     %{
       name: "dialogue depends",
       args: "[<dir>] <call_id>",
-      summary: "上流の依存をたどり、どこに値を入れて評価するかを対話で決める",
+      summary: "walk the upstream dependencies and decide in a dialogue where to supply a value and evaluate",
       window: true,
       detail: """
-      §16.4 interactive dependency-chain negotiation: walks <call_id>'s upstream ⟦id⟧
+      interactive dependency-chain negotiation: walks <call_id>'s upstream ⟦id⟧
       chain deepest-first, asking at each step whether to hand-supply that step's value
       (skipping real evaluation for it and everything deeper) and run everything from
       there up through <call_id> for real. At a prompt, answer "y <literal>"
@@ -163,10 +163,10 @@ defmodule XipeTotec.Help do
     %{
       name: "start",
       args: "[<dir>] [--port N] [--lsp <url>] [--fs-root <dir>]",
-      summary: "WebSocket の入口として常駐する（serve は別名）",
+      summary: "stay up as the WebSocket entry (serve is an alias)",
       window: false,
       detail: """
-      run the §16.1 WebSocket (localhost) server over the project's book (default port
+      run the WebSocket (localhost) server over the project's book (default port
       4200, or $XIPE_TOTEC_PORT) and record it as the running session
       (tables/session.json): while it runs, every other command without a <dir> acts on
       its project instead of the selected one. An unregistered <dir> is registered (the
@@ -175,13 +175,13 @@ defmodule XipeTotec.Help do
       ($XIPE_TOTEC_LSP_RELAY / $XIPE_TOTEC_LSP_FS_ROOT, else derived from the
       TEZCATL_RELAY_PORT / TEZCATL_FS_ROOT a tezcatl-spawned xipe inherits). tezcatl
       starts it without a <dir> -- on the selected project -- passing --port, --lsp and
-      --fs-root. `xipe serve ...` is the same command (spec §15's name).
+      --fs-root. `xipe serve ...` is the same command.
       """
     },
     %{
       name: "config",
       args: "[<dir>] [key=value...]",
-      summary: "プロジェクトごとの設定を見る・変える",
+      summary: "show or change a project's settings",
       window: false,
       detail: """
       show or set the project's own settings (its project.json): env.path=prepend|replace
@@ -193,13 +193,13 @@ defmodule XipeTotec.Help do
     %{
       name: "refresh",
       args: "-l|-r|-a",
-      summary: "xipe_totec 自身の info.json（言語・REPL アダプタ）を更新する",
+      summary: "update xipe_totec's own info.json (languages, REPL adapters)",
       window: false,
       detail: """
       re-scan xipe_totec's own adapter modules and update ./info.json: -l (--languages)
       lib/repl/language/*.exs (names + extensions), -r (--repls)
       lib/repl/eval/scan/<transport>/*.exs, -a (--all) both. A file being present is not
-      proof it works (§24) -- this only records what's there, run it after
+      proof it works -- this only records what's there, run it after
       adding/removing an adapter module yourself.
       """
     }
@@ -244,7 +244,7 @@ defmodule XipeTotec.Help do
   def detail(name, where) do
     case Enum.find(@commands, &(&1.name == name)) do
       %{window: false} when where == :window ->
-        {:ok, "#{name} は端末で xipe #{name} として実行するコマンドです（対話窓では使えません）\n"}
+        {:ok, "#{name} is a terminal command, run as xipe #{name} (not available in the dialogue window)\n"}
 
       %{} = c ->
         usage = String.trim_trailing("#{prefix(where)}#{c.name} #{c.args}")
@@ -258,7 +258,7 @@ defmodule XipeTotec.Help do
   defp method_detail(name) do
     case Methods.get(name) do
       %{route: :not_implemented} ->
-        {:ok, "#{name}: 未実装\n"}
+        {:ok, "#{name}: not implemented\n"}
 
       %{} = spec ->
         kind = [if(spec.writes, do: "write", else: "read"), if(spec.repl, do: "REPL")] |> Enum.reject(&is_nil/1) |> Enum.join(", ")

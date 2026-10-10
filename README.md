@@ -20,7 +20,7 @@ Elixir 実装。アプリ名 `:xipe_totec`、モジュール名 `XipeTotec`、CL
 計算行の引数には、別の計算行の出力への参照（`⟦id⟧`）を置ける ── 参照でつないだ
 計算行を並べて評価すれば、上流の変化が下流にどう伝わるかを見られる。評価するのは
 指定した計算行だけで、指定していない行を裏で評価して記録に加えることはしない
-（Book は時系列の記録、`document/Old.md` §36）。
+（Book は時系列の記録、`work_history/Old.md` §36）。
 
 評価は、人が REPL の端末で行う操作をそのまま自動化する形で行う。対象プロジェクト
 自身の REPL（Elixir なら `iex`）を起動し、標準入力へ呼び出し式を書き込み、
@@ -30,7 +30,7 @@ Elixir 実装。アプリ名 `:xipe_totec`、モジュール名 `XipeTotec`、CL
 ある関数を誰が呼んでいるかを引ける。当初は、カード上の名前変更をソースへ書き戻す
 **連動修正**（`edit/propose`/`edit/apply`）を柱にしていたが、2026-09-22 に撤回した。
 実際の書き換えはエディタ側（LSP の rename など）に任せ、Xipe Totec は参照一覧を
-出すところまでを受け持つ（`document/Old.md` §21）。
+出すところまでを受け持つ（`work_history/Old.md` §21）。
 
 加えて、実行中のプログラムの関数呼び出しを動作順に1つの表として記録し
 （**trace 表**）、計算行の入力候補として使えるようにする構想がある（凍結中）。
@@ -182,7 +182,7 @@ PATH に処理系が無ければ飛ばす）がある。
 
 **進行中なのは多言語対応。** 言語・REPL・ビルドツールの判定テーブル
 （`SurfaceTable`）はできていて、Elixir（＋mix）・OCaml（＋dune）・Haskell（＋stack・cabal）が入っている。残りは
-[`document/課題.md`](document/課題.md) を見ること。
+[`work_history/課題.md`](work_history/課題.md) を見ること。
 
 ---
 
@@ -315,6 +315,6 @@ tezcatl の対話窓（`panels/skins/xipe.html`）は、打った1行を解釈�
 | [`document/動作原理.md`](document/動作原理.md) | 使う場面ごとに、何がどの順で呼ばれ、どのプログラムが担っているか |
 | [`document/拡張の手引き.md`](document/拡張の手引き.md) | 言語やコマンドを足したい人（と、その人の AI）は、何を参考に、どういう動作を満たすように作ればよいか |
 | [`document/repl-adapter-guide.md`](document/repl-adapter-guide.md) | 新しい言語・REPL のアダプタをどう書くか（Elixir 実装時点の詳しい参照資料。入口は拡張の手引き） |
-| [`document/課題.md`](document/課題.md) | いま何が未解決で、次に何をするか |
-| [`document/Old.md`](document/Old.md) | いまの設計が、いつ・なぜそうなったか（決定歴。旧 `XipeTotec_prebuild.md` と旧 `課題.mkd`）。コード中の「Old.md §N」はここの節 |
-| `document/xipe_totec_spec_v0.4.html` | 仕様のたたき台（v0.4）。実装との差分がいくつも残っている（`課題.md` の「文書」節）。食い違うときは `Old.md` の決定を優先すること |
+| [`work_history/課題.md`](work_history/課題.md) | いま何が未解決で、次に何をするか |
+| [`work_history/Old.md`](work_history/Old.md) | いまの設計が、いつ・なぜそうなったか（決定歴。旧 `XipeTotec_prebuild.md` と旧 `課題.mkd`）。コード中の「Old.md §N」はここの節 |
+| `work_history/xipe_totec_spec_v0.4.html` | 仕様のたたき台（v0.4）。実装との差分がいくつも残っている（`課題.md` の「文書」節）。食い違うときは `Old.md` の決定を優先すること |

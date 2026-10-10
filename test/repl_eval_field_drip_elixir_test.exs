@@ -34,7 +34,7 @@ defmodule ReplEvalFieldDripElixirTest do
     fields = FieldDripElixir.parse(body)
     result = XipeTotec.Repl.Eval.Result.success("c1", fields, 0)
     # repr stays the plain string eval_template printed -- not converted to
-    # an atom (fixed 2026-09-18: Core's own repr comparisons, e.g.
+    # an atom (Core's own repr comparisons, e.g.
     # `resolve_ref/4`'s `ref_call.repr in ["exact", "binary"]`, are strings)
     assert result.outcome == {:ok, %{repr: "exact", type: "integer", display: "5", bin: nil}}
   end

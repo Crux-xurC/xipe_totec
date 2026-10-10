@@ -1,34 +1,28 @@
 defmodule XipeTotec.Dialogue do
   @moduledoc """
   The contract a multi-turn dialogue program implements to plug into
-  `InOut` (this file's sibling, Old.md §17, 2026-09-20 co-design).
+  `InOut`.
 
   A program never encodes the wire-level 2-bit message type itself --
   `InOut` infers it mechanically from which of the two return shapes below
   comes back:
 
-    * `:hold` -- bit1 (保持)=1. `InOut` keeps `{module, state}` around and
-      waits for the next `"dialogue/answer"` input before calling this
-      program again.
-    * `:done` with `commands == []` -- bit1=0, bit2=1 (`01`, xipe_totec内
-      で完結). Nothing further happens; `text` is the whole result.
-    * `:done` with a non-empty `commands` -- bit1=0, bit2=0 (`00`, REPLへ
-      投下). `InOut` immediately hands `commands` to `Runner.run/4` and
-      folds its outcomes into the reply, in the same turn.
+    * `:hold` -- hold=1. `InOut` keeps `{module, state}` around and waits
+      for the next `"dialogue/answer"` input before calling this program
+      again.
+    * `:done` with `commands == []` -- hold=0, via_repl=0 (finished inside
+      xipe_totec). Nothing further happens; `text` is the whole result.
+    * `:done` with a non-empty `commands` -- hold=0, via_repl=1. `InOut`
+      immediately hands `commands` to `Runner.run/4` and folds its outcomes
+      into the reply, in the same turn.
 
   `text` in both shapes is the human-readable line `InOut` appends to the
-  `:out` side of the dialogue log (Old.md §17's `{:in, text} | {:out,
-  text}` entries) -- a question ("Xに値を入れて評価しますか？(y/n)") while
-  holding, a closing remark ("以上の内容で評価を行います" and similar)
-  when done. The program owns its own `state` shape entirely; `InOut`
-  never inspects it, only threads it back on the next `answer/2` call.
+  `:out` side of the dialogue log -- a question while holding, a closing
+  remark when done. The program owns its own `state` shape entirely;
+  `InOut` never inspects it, only threads it back on the next `answer/2`
+  call.
 
-  No program exists yet that implements this (Old.md §16.4's
-  dependency-chain negotiation is designed but not built -- it's step 4 of
-  §16.4's agreed order, this behaviour and `InOut` are step 3).
-  `test/in_out_test.exs`'s `ToyDialogue` is the only implementation today,
-  proving the wiring independent of any real program (same reasoning as
-  `Repl.Evaluator`'s `ToyLanguage` test).
+  Programs: `Dialogue.Depends`, `Dialogue.Search` (`InOut.programs/0`).
   """
 
   @doc "Starts a dialogue from the method name that named this program in `InOut`'s registry. `params` is that request's own params, unexamined by InOut."
@@ -43,17 +37,17 @@ defmodule XipeTotec.Dialogue do
 
   @doc """
   One typed line (the CLI's prompt, or the dialogue window's `input` while
-  this dialogue is held, 2026-09-27) as `answer/2`'s params. Optional:
+  this dialogue is held) as `answer/2`'s params. Optional:
   without it the line arrives as `%{"text" => line}`.
   """
   @callback parse_answer(line :: String.t()) :: map()
 
-  ## Reading the Book, and passing a line on (2026-09-27, for Dialogue.Search)
+  ## Reading the Book, and passing a line on
   #
   # A program that needs to read the Book on every turn implements
   # start/2 / answer/3 instead of start/1 / answer/2: `InOut` then hands it
   # a read-only `ctx` (`%{book:, root:, project_dir:}`). It still never
-  # changes the Book itself -- changes go through commands, as before.
+  # changes the Book itself -- changes go through commands.
   #
   # Besides :hold and :done, a turn may return `{:pass, state, line}`: the
   # line is an ordinary command line (read the way the CLI reads one,
@@ -82,7 +76,7 @@ defmodule XipeTotec.Dialogue do
   @doc """
   A typed line to a held dialogue, as the request `InOut.handle/6` takes:
   `quit dialogue` (`xipe quit dialogue`) ends any dialogue
-  (`"dialogue/quit"`, next_step §1.1); anything else is the answer.
+  (`"dialogue/quit"`); anything else is the answer.
   """
   @spec line_request(module(), String.t()) :: map()
   def line_request(mod, line) do

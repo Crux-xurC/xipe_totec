@@ -32,7 +32,7 @@ defmodule ReplSenderDirectTest do
   # A trivial, always-available command stands in for a real REPL launch
   # here -- this test is about the Port plumbing (argv/env/cwd/exit,
   # message shape), not about iex or distributed Erlang, which stays a
-  # live 2-node concern out of this fast suite (Old.md §28 G's split).
+  # live 2-node concern out of this fast suite.
   test "spawns argv[0] with the given args, cwd, and env, and the caller receives its stdout" do
     {:ok, handle} =
       Direct.send(%{
@@ -70,7 +70,7 @@ defmodule ReplSenderDirectTest do
              })
   end
 
-  # 2026-09-26: a spawn that erlexec refuses used to take the caller down
+  # a spawn that erlexec refuses used to take the caller down
   # with it (the failing GenServer's exit signal over the link), so a bad
   # launch crashed `xipe eval` instead of reporting launch_failed
   test "a spawn failure is a clean error and leaves the caller alive, not trapping exits" do

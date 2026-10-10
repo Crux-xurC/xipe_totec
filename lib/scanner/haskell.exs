@@ -3,10 +3,9 @@ Code.require_file("../scanner.exs", __DIR__)
 
 defmodule XipeTotec.Scanner.Haskell do
   @moduledoc """
-  Haskell's scan (Old.md §46), read from the text -- nothing but
-  xipe_totec needed (P8), and, as for OCaml (Old.md §42.4), the links
-  wanted are the dependencies between the functions a file defines, which
-  the text shows.
+  Haskell's scan, read from the text -- no Haskell toolchain needed. As
+  for OCaml, the links wanted are the dependencies between the functions a
+  file defines, which the text shows.
 
   **Definitions**: the module is the file's `module X` header (`Main`
   without one). A top-level definition is a line starting at column 0 with
@@ -21,7 +20,7 @@ defmodule XipeTotec.Scanner.Haskell do
   `M.f` (an `import ... as N` alias resolved), a bare name of another
   definition in the same module, and a bare name some unqualified import of
   a project module defines. Local bindings that shadow those names are
-  taken for calls (P9: what the text suggests).
+  taken for calls (the links are what the text suggests).
   """
 
   @behaviour XipeTotec.Scanner

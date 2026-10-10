@@ -3,7 +3,7 @@ Code.require_file("session.exs", __DIR__)
 
 defmodule XipeTotec.Store do
   @moduledoc """
-  Append-only JSON Lines persistence (spec §17, Old.md §2). One row per
+  Append-only JSON Lines persistence. One row per
   line, tagged by `type`; the same logical entity may appear on many lines
   over time (an evaluation, an edit, a removal each append a fresh line) --
   the *last* line for a given `{type, id}` pair wins when folding into a
@@ -11,15 +11,13 @@ defmodule XipeTotec.Store do
 
   A row with `deleted: true` removes that id from the table on fold (the
   tombstone convention used for `row/remove` and for a link edge that
-  disappeared on rescan). This is a Store-level convention layered on top of
-  spec's own node/sheet `status: tombstone`, which keeps its separate
-  spec'd meaning.
+  disappeared on rescan). This is a Store-level convention, separate from a
+  node/sheet row's own `status: tombstone`.
 
   `compact/1` (rewrite the file to hold just the current folded state) is
   the one sanctioned exception to "never rewrite".
 
-  Writers (2026-10-09, 課題 §2 "CLIとサーバーの同時書き込み", crux): every
-  write holds `<path>.lock` (`with_lock/3`), so the CLI and a running
+  Writers: every write holds `<path>.lock` (`with_lock/3`), so the CLI and a running
   server never interleave their lines. The lock names its owner by
   `os_pid` + `os_started` (`XipeTotec.Session.owner/0`), as `passes/` and
   `session.json` do; a lock whose owner is gone is taken over. A writer
@@ -27,7 +25,7 @@ defmodule XipeTotec.Store do
   appended since it last read (`persist_diff_since/5`) before it writes.
   And a write never follows a line cut off by a crash: the file is made to
   end in a newline first, so the cut line stays one bad line (skipped on
-  load) instead of swallowing the next (2026-10-09).
+  load) instead of swallowing the next.
   """
 
   alias XipeTotec.Book
@@ -170,7 +168,7 @@ defmodule XipeTotec.Store do
   @doc """
   What others appended to `path` since `pos`, folded into `book` -- for a
   writer that keeps the book in memory (the server) to catch up before it
-  *uses* the book, not only before it writes (Old.md §56). No lock: only
+  *uses* the book, not only before it writes. No lock: only
   whole lines are read, so a line still being written is left for the next
   time. -> {book, the new pos} (the same `pos` when nothing came)
   """
@@ -224,15 +222,13 @@ defmodule XipeTotec.Store do
   @doc """
   Append to the Store at `path` only the rows in `tables` that are new or
   changed between `old_book` and `new_book`, and tombstone (`deleted: true`)
-  any that disappeared -- the diff `XipeTotec.Project.persist_scan/3` used
-  to do inline for `[:sheets, :nodes, :links]` only, generalized (Old.md
-  §9, 2026-09-17) so `Serve.Project` can persist the effect of *any*
-  `Dispatch.handle/4` call across all six tables the same way.
+  any that disappeared. Used for a scan (`Project.persist_scan/3`) and for
+  the effect of any `Dispatch.handle/4` call in `Serve.Project`.
   """
   @spec persist_diff(Path.t(), Book.t(), Book.t(), [Book.table()]) :: :ok
   def persist_diff(path, old_book, new_book, tables) do
-    # all the changed rows in one append (a scan can change hundreds; opening
-    # the file once per row was the cost), in the same order as before
+    # all the changed rows in one append (a scan can change hundreds), in a
+    # fixed order
     lines = diff_lines(old_book, new_book, tables)
     if lines != [], do: with_lock(path, fn -> write_lines(path, lines) end)
     :ok
@@ -304,7 +300,7 @@ defmodule XipeTotec.Store do
   defp atomize_keys(map), do: Map.new(map, fn {k, v} -> {String.to_atom(k), v} end)
 
   # A node row written before the natural key's third column was renamed
-  # `arity` -> `anykey` (2026-09-25) still matches on rescan -- without this
+  # `arity` -> `anykey` still matches on rescan -- without this
   # every such node would be re-minted and its calc rows orphaned.
   defp upgrade(%{arity: arity} = row, :nodes) when not is_map_key(row, :anykey),
     do: row |> Map.delete(:arity) |> Map.put(:anykey, arity)

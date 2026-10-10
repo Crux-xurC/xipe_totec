@@ -7,30 +7,22 @@ Code.require_file("dialogue/search.exs", __DIR__)
 
 defmodule XipeTotec.InOut do
   @moduledoc """
-  The "第4層" structured dialogue I/O core (Old.md §16.4/§17,
-  2026-09-19/20 co-design). Stays pure like `Runner`/`Dispatch`/`Pipeline`
-  -- `handle/6` takes a `Book` and a `dialogue` (the one piece of state
-  this layer adds) and returns both back, plus one tagged reply. No
-  process of its own; the caller (`main.exs`'s CLI, or -- once wired --
-  `Serve.Project`/`Serve.Socket`) is the one holding `book`/`dialogue`
-  between calls, the same way `main.exs` already threads `Book` around
-  `Runner.run/4` and persists the diff itself.
+  The structured dialogue I/O core. Pure, like `Runner`/`Dispatch`/
+  `Pipeline`: `handle/6` takes a `Book` and a `dialogue` (the one piece of
+  state this layer adds) and returns both back, plus one tagged reply. No
+  process of its own; the caller (the CLI, or `Serve.Project`/
+  `Serve.Socket`) holds `book`/`dialogue` between calls.
 
-  ## One dialogue per connection (decided 2026-09-20)
+  ## One dialogue per connection
 
-  `dialogue :: nil | {module, term}` is deliberately a single slot, not a
-  registry keyed by some correlation id. crux's own use case (tezcatl
-  opening a project in several browser tabs, all sharing one relay↔`/xipe`
-  connection -- tezcatl.md, `XipeSocket` forwards frames verbatim with no
-  per-tab identity) means a second tab's *unrelated* command can arrive
-  mid-dialogue on the very same connection; it must NOT be mistaken for
-  the pending answer. A second tab starting a *second* dialogue while one
-  is already held is out of scope for now (falls through to the ordinary
-  pass-through below, which will normally reply `unknown_method` since a
-  dialogue-starting method is only recognized while `dialogue == nil`) --
-  no real dialogue program exists yet to make this a live problem, and
-  CLI usage is unaffected by construction (each terminal is its own OS
-  process, so it never shares a `dialogue` slot with another one).
+  `dialogue :: nil | {module, term}` is a single slot, not a registry keyed
+  by a correlation id. Several clients may share one connection (tezcatl's
+  windows all go through one relay connection), so an *unrelated* command
+  can arrive mid-dialogue on that connection; it is not mistaken for the
+  pending answer. A method that would start a *second* dialogue while one
+  is held falls through to the ordinary pass-through below (normally
+  `unknown_method`, since a dialogue-starting method is only recognized
+  while `dialogue == nil`).
 
   ## Routing
 
@@ -48,14 +40,13 @@ defmodule XipeTotec.InOut do
       pseudo-method exactly as if `InOut` didn't exist, whether or not a
       dialogue happens to be held at the time.
 
-  ## The programs, and what a turn may ask of its driver (2026-09-27)
+  ## The programs, and what a turn may ask of its driver
 
   `programs/0` is the one registry of dialogue programs (`dialogue/depends`,
-  `dialogue/search`), used by the CLI and the server alike (the server had
-  none before, `課題.md` §2). Tests pass their own map.
+  `dialogue/search`), used by the CLI and the server alike. Tests pass
+  their own map.
 
-  `"dialogue/quit"` ends whatever dialogue is held (`quit dialogue`,
-  next_step §1.1).
+  `"dialogue/quit"` ends whatever dialogue is held (`quit dialogue`).
 
   A program with `start/2`/`answer/3` gets a read-only `ctx` (the book,
   root and project dir -- `Dialogue`). Two things are left to the caller
@@ -66,35 +57,26 @@ defmodule XipeTotec.InOut do
     * `{:commands, commands}` -- a `:done` turn's commands, only when the
       caller passes `defer_commands: true` (`Serve.Input`, so an evaluation
       runs in the server's pass queue, not inside this call). Without it
-      they run here through `Runner.run/4`, as before (the CLI)
+      they run here through `Runner.run/4` (the CLI)
 
-  ## The 2-bit reply tag (Old.md §17)
+  ## The reply tag
 
-  A `Dialogue` program never encodes `hold`/`via_repl` itself (see that
-  module's own moduledoc) -- `InOut` derives them mechanically:
+  A `Dialogue` program never encodes `hold`/`via_repl` itself; `InOut`
+  derives them:
 
-    * `:hold` from `start/1` or `answer/2` -> `hold: true, via_repl: false`
-      (`11`), and the dialogue stays open.
-    * `:done` with `commands == []` -> `hold: false, via_repl: false`
-      (`01`), dialogue closes, nothing else happens.
-    * `:done` with a non-empty `commands` -> `hold: false, via_repl: true`
-      (`00`), dialogue closes, and `commands` is immediately handed to
+    * `:hold` from `start/1` or `answer/2` -> `hold: true, via_repl: false`,
+      and the dialogue stays open.
+    * `:done` with `commands == []` -> `hold: false, via_repl: false`,
+      dialogue closes, nothing else happens.
+    * `:done` with a non-empty `commands` -> `hold: false, via_repl: true`,
+      dialogue closes, and `commands` is immediately handed to
       `Runner.run/4` in the same turn (folded into `result["outcomes"]`).
     * the ordinary pass-through case -> `hold: false`, `via_repl` decided
       by `via_repl?/1` (`true` for `"eval"` and anything
-      `Pipeline.handles?/1` says yes to, `false` -- i.e. an ordinary
-      `Dispatch` method -- otherwise). This is the same static
-      per-execution-path classification Old.md §17.1 already worked
-      out for the existing command surface (`Dispatch` Tier1 methods all
-      `01`, the `"eval"` pseudo-method `00`); `InOut` doesn't invent a new
-      rule here, only applies that one mechanically.
+      `Pipeline.handles?/1` says yes to, `false` otherwise).
 
-  `notify/*` (the `Serve.Project` broadcast push, tagged `01` per §17.1)
-  is explicitly **not** handled here -- it never arrives as an `InOut.handle/6`
-  call in the first place (it's pushed independently via
-  `Serve.Project`'s own `push/2`, not a reply to any particular `:in`).
-  Tagging it on the way out is `Serve.Socket`/`Protocol`'s job, left for
-  whenever `Serve.Socket` is actually wired to `InOut`.
+  `notify/*` never passes through here: `Serve.Project` pushes it on its
+  own, not as a reply to a request.
   """
 
   alias XipeTotec.{Book, Pipeline, Runner}
@@ -140,7 +122,7 @@ defmodule XipeTotec.InOut do
     do: run_program(mod, :answer, [state, params], book, root, opts)
 
   def handle({_mod, _state}, book, _root, %{"method" => @quit_method}, _opts, _programs),
-    do: {nil, book, ok_outcome(false, false, "対話を終了しました。", nil)}
+    do: {nil, book, ok_outcome(false, false, "The dialogue has ended.", nil)}
 
   def handle(nil, book, _root, %{"method" => method}, _opts, _programs) when method in [@answer_method, @quit_method],
     do: {nil, book, error_outcome("no_pending_dialogue", "\"#{method}\" received but no dialogue is held")}
@@ -236,7 +218,7 @@ defmodule XipeTotec.InOut do
      }}
   end
 
-  # Static per-method classification (Old.md §17.1) -- "eval" (the
+  # Static per-method classification -- "eval" (the
   # Runner pseudo-method) and anything Pipeline.handles?/1 (its "eval"
   # stage) both do live REPL I/O; every other method that reaches here is
   # an ordinary Dispatch Tier1 call, no REPL involved.

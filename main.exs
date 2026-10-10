@@ -49,7 +49,7 @@ defmodule XipeTotec.CLI do
       ["show", dir] -> show(dir)
       ["show"] -> show(nil)
       ["start" | rest] -> start(rest)
-      # spec §15's name for the same server; kept as an alias of `start`
+      # an alias of `start`
       ["serve" | rest] -> start(rest)
       ["eval" | rest] -> eval(rest)
       ["do" | rest] -> do_cmd(rest)
@@ -202,7 +202,7 @@ defmodule XipeTotec.CLI do
     # otherwise they come from the environment (TEZCATL_RELAY_PORT/
     # TEZCATL_FS_ROOT, tezcatl's own settings). The relay URL is a guess outside tezcatl --
     # harmless, a scanner that can't reach it falls through to the next
-    # provider (spec §11.3).
+    # provider.
     lsp =
       opts[:lsp] || System.get_env("XIPE_TOTEC_LSP_RELAY") ||
         "ws://127.0.0.1:#{System.get_env("TEZCATL_RELAY_PORT") || "4100"}/lsp"
@@ -233,16 +233,16 @@ defmodule XipeTotec.CLI do
         Process.sleep(:infinity)
 
       {:error, :eaddrinuse} ->
-        IO.puts(:stderr, "xipe start: 127.0.0.1:#{port} は使用中です (--port か $XIPE_TOTEC_PORT で変更可)")
+        IO.puts(:stderr, "xipe start: 127.0.0.1:#{port} is in use (change it with --port or $XIPE_TOTEC_PORT)")
         System.halt(1)
 
       {:error, reason} ->
-        IO.puts(:stderr, "xipe start: リスナ起動に失敗: #{inspect(reason)}")
+        IO.puts(:stderr, "xipe start: could not start the listener: #{inspect(reason)}")
         System.halt(1)
     end
   end
 
-  # Until CLI writes are routed through a running server (課題.md §2), a CLI
+  # Until CLI writes are routed through a running server, a CLI
   # command that changes the book of the project a session is serving
   # writes the same book.jsonl behind the server's back: the server keeps
   # its in-memory book and never sees the change. Say so rather than stay
@@ -260,12 +260,9 @@ defmodule XipeTotec.CLI do
     end
   end
 
-  # Synchronous one-shot, same shape as scan/1 and show/1 (Old.md's own
-  # framing: "xipe eval can be scoped the same synchronous one-shot way
-  # xipe scan/xipe show already are"). The leading <dir> is optional: a
-  # first positional that is an existing directory is <dir>, anything else
-  # is already a call id (ULIDs never collide with a real directory name
-  # in practice).
+  # Synchronous one-shot, like scan/1 and show/1. The leading <dir> is
+  # optional: a first positional that is an existing directory is <dir>,
+  # anything else is a call id.
   defp eval(args) do
     {opts, positional, _invalid} = OptionParser.parse(args, strict: [mix: :boolean, include_writes: :boolean])
 
@@ -288,7 +285,7 @@ defmodule XipeTotec.CLI do
       # otherwise leave :launch_opts unset and let Runner decide from
       # the project's surface table.
       evaluator_opts = if opts[:mix], do: [launch_opts: []], else: []
-      # --include-writes (Old.md §16.2/§16.4, 2026-09-21): the dedicated
+      # --include-writes: the dedicated
       # `xipe eval` command's own equivalent of `xipe do ... eval
       # include_writes=true` -- Runner.run_one/4's "eval" case is what
       # actually reads this out of the command's params.
@@ -298,14 +295,9 @@ defmodule XipeTotec.CLI do
     end
   end
 
-  # `xipe dialogue depends [<dir>] <call_id>` -- the real §16.4 dependency-
-  # chain negotiation (Old.md §19), the first real `Dialogue` program
-  # to ride on `InOut.run_to_completion/7` (previously only proven by a
-  # throwaway toy program, now removed). Resolves <call_id>'s upstream
-  # chain via `Core.upstream_chain/2` + `Core.call_label/2` *before*
-  # starting the dialogue and hands the fully-resolved chain in as plain
-  # params -- `XipeTotec.Dialogue.Depends` itself never touches `book` (see
-  # its own moduledoc for why).
+  # `xipe dialogue depends [<dir>] <call_id>` -- the dependency-chain
+  # negotiation (`XipeTotec.Dialogue.Depends`), driven to its end by
+  # `InOut.run_to_completion/7`.
   defp dialogue_depends(args) do
     {dir, call_id} =
       case args do
@@ -348,7 +340,7 @@ defmodule XipeTotec.CLI do
     end
   end
 
-  # `xipe search [<turn>]` (next_step §1.1, Dialogue.Search): a prompt
+  # `xipe search [<turn>]` (Dialogue.Search): a prompt
   # holding the search's list and `x` for as long as it runs -- one process,
   # since a shell's separate `xipe search ...` calls couldn't share them.
   # A turn the search passes on (an ordinary command line, InOut's `:run`)
@@ -412,7 +404,7 @@ defmodule XipeTotec.CLI do
 
   defp shell_word(w), do: if(w == "" or String.match?(w, ~r/\s/), do: "'#{w}'", else: w)
 
-  # `xipe refresh -l|-r|-a` (Old.md §24): a deliberate registration
+  # `xipe refresh -l|-r|-a`: a deliberate registration
   # step, not something every command silently re-derives -- see
   # `XipeTotec.Info`'s own moduledoc for why. Flags are independent
   # (`-a` is just `-l` + `-r` together, not a distinct third code path) so
@@ -449,19 +441,14 @@ defmodule XipeTotec.CLI do
     System.halt(1)
   end
 
-  # crux's 2026-09-18 co-design call: split the CLI into an "input" half
-  # (argv/subcommand-specific parsing, above) that only ever builds a
-  # command list -- a plain `[%{"method" =>, "params" =>}, ...]`, the same
-  # shape §16.3's own wire messages use -- and hand it to `Runner.run/4`
-  # (the "action" half, shared with a future external front end, crux's
-  # target being tezcatl, not yet designed) rather than mutating the book
-  # directly here. `scan`/`eval` above are now both one-command lists built
-  # this same way; `do_cmd/1` below is the general form for any number of
-  # chained commands.
+  # The CLI only builds a command list -- a plain
+  # `[%{"method" =>, "params" =>}, ...]` -- and hands it to `Runner.run/4`
+  # rather than changing the book here. `scan`/`eval` above are
+  # one-command lists; `do_cmd/1` below is the general form.
   defp run_commands(project, commands, evaluator_opts \\ []) do
     unless Enum.all?(commands, &Methods.read_only?(&1["method"])), do: warn_if_session_project(project)
     old_book = Store.load(project.store_file)
-    # scan/run and eval read the project's saved surface table (課題 ④) and
+    # scan/run and eval read the project's saved surface table and
     # run its tools in its own environment (ProjectEnv)
     evaluator_opts = Keyword.put(evaluator_opts, :project_dir, project.dir)
     {new_book, outcomes} = Runner.run(old_book, project.path, commands, evaluator_opts)
@@ -490,11 +477,7 @@ defmodule XipeTotec.CLI do
       IO.puts(:stderr, "xipe do: no command given (xipe help for the syntax)")
       System.halt(1)
     else
-      # Same GitCtx.read/1 `eval/1` passes -- without it, an "eval" step inside
-      # `xipe do ...` silently persisted commit/commit_at/dirty as nil
-      # instead of the real git provenance the dedicated `xipe eval`
-      # command records for the identical underlying operation (2026-09-19
-      # review finding).
+      # the git provenance an "eval" step records, as `xipe eval` does
       project = project!(dir)
       run_commands(project, commands, ctx: GitCtx.read(project.path))
     end

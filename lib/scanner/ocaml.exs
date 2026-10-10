@@ -3,20 +3,19 @@ Code.require_file("../scanner.exs", __DIR__)
 
 defmodule XipeTotec.Scanner.Ocaml do
   @moduledoc """
-  OCaml's basic-behavior scan (Old.md §42): reads a `.ml` file as text --
-  no OCaml needed, so it works with nothing but xipe_totec (P8). It is
-  OCaml's only scanner: ocamllsp has no `callHierarchy`, and the links
-  wanted are the dependencies between the functions a file defines, which
-  the text shows (crux, Old.md §42.4).
+  OCaml's scan: reads a `.ml` file as text -- no OCaml toolchain needed.
+  It is OCaml's only scanner: ocamllsp has no `callHierarchy`, and the
+  links wanted are the dependencies between the functions a file defines,
+  which the text shows.
 
   **Definitions**: the file is the module its name gives (`target.ml` is
   `Target`). Every top-level value definition -- a line starting at column 0
   with `let`, `let rec`, or `and` continuing one -- is a node, except
   `let ()`/`let _` (effects, not values), operators, and `and` continuing a
-  `type`. Definitions inside a nested `module ... = struct` are not read
-  yet. OCaml can define the same name twice (the later one shadows); the
-  last one is the node. `anykey` is `nil` (the name alone is unique, and
-  currying leaves no arity to check -- next_step §2.2), and every node is
+  `type`. Definitions inside a nested `module ... = struct` are not read.
+  OCaml can define the same name twice (the later one shadows); the last
+  one is the node. `anykey` is `nil` (the name alone is unique, and
+  currying leaves no arity to check), and every node is
   `public` (xipe loads the source itself, so what an `.mli` hides is still
   callable).
 
@@ -24,7 +23,7 @@ defmodule XipeTotec.Scanner.Ocaml do
   definition's text (comments and strings blanked), `Mod.name` naming a
   known node, and a bare name of another definition of the same file. A
   local variable that happens to share a top-level name is taken for a
-  call (P9: the links are what the text suggests).
+  call (the links are what the text suggests).
   """
 
   @behaviour XipeTotec.Scanner

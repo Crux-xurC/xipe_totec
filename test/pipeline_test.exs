@@ -11,8 +11,7 @@ defmodule PipelineTest do
   # These tests run with CWD at the repo root (test/run.sh's convention),
   # so they exercise the real pipelines.json committed there -- not a
   # fixture copy. That's deliberate: this file's job is partly to prove
-  # the checked-in registry itself is well-formed and has the two entries
-  # crux asked for today.
+  # the checked-in registry itself is well-formed and has its two entries.
   describe "load_registry/0 and handles?/1 against the real pipelines.json" do
     test "the registry has eval/run and row/update, row/update is edit-then-eval" do
       registry = Pipeline.load_registry()
@@ -28,7 +27,7 @@ defmodule PipelineTest do
     end
   end
 
-  # 2026-09-26 (Old.md §37): the real stages
+  # the real stages
   describe "run/5 against the real registry" do
     setup do
       book =
@@ -52,7 +51,7 @@ defmodule PipelineTest do
 
       assert row.args == ["5"]
       assert Book.get(new_book, :calls, "c1").args == ["5"]
-      # not c2, which references c1 (Old.md §36)
+      # not c2, which references c1
       assert_received {:evaluated, %{"call_ids" => ["c1"], "include_writes" => false}}
     end
 

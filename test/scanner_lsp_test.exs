@@ -5,7 +5,7 @@ Code.require_file(Path.expand("../lib/scanner/lsp/elixir.exs", __DIR__))
 
 defmodule ScannerLspTest.FakeTransport do
   # Answers like elixir-ls 0.30.0 did for the same sources (shapes copied
-  # from a live session, 2026-09-25): hierarchical documentSymbol with
+  # from a live session): hierarchical documentSymbol with
   # short nested module names and `name/arity` functions, fully named
   # callee items whose ranges are junk. `config` picks the variant.
   @behaviour XipeTotec.Lsp.Transport
@@ -215,7 +215,7 @@ defmodule ScannerLspTest do
     assert Dialect.callee_key(%{"name" => "Calc.Inner.twice/1"}) == {"Calc.Inner", "twice", 1}
     assert Dialect.callee_key(%{"name" => "valid?/1"}) == nil
   end
-  # 2026-10-07 (tezcatl 課題 A8): the same URIs as tezcatl's relay
+  # the same URIs as tezcatl's relay
   # (LspServer.file_uri/1, test/relay/lsp_uri_test.exs there), which counts
   # didOpen by the URI string
   test "file URIs are percent-encoded the way tezcatl's relay writes them" do

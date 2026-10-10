@@ -32,7 +32,7 @@ defmodule RunnerTest.EchoSender do
   def interrupt(_handle), do: :ok
 end
 
-# 2026-09-26 (Old.md §39): a second, made-up language for a mixed-language
+# a second, made-up language for a mixed-language
 # project -- it reuses Elixir's adapter (EchoSender answers in its format)
 defmodule RunnerTest.ToyLanguage do
   def extensions, do: ["toy"]
@@ -234,7 +234,7 @@ defmodule RunnerTest do
     assert Book.get(new_book, :calls, "c1").eval_count == 0
   end
 
-  test "an eval over an unclassified node reports it under not_run instead of silently doing nothing (Old.md §33)" do
+  test "an eval over an unclassified node reports it under not_run instead of silently doing nothing" do
     book =
       Book.new()
       |> Core.put_node("n1", %{module: "M", name: "f", anykey: 1, effect: "unknown", effect_source: nil})
@@ -249,7 +249,7 @@ defmodule RunnerTest do
     assert reason =~ "effect/set"
   end
 
-  test "\"include_writes\" => true in an \"eval\" command's params opts a writes-effect row in (Old.md §16.2/§16.4, previously unwired)" do
+  test "\"include_writes\" => true in an \"eval\" command's params opts a writes-effect row in (previously unwired)" do
     book =
       Book.new()
       |> Core.put_node("n1", %{module: "M", name: "f", anykey: 1, effect: "writes", effect_source: "user"})
@@ -323,7 +323,7 @@ defmodule RunnerTest do
     assert Book.get(new_book, :calls, added.result["id"]).result == "1"
   end
 
-  test "a $n.path that found nothing never turns an \"eval\" into every call in the book (2026-10-09)" do
+  test "a $n.path that found nothing never turns an \"eval\" into every call in the book" do
     book =
       Book.new()
       |> Core.put_node("n1", pure_node("f"))
@@ -341,7 +341,7 @@ defmodule RunnerTest do
 
       refute added.ok?
       refute evaluated.ok?
-      assert %{"code" => "invalid_params", "message" => "eval: call_ids が空です" <> _} = evaluated.error
+      assert %{"code" => "invalid_params", "message" => "eval: call_ids is empty" <> _} = evaluated.error
       assert Book.get(new_book, :calls, "c1").eval_count == 0
     end
   end
@@ -392,7 +392,7 @@ defmodule RunnerTest do
     refute File.exists?(sanitized_path)
   end
 
-  test "the default (no :launch_opts) eval path uses mix-mode (empty launch_opts) when root has a mix.exs (§26)" do
+  test "the default (no :launch_opts) eval path uses mix-mode (empty launch_opts) when root has a mix.exs" do
     dir = Path.join(System.tmp_dir!(), "xipe_totec_runner_launch_mix_test_#{System.unique_integer([:positive])}")
     File.mkdir_p!(dir)
     on_exit(fn -> File.rm_rf!(dir) end)
@@ -450,7 +450,7 @@ defmodule RunnerTest do
     assert row_update.error["message"] =~ "row/update needs id"
   end
 
-  # 2026-09-26 (Old.md §37): the pipeline's eval stage is this module's own "eval"
+  # the pipeline's eval stage is this module's own "eval"
   test "row/update edits a row and evaluates it, and only it, through Runner's eval" do
     book =
       Book.new()
@@ -469,7 +469,7 @@ defmodule RunnerTest do
     assert Book.get(new_book, :calls, "c2").eval_count == 0
   end
 
-  describe "a mixed-language project (Old.md §39)" do
+  describe "a mixed-language project" do
     setup do
       dir = Path.join(System.tmp_dir!(), "xipe_totec_runner_mixed_#{System.unique_integer([:positive])}")
       File.mkdir_p!(Path.join(dir, "lib"))

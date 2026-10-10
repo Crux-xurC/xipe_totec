@@ -9,7 +9,7 @@ defmodule ServeSocketTest.ToyDialogue do
   # transport shell (moduledoc), so this only needs to prove that a
   # dialogue held via Serve.Project actually survives round-tripping
   # through Serve.Socket's own state between two websocket_handle/2 calls,
-  # and that the §17.2 reply envelope ("from"/"dialogue") comes out right.
+  # and that the reply envelope ("from"/"dialogue") comes out right.
   @behaviour XipeTotec.Dialogue
 
   @impl true
@@ -24,7 +24,7 @@ defmodule ServeSocketTest do
 
   alias XipeTotec.Serve.{Project, Socket}
 
-  # Serve.Project is a named GenServer (Old.md §9), same
+  # Serve.Project is a named GenServer, same
   # one-at-a-time reasoning as serve_project_test.exs. Socket's own
   # callbacks (websocket_handle/2 etc.) are plain functions over a state
   # map -- no cowboy/real WS connection needed to exercise them directly.
@@ -33,8 +33,8 @@ defmodule ServeSocketTest do
     File.mkdir_p!(dir)
     store_file = Path.join(dir, "book.jsonl")
 
-    # row/add requires an existing node with a matching arity (Dispatch,
-    # Old.md §32): seed the store before the project loads it.
+    # row/add requires an existing node with a matching arity (Dispatch):
+    # seed the store before the project loads it.
     nodes =
       XipeTotec.Book.new()
       |> XipeTotec.Core.put_node("n0", %{sheet: "s0", module: "M", name: "f0", anykey: 0})

@@ -3,9 +3,8 @@ defmodule XipeTotec.Repl.Eval.Scan do
   Generic (REPL/transport-independent) detection of the fixed eval-result
   marker pair/line for one `call_id`, in a buffer that's already been
   cleaned of REPL/transport-specific noise (the `XT_EXIT` occurrence, any
-  PTY echo/ANSI) by the matching `Scan.<Sender>` module --
-  `lib/repl/eval/scan/direct/iex.exs` for an `iex` session reached over
-  `Repl.Sender.Direct`'s plain pipe.
+  PTY echo/ANSI) by the matching `Scan.<Sender>.<Repl>` module (e.g.
+  `Scan.Direct.Iex` for an `iex` session on a plain pipe).
 
   Only ever looks for `call_id`'s own markers -- anything else left in
   the buffer (a foreign call_id's leftovers, stray text) is inert noise

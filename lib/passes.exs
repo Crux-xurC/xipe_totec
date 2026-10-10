@@ -2,17 +2,16 @@ Code.require_file("session.exs", __DIR__)
 
 defmodule XipeTotec.Passes do
   @moduledoc """
-  The passes being evaluated right now, as files (2026-10-06, Old.md §51):
+  The passes being evaluated right now, as files:
   what `eval/status` shows, and what keeps a row that is being evaluated
   from being changed under it.
 
   A pass's result is folded into the row it was evaluated for. If the row's
   args changed meanwhile, the value would be recorded against args it was
-  never computed from (課題 X-3). Rather than detect that afterwards, the
+  never computed from. Rather than detect that afterwards, the
   change is refused while the pass runs: `row/update`, `row/set-result` and
-  `row/remove` on a row of a running pass answer `row_in_pass` (crux:
-  close it by structure). The CLI writes book.jsonl itself, also while a
-  server runs (課題 §2), so the record is a file both see, not the server's
+  `row/remove` on a row of a running pass answer `row_in_pass`. The CLI writes book.jsonl itself, also while a
+  server runs, so the record is a file both see, not the server's
   memory.
 
   One file per pass and language group (`Runner` runs each language's rows
