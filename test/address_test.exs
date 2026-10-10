@@ -64,4 +64,12 @@ defmodule AddressTest do
     assert Address.resolve(book, %{"hier" => "01.02"}) == {:error, {:unsupported_column, "hier"}}
     assert Address.resolve(book, %{"type" => "node"}) == {:error, {:unsupported_column, "type"}}
   end
+
+  test "an anykey/arity that is neither a number nor a string is refused, not raised on (Old.md §56)", %{book: book} do
+    # a JSON null (a `$n.path` that named nothing), a list, an object, a boolean
+    for bad <- [nil, [2], %{}, true] do
+      assert Address.resolve(book, %{"name" => "add_tax", "arity" => bad}) == {:error, {:bad_value, "arity", bad}}
+      assert Address.resolve(book, %{"anykey" => bad}) == {:error, {:bad_value, "anykey", bad}}
+    end
+  end
 end

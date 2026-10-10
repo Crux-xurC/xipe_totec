@@ -167,6 +167,15 @@ defmodule XipeTotec.Store do
   """
   def load_with_pos(path), do: catch_up(path, 0, Book.new())
 
+  @doc """
+  What others appended to `path` since `pos`, folded into `book` -- for a
+  writer that keeps the book in memory (the server) to catch up before it
+  *uses* the book, not only before it writes (Old.md §56). No lock: only
+  whole lines are read, so a line still being written is left for the next
+  time. -> {book, the new pos} (the same `pos` when nothing came)
+  """
+  def read_since(path, pos, book), do: catch_up(path, pos, book)
+
   # the whole lines from `pos` on, folded into `book` -> {book, pos after them}.
   # A file shorter than `pos` was rewritten (compact): read from the start, afresh.
   defp catch_up(path, pos, book) do

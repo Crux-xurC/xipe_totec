@@ -37,9 +37,14 @@ defmodule XipeTotec.Address do
   match, one means a unique target, more than one means candidates (spec
   §6.1); the caller decides what "unique" vs "candidates" means for its own
   response shape. `{:error, {:unsupported_column, name}}` if `address` uses
-  a column this module doesn't implement yet.
+  a column this module doesn't implement yet; `{:error, {:bad_value, name,
+  value}}` if `anykey`/`arity` is given as something that can't be one --
+  neither an integer nor a string: a JSON `null` (a `$n.path` that named
+  nothing, `Runner`), a list, an object. Refused rather than read as "no
+  match" (Old.md §54, §56: written but empty-handed is said so).
   """
-  @spec resolve(Book.t(), address) :: {:ok, [match]} | {:error, {:unsupported_column, String.t()}}
+  @spec resolve(Book.t(), address) ::
+          {:ok, [match]} | {:error, {:unsupported_column, String.t()} | {:bad_value, String.t(), term()}}
   def resolve(_book, address) when map_size(address) == 0, do: {:ok, []}
 
   def resolve(book, %{"row" => call_id} = address) when map_size(address) == 1 do
@@ -50,7 +55,10 @@ defmodule XipeTotec.Address do
   end
 
   def resolve(book, address) when is_map(address) do
-    case Enum.find(Map.keys(address), &(&1 not in @known_columns)) do
+    case Enum.find(Map.keys(address), &(&1 not in @known_columns)) || bad_anykey(address) do
+      {:bad_value, _col, _value} = bad ->
+        {:error, bad}
+
       nil ->
         matches =
           for {id, row} <- book.nodes, node_matches?(book, row, address) do
@@ -62,6 +70,16 @@ defmodule XipeTotec.Address do
       unknown ->
         {:error, {:unsupported_column, unknown}}
     end
+  end
+
+  # the `anykey`/`arity` column whose value is neither an integer nor a string, if any
+  defp bad_anykey(address) do
+    Enum.find_value(["anykey", "arity"], fn col ->
+      case Map.fetch(address, col) do
+        {:ok, v} when not (is_integer(v) or is_binary(v)) -> {:bad_value, col, v}
+        _ -> nil
+      end
+    end)
   end
 
   defp node_matches?(book, row, address) do

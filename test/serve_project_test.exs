@@ -20,6 +20,17 @@ defmodule ServeProjectTest.ToyDialogue do
   end
 end
 
+defmodule ServeProjectTest.RaisingDialogue do
+  # a program with a bug: what Serve.Project must survive (Old.md §56)
+  @behaviour XipeTotec.Dialogue
+
+  @impl true
+  def start(_params), do: raise("boom")
+
+  @impl true
+  def answer(_state, _params), do: raise("boom")
+end
+
 defmodule ServeProjectTest.GatedSender do
   # Answers each eval write with a canned success -- but only after the test
   # process (registered in :persistent_term) replies :go to a {:gate, pid},
@@ -109,12 +120,72 @@ defmodule ServeProjectTest do
     cli0 = XipeTotec.Store.load(store_file)
     cli1 = XipeTotec.Book.put(cli0, :calls, "from-cli", %{node: "n0", args: ["9"], result: nil, eval_count: 0})
     XipeTotec.Store.persist_diff(store_file, cli0, cli1, [:calls])
-    refute Map.has_key?(Project.book().calls, "from-cli")
     # the server's next write catches up first
     {:ok, %{"id" => call_id}} = Project.request("row/add", %{"node" => "n0", "args" => []})
     book = Project.book()
     assert Map.has_key?(book.calls, "from-cli") and Map.has_key?(book.calls, call_id)
     assert XipeTotec.Store.load(store_file).calls |> Map.keys() |> Enum.sort() == book.calls |> Map.keys() |> Enum.sort()
+  end
+
+  test "a row the CLI wrote is there for the server's next read, and is broadcast (Old.md §56)", %{store_file: store_file} do
+    :ok = Project.attach(self())
+    cli0 = XipeTotec.Store.load(store_file)
+    cli1 = XipeTotec.Book.put(cli0, :calls, "from-cli", %{node: "n0", args: ["9"], result: nil, eval_count: 0})
+    XipeTotec.Store.persist_diff(store_file, cli0, cli1, [:calls])
+
+    # a read, nothing written by the server
+    assert {:ok, %{"rows" => rows}} = Project.request("row/list", %{})
+    assert Enum.any?(rows, &(&1["id"] == "from-cli"))
+    assert_receive {:xipe_out, text}
+    assert {:ok, {:notify, "notify/rowChanged", %{"id" => "from-cli"}}} = XipeTotec.Protocol.decode(text)
+    assert Map.has_key?(Project.book().calls, "from-cli")
+  end
+
+  @tag :empty_book
+  test "a scan after the CLI's scan starts from the CLI's nodes: no second id for the same function (Old.md §56)",
+       %{dir: dir, store_file: store_file} do
+    File.write!(Path.join(dir, "calc.exs"), "defmodule ServeScanCalc do\n  def add(a, b), do: a + b\nend\n")
+    assert {:ok, %{"nodes" => 1}} = Project.request("scan/run", %{})
+
+    # a function is added and scanned from the CLI (its own load -> scan -> persist), a row put on it
+    File.write!(Path.join(dir, "calc.exs"), "defmodule ServeScanCalc do\n  def add(a, b), do: a + b\n  def sq(a), do: a * a\nend\n")
+    cli0 = XipeTotec.Store.load(store_file)
+    {cli1, _paths, _failures} = XipeTotec.Project.scan_dir(cli0, dir)
+    :ok = XipeTotec.Project.persist_scan(store_file, cli0, cli1)
+    sq = XipeTotec.Book.find_node_by_natural_key(cli1, "ServeScanCalc", "sq", 1)
+    assert is_binary(sq)
+
+    # the server has not read the file since; its scan must not mint another node for sq
+    assert {:ok, %{"nodes" => 2}} = Project.request("scan/run", %{})
+    for book <- [Project.book(), XipeTotec.Store.load(store_file)] do
+      assert (for {id, n} <- book.nodes, n.name == "sq", do: id) == [sq]
+    end
+  end
+
+  @tag programs: %{"toy/raise" => ServeProjectTest.RaisingDialogue}
+  test "a method that raises is answered internal_error; the server and its book live on (Old.md §56)", %{store_file: store_file} do
+    pid = Process.whereis(Project)
+    import ExUnit.CaptureIO
+
+    assert capture_io(:stderr, fn ->
+             {dialogue, outcome} = Project.request_dialogue(nil, "toy/raise", %{})
+             assert dialogue == nil
+             assert %{ok?: false, hold: false, error: %{"code" => "internal_error", "message" => message}} = outcome
+             assert message =~ "toy/raise" and message =~ "boom"
+           end) =~ "toy/raise raised"
+
+    assert Process.whereis(Project) == pid
+    assert {:ok, %{"id" => _}} = Project.request("row/add", %{"node" => "n0", "args" => []})
+    assert map_size(XipeTotec.Store.load(store_file).calls) == 1
+  end
+
+  test "node/resolve with an arity that names nothing (a JSON null) is invalid_params, not a crash (Old.md §56)" do
+    pid = Process.whereis(Project)
+    assert {:error, %{"code" => "invalid_params", "message" => message}} =
+             Project.request("node/resolve", %{"module" => "M", "name" => "f1", "arity" => nil})
+    assert message =~ "arity"
+    assert Process.whereis(Project) == pid
+    assert {:ok, %{"id" => "n1"}} = Project.request("node/resolve", %{"module" => "M", "name" => "f1", "arity" => 1})
   end
 
   test "request/3 surfaces a Dispatch error without touching the book", %{store_file: store_file} do

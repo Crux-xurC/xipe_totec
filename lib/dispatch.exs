@@ -178,8 +178,8 @@ defmodule XipeTotec.Dispatch do
       {:ok, matches} ->
         {:ok, book, %{"matches" => Enum.map(matches, &render_match(book, &1))}}
 
-      {:error, {:unsupported_column, col}} ->
-        {:error, book, %{"code" => "unsupported_column", "message" => col}}
+      {:error, reason} ->
+        {:error, book, address_error(reason)}
     end
   end
 
@@ -192,7 +192,8 @@ defmodule XipeTotec.Dispatch do
          {:ok, result} <- GraphQuery.neighbors(book, address, depth, direction) do
       {:ok, book, result}
     else
-      {:error, {:unsupported_column, col}} -> {:error, book, %{"code" => "unsupported_column", "message" => col}}
+      {:error, {:unsupported_column, _} = reason} -> {:error, book, address_error(reason)}
+      {:error, {:bad_value, _, _} = reason} -> {:error, book, address_error(reason)}
       {:error, message} when is_binary(message) -> {:error, book, invalid_params(message)}
     end
   end
@@ -206,7 +207,8 @@ defmodule XipeTotec.Dispatch do
          {:ok, text} <- GraphQuery.export(book, address, depth, format) do
       {:ok, book, %{"format" => format, "text" => text}}
     else
-      {:error, {:unsupported_column, col}} -> {:error, book, %{"code" => "unsupported_column", "message" => col}}
+      {:error, {:unsupported_column, _} = reason} -> {:error, book, address_error(reason)}
+      {:error, {:bad_value, _, _} = reason} -> {:error, book, address_error(reason)}
       {:error, message} when is_binary(message) -> {:error, book, invalid_params(message)}
     end
   end
@@ -351,8 +353,8 @@ defmodule XipeTotec.Dispatch do
              }}
         end
 
-      {:error, {:unsupported_column, col}} ->
-        {:error, book, %{"code" => "unsupported_column", "message" => col}}
+      {:error, reason} ->
+        {:error, book, address_error(reason)}
     end
   end
 
@@ -441,6 +443,12 @@ defmodule XipeTotec.Dispatch do
   end
 
   defp invalid_params(message), do: %{"code" => "invalid_params", "message" => message}
+
+  # Address.resolve/2's refusals as §16.3 errors
+  defp address_error({:unsupported_column, col}), do: %{"code" => "unsupported_column", "message" => col}
+
+  defp address_error({:bad_value, col, value}),
+    do: invalid_params("#{col} が数でも文字列でもありません（#{inspect(value)} ── $n.… の参照先が無いか、[…] や {…} を書いた）。何も探していません")
 
   # a refused arg count: what xipe_totec's own reading of the source says
   # (Scanner.Elixir.default_arities) -- shown, never set (crux 2026-10-08)

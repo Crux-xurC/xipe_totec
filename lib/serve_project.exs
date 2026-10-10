@@ -178,8 +178,57 @@ defmodule XipeTotec.Serve.Project do
      }}
   end
 
+  # A request whose handling raises (a method given a value it has no clause
+  # for, a book.jsonl lock that never came free ...) is answered with
+  # `internal_error`, and the book stays as it was: this process is linked to
+  # `xipe start` itself, so letting it die took the whole server -- every
+  # window's connection, the pass queue, a held dialogue -- down with one
+  # line (Old.md §56). Anything else that raises is a bug in here: let it show.
   @impl true
-  def handle_call({:attach, session_pid}, _from, state) do
+  def handle_call(msg, from, state) do
+    call(msg, from, caught_up(msg, state))
+  rescue
+    e -> raised(msg, Exception.format(:error, e, __STACKTRACE__), state, e, __STACKTRACE__)
+  end
+
+  defp raised({:request, method, _params}, text, state, _e, _trace) do
+    IO.puts(:stderr, "xipe start: #{method} raised -- answered internal_error\n#{text}")
+    {:reply, {:error, internal_error(method, text)}, state}
+  end
+
+  defp raised({:request_dialogue, dialogue, method, _params, _opts}, text, state, _e, _trace) do
+    IO.puts(:stderr, "xipe start: #{method} raised -- answered internal_error\n#{text}")
+    outcome = %{hold: dialogue != nil, via_repl: false, text: nil, ok?: false, result: nil, error: internal_error(method, text)}
+    {:reply, {dialogue, outcome}, state}
+  end
+
+  defp raised(_msg, _text, _state, e, trace), do: reraise(e, trace)
+
+  # the first line says what; the rest (the stack) is in the server's own output
+  defp internal_error(method, text) do
+    %{"code" => "internal_error", "message" => "#{method}: " <> (text |> String.split("\n") |> hd()) <> " ── xipe_totec の中の誤りです。何も変えていません"}
+  end
+
+  # Before a request reads the book, what the CLI appended to book.jsonl
+  # since this server last read is folded in (and broadcast, as any change
+  # is): a scan started from a book that had not seen the CLI's scan minted
+  # a second node for a function the CLI had already given an id, and the
+  # first read after a CLI change answered from the old book (Old.md §56;
+  # until then only a write caught up, §55). One stat when nothing came.
+  defp caught_up(msg, state) when msg == :book or (is_tuple(msg) and elem(msg, 0) in [:request, :request_dialogue]) do
+    case Store.read_since(state.store_file, state.store_pos, state.book) do
+      {_book, pos} when pos == state.store_pos ->
+        state
+
+      {book, pos} ->
+        broadcast_changes(state.book, book, state.sessions)
+        %{state | book: book, store_pos: pos}
+    end
+  end
+
+  defp caught_up(_msg, state), do: state
+
+  defp call({:attach, session_pid}, _from, state) do
     if Map.has_key?(state.sessions, session_pid) do
       {:reply, :ok, state}
     else
@@ -188,26 +237,26 @@ defmodule XipeTotec.Serve.Project do
     end
   end
 
-  def handle_call(:info, _from, state), do: {:reply, %{"id" => state.project_id, "root" => state.root}, state}
-  def handle_call(:book, _from, state), do: {:reply, state.book, state}
+  defp call(:info, _from, state), do: {:reply, %{"id" => state.project_id, "root" => state.root}, state}
+  defp call(:book, _from, state), do: {:reply, state.book, state}
 
-  def handle_call({:request, method, params}, _from, state) when method in @eval_methods do
+  defp call({:request, method, params}, _from, state) when method in @eval_methods do
     case start_repl_method(method, params, nil, state) do
       {:ok, reply, state} -> {:reply, {:ok, reply}, state}
       {:error, error, state} -> {:reply, {:error, error}, state}
     end
   end
 
-  def handle_call({:request, "scan/run", _params}, from, state),
+  defp call({:request, "scan/run", _params}, from, state),
     do: {:noreply, request_scan({from, :plain}, state)}
 
   # eval/status: the running passes (files, Dispatch) plus this server's queue
-  def handle_call({:request, "eval/status", params}, _from, state) do
+  defp call({:request, "eval/status", params}, _from, state) do
     {:ok, _book, result} = Dispatch.handle(state.book, "eval/status", params, %{root: state.root, project_dir: state.project_dir})
     {:reply, {:ok, Map.put(result, "queued", queued(state))}, state}
   end
 
-  def handle_call({:request, method, params}, _from, state) do
+  defp call({:request, method, params}, _from, state) do
     # Pipeline-routed methods checked first, never falling through to
     # Dispatch's own @not_implemented for them (2026-09-18) -- same
     # handles?/1-then-run/4 shape Runner.run_one/4 uses for the CLI side,
@@ -238,7 +287,7 @@ defmodule XipeTotec.Serve.Project do
     end
   end
 
-  def handle_call({:request_dialogue, dialogue, method, params, opts}, _from, state) when method in @eval_methods do
+  defp call({:request_dialogue, dialogue, method, params, opts}, _from, state) when method in @eval_methods do
     outcome =
       case start_repl_method(method, params, opts[:watch], state) do
         {:ok, reply, state} -> {%{hold: false, via_repl: true, text: nil, ok?: true, result: reply, error: nil}, state}
@@ -249,16 +298,16 @@ defmodule XipeTotec.Serve.Project do
     {:reply, {dialogue, outcome}, state}
   end
 
-  def handle_call({:request_dialogue, dialogue, "eval/status", params, _opts}, _from, state) do
+  defp call({:request_dialogue, dialogue, "eval/status", params, _opts}, _from, state) do
     {:ok, _book, result} = Dispatch.handle(state.book, "eval/status", params, %{root: state.root, project_dir: state.project_dir})
     result = Map.put(result, "queued", queued(state))
     {:reply, {dialogue, %{hold: false, via_repl: false, text: nil, ok?: true, result: result, error: nil}}, state}
   end
 
-  def handle_call({:request_dialogue, dialogue, "scan/run", _params, _opts}, from, state),
+  defp call({:request_dialogue, dialogue, "scan/run", _params, _opts}, from, state),
     do: {:noreply, request_scan({from, {:dialogue, dialogue}}, state)}
 
-  def handle_call({:request_dialogue, dialogue, method, params, opts}, _from, state) do
+  defp call({:request_dialogue, dialogue, method, params, opts}, _from, state) do
     {new_dialogue, new_book, outcome} =
       InOut.handle(dialogue, state.book, state.root, %{"method" => method, "params" => params}, Keyword.put_new(opts, :project_dir, state.project_dir), state.programs)
 

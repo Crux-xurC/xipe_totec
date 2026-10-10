@@ -510,8 +510,8 @@ xipe start: lsp relay ws://127.0.0.1:4100/lsp  fs_root=-
 - 動いている間は `tables/session.json` に記録が残り、ほかの CLI コマンドはこのプロジェクトを
   対象にする。二重起動は拒否される。SIGTERM で終了すると記録は消える（`kill -9` や Ctrl-C で
   残った記録は無視される）
-- **セッション中に CLI で書き込むと、サーバーはその変更を読まない。** 警告は出るが、
-  サーバーを再起動するまでずれたままになる。書き込みはサーバー経由で行うこと
+- セッション中に CLI で書き込んだ変更は、サーバーが次の要求のときに取り込む（`book.jsonl` への書き込みは
+  ロックで順番になる）。CLI が出す警告の「サーバーを再起動するまで見えない」は古い文言
 
 ### 6.1 プロトコル
 
@@ -723,7 +723,7 @@ xipe refresh -a     # 両方
 | `boot_failed: the REPL exited before it was ready` | 起動中に `iex` が終了した。たいていは対象のコードがコンパイルできない。続く出力にファイル名と行番号が出る |
 | `boot_failed`（`:timeout`） | `iex` が15秒以内に起動しなかった。Mix プロジェクトなら、一度 `mix compile` を済ませておく |
 | `xipe start: a session is already running` | 既に動いている。止めるなら記録にある pid に SIGTERM を送る |
-| サーバーの表に CLI の変更が出ない | セッション中の CLI 書き込みはサーバーに届かない。§6 |
+| サーバーの表に CLI の変更が出ない | サーバーは次の要求で取り込むが、tezcatl の表は自動では変わらない。`matrix update` で取り直す |
 | スキャンが遅い | 初回は elixir-ls の起動を待つ。急ぐなら `XIPE_TOTEC_LSP=off` |
 | `env stale (flake.nix)` | `env.refresh=manual` で、flake が変わった。`xipe table generate` で取り直す（§4.3） |
 | `env error (flake.nix)` | `nix print-dev-env` が失敗した（flake の評価エラー、git 管理下で `flake.nix` が未追跡、など）。xipe 自身の環境か、前回の環境で動く |

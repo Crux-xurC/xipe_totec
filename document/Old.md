@@ -2063,3 +2063,40 @@ tezcatl 側の「読めないと空で書き戻す」と一緒に直した。
 
 テスト: `store_test.exs` 3件（切れた行のあとの追記・持ち主の死んだロックを取り直す／動いている持ち主は待つ・追いついてから書く）、
 `serve_project_test.exs` 1件（サーバーの稼働中に CLI が書いた行が、サーバーの次の書き込みのあと Book にある）
+
+## 56. メソッドの例外でサーバーを落とさない・サーバーは使う前にも CLI の書き込みに追いつく（2026-10-10、`~/my_app/tezcatl`セッション）
+
+コードを追って確かめた2件（tezcatl と合同の検証、文書は読まずにコードから）。どちらも再現してから直した。
+
+**1. 対話窓の1行で `xipe start` が落ちた。** `node/resolve module=Calc name=add arity=$5.arity` のように、`$n.…` の参照先が無くて
+`arity` が `nil` になる行で、`Address.anykey_eq?/2` に合う節が無く例外になった（`card/get`・`card/search`・`node/resolve`、`arity`／`anykey` が
+整数でも文字列でもないとき ── `nil`・リスト・マップ・真偽値）。`Serve.Project` は `xipe start` の本体に link されていて監督が無いので、
+この例外でサーバーごと exit 1 で終わる。窓の接続・順番待ちのパス・持っていた対話が全部消え、`connect` で動かしている tezcatl からは
+人が起動し直すまで戻らない（`D-起動は外`）。README は「未実装の method は例外を投げず、エラーを返す」と約束している。
+
+- **断る**（§54 と同じ考え ── 書いたのに空の値は、黙って別の意味に読まない）: `Address.resolve/2` は、整数でも文字列でもない
+  `arity`／`anykey` に `{:error, {:bad_value, 列, 値}}` を返し、`Dispatch` が `invalid_params`（「arity が数でも文字列でもありません
+  （… $n.… の参照先が無いか、[…] や {…} を書いた）。何も探していません」）にする。`graph/neighbors`・`graph/export` の住所も同じ口を通る
+- **落とさない**: `Serve.Project` の `handle_call` を1段包み、要求（`request`・`request_dialogue`）の処理が例外を出したら
+  `internal_error`（method 名と例外の1行目。スタックはサーバー自身の stderr）で答える。Book と状態は要求の前のまま。持っていた対話は
+  持ったまま（答え直せる）。要求以外（`attach` など）の例外は今までどおり表に出す ── それはこのモジュールの誤り。
+  スキャンとパスは元から別プロセスで、落ちても `scan_failed`・`eval_failed` になる（変えていない）
+- 不正な引数を 23 の method に与えて（`scan/run` と評価の3つを除く）、例外が出るのがこの1か所だけであることを確かめた
+
+**2. CLI のスキャンのあと、サーバーのスキャンが同じ関数に別の id を振った。** §55 でサーバーは「書く前に」CLI の書き足しに追いつくように
+なったが、スキャンは追いつく前のメモリの Book を写して走る。CLI が `xipe scan` で新しい関数に id を振った直後に、tezcatl から
+`scan/run` すると、サーバーはその関数を知らないので別の id を振り、書くときに両方が Book に入った（関数 2 つにノード 3 つ）。
+次のスキャンで片方が消えるが、消えた側に計算行を足していれば、その行は関数を失う。あわせて、CLI が書いた直後の最初の読み取り
+（`row/list` など）が古い Book から答えていた（書くのは読んだあとなので）。
+
+- **使う前に追いつく**（crux: リクエストごと）: `Serve.Project` は要求（と `show` の使う `book`）のたびに、前回読んだ位置から後ろを
+  取り込んでから処理する（`Store.read_since/3`）。取り込んだ分は `broadcast_changes` で窓に届く。何も増えていなければ `File.stat` 1回。
+  ロックは取らない ── 改行で終わった行だけを読むので、書きかけの行は次の回に回る。書くときの追いつき（§55、ロックの中）はそのまま
+- CLI が稼働中のサーバーのプロジェクトに書くときの警告（`warn_if_session_project`）の文言「the running server won't see it until it
+  restarts」は §55 から事実と違う。直していない（小、課題.md §6）
+
+テスト: `address_test.exs` 1件（`nil`・リスト・マップ・真偽値を断る）、`serve_project_test.exs` 4件（例外を出す対話プログラムに
+`internal_error` で答えてサーバーが生きている・`arity` が `nil` の `node/resolve` は `invalid_params`・CLI が書いた行が次の読み取りで
+見えて通知される・CLI のスキャンのあとのスキャンが id を増やさない）。§55 のテスト1件は「次の書き込みまで見えない」の確認を外した。
+修正を外すと新しい5件が落ちることを確かめた
+
