@@ -62,6 +62,34 @@ defmodule ServeProjectTest.GatedSender do
   def interrupt(_handle), do: :ok
 end
 
+defmodule ServeProjectTest.SilentSender do
+  # Boots, then never answers an entry: the pass waits on its REPL until
+  # eval/cancel stops it.
+  @behaviour XipeTotec.Repl.Sender
+
+  def send(message) do
+    handle = self()
+    Kernel.send(handle, {handle, {:data, message["ready_pattern"] <> "\nXT_READY\n"}})
+    {:ok, handle}
+  end
+
+  def write(_handle, text) do
+    case Regex.run(~r/XT_BEGIN_([^"\s]+)/, text) do
+      [_, call_id] -> Kernel.send(:persistent_term.get({ServeProjectTest.GatedSender, :test}), {:calling, call_id})
+      nil -> :ok
+    end
+
+    :ok
+  end
+
+  def kill(_handle) do
+    Kernel.send(:persistent_term.get({ServeProjectTest.GatedSender, :test}), :killed)
+    :ok
+  end
+
+  def interrupt(_handle), do: :ok
+end
+
 defmodule ServeProjectTest do
   use ExUnit.Case
 
@@ -92,6 +120,17 @@ defmodule ServeProjectTest do
       if context[:gated_eval] do
         :persistent_term.put({ServeProjectTest.GatedSender, :test}, self())
         Map.put(opts, :eval_opts, sender: ServeProjectTest.GatedSender, launch_opts: [], language: "elixir")
+      else
+        opts
+      end
+
+    opts =
+      if context[:silent_eval] do
+        :persistent_term.put({ServeProjectTest.GatedSender, :test}, self())
+
+        opts
+        |> Map.put(:eval_opts, sender: ServeProjectTest.SilentSender, launch_opts: [], language: "elixir")
+        |> Map.put(:project_dir, dir)
       else
         opts
       end
@@ -408,6 +447,63 @@ defmodule ServeProjectTest do
 
     assert %{"pass_id" => ^pass_id, "ok" => true, "result" => %{"results" => []}} = next_notify("notify/passCompleted")
     refute Map.has_key?(XipeTotec.Store.load(store_file).calls, call_id)
+  end
+
+  @tag :silent_eval
+  test "eval/cancel stops the running pass: its REPL is killed, nothing is recorded, and the next pass starts",
+       %{store_file: store_file} do
+    call_id = pure_call(["1"])
+    :ok = Project.attach(self())
+
+    {:ok, %{"pass_id" => first, "status" => "started"}} = Project.request("eval", %{"call_ids" => [call_id]})
+    {:ok, %{"pass_id" => second, "status" => "queued"}} = Project.request("eval", %{"call_ids" => [call_id]})
+    assert_receive {:calling, ^call_id}, 2_000
+
+    assert {:ok, %{"pass_id" => ^first, "status" => "cancelling"}} = Project.request("eval/cancel", %{})
+    assert %{"pass_id" => ^first, "ok" => false, "error" => %{"code" => "cancelled"}} = next_notify("notify/passCompleted")
+    assert_received :killed
+    assert XipeTotec.Store.load(store_file).calls[call_id][:result] == nil
+
+    # the queued pass runs next, and can be stopped by its id
+    assert_receive {:calling, ^call_id}, 2_000
+    assert {dialogue, %{ok?: true, result: %{"pass_id" => ^second, "status" => "cancelling"}}} =
+             Project.request_dialogue(nil, "eval/cancel", %{"pass_id" => second})
+
+    assert dialogue == nil
+    assert %{"pass_id" => ^second, "ok" => false, "error" => %{"code" => "cancelled"}} = next_notify("notify/passCompleted")
+    assert {:ok, %{"running" => [], "queued" => []}} = Project.request("eval/status", %{})
+  end
+
+  @tag :silent_eval
+  test "eval/cancel with a queued pass's id takes it out of the queue; its watcher is told", %{} do
+    call_id = pure_call(["1"])
+    :ok = Project.attach(self())
+
+    {:ok, %{"pass_id" => first}} = Project.request("eval", %{"call_ids" => [call_id]})
+    {_, %{result: %{"pass_id" => second, "status" => "queued"}}} = Project.request_dialogue(Project, nil, "eval", %{"call_ids" => [call_id]}, watch: self())
+    assert_receive {:calling, ^call_id}, 2_000
+
+    assert {:ok, %{"pass_id" => ^second, "status" => "dequeued"}} = Project.request("eval/cancel", %{"pass_id" => second})
+    assert %{"pass_id" => ^second, "ok" => false, "error" => %{"code" => "cancelled"}} = next_notify("notify/passCompleted")
+    assert_receive {:xipe_pass_done, ^second, %{ok?: false, error: %{"code" => "cancelled"}}}
+    assert {:ok, %{"queued" => []}} = Project.request("eval/status", %{})
+
+    # the running one was not touched
+    refute_received :killed
+    assert {:error, %{"code" => "no_pass"}} = Project.request("eval/cancel", %{"pass_id" => "no-such-pass"})
+    assert {:ok, %{"pass_id" => ^first}} = Project.request("eval/cancel", %{})
+    assert %{"pass_id" => ^first, "ok" => false} = next_notify("notify/passCompleted")
+  end
+
+  test "eval/cancel with nothing running is no_pass" do
+    assert {:error, %{"code" => "no_pass"}} = Project.request("eval/cancel", %{})
+  end
+
+  test "roster names the tables search reads, with their flags and columns" do
+    assert {:ok, %{"tables" => [surface, eval]}} = Project.request("roster", %{})
+    assert %{"name" => "surface", "flag" => "-s", "columns" => ["id", "path" | _]} = surface
+    assert %{"name" => "eval", "flag" => "-e"} = eval
+    assert "result" in eval["columns"]
   end
 
   test "request_dialogue/5 with no programs registered still routes an ordinary command straight through, tagged 01",

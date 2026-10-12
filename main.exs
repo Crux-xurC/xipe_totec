@@ -54,6 +54,7 @@ defmodule XipeTotec.CLI do
       ["eval" | rest] -> eval(rest)
       ["do" | rest] -> do_cmd(rest)
       ["dialogue", "depends" | rest] -> dialogue_depends(rest)
+      ["dialogue", "do" | rest] -> dialogue_do(rest)
       ["search" | rest] -> search(rest)
       ["refresh" | rest] -> refresh(rest)
       ["config" | rest] -> config(rest)
@@ -351,10 +352,24 @@ defmodule XipeTotec.CLI do
     first = %{"method" => "dialogue/search", "params" => %{"line" => Enum.map_join(args, " ", &shell_word/1)}}
     book = Store.load(project.store_file)
     {dialogue, new_book, outcome} = InOut.handle(nil, book, project.path, first, opts, InOut.programs())
-    dialogue_loop(project, opts, dialogue, book, new_book, outcome)
+    dialogue_loop(project, opts, dialogue, book, new_book, outcome, "search> ")
   end
 
-  defp dialogue_loop(project, opts, dialogue, old_book, book, outcome) do
+  # `xipe dialogue do <method> [key=value...]` (Dialogue.Do): asks for what
+  # the line didn't give at a `do> ` prompt, then runs the call
+  defp dialogue_do([]), do: usage_error("xipe dialogue do: usage: xipe dialogue do <method> [key=value...]")
+
+  defp dialogue_do([method | given]) do
+    project = project!(nil)
+    opts = [ctx: GitCtx.read(project.path), project_dir: project.dir]
+    [%{"params" => params}] = CommandLine.parse([method | given])
+    first = %{"method" => "dialogue/do", "params" => %{"method" => method, "given" => params}}
+    book = Store.load(project.store_file)
+    {dialogue, new_book, outcome} = InOut.handle(nil, book, project.path, first, opts, InOut.programs())
+    dialogue_loop(project, opts, dialogue, book, new_book, outcome, "do> ")
+  end
+
+  defp dialogue_loop(project, opts, dialogue, old_book, book, outcome, prompt) do
     if outcome.text, do: IO.puts(outcome.text)
     unless outcome.ok?, do: IO.puts(:stderr, "#{outcome.error["code"]}: #{outcome.error["message"]}")
     if match?(%{"outcomes" => _}, outcome.result), do: print_outcomes(outcome.result["outcomes"])
@@ -369,10 +384,10 @@ defmodule XipeTotec.CLI do
     Store.persist_diff(project.store_file, old_book, book, @all_tables)
 
     with {mod, _state} <- dialogue,
-         line when is_binary(line) <- IO.gets("search> ") do
+         line when is_binary(line) <- IO.gets(prompt) do
       request = XipeTotec.Dialogue.line_request(mod, String.trim(line))
       {dialogue, new_book, outcome} = InOut.handle(dialogue, book, project.path, request, opts, InOut.programs())
-      dialogue_loop(project, opts, dialogue, book, new_book, outcome)
+      dialogue_loop(project, opts, dialogue, book, new_book, outcome, prompt)
     else
       _ -> :ok
     end

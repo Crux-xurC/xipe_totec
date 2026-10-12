@@ -56,6 +56,18 @@ defmodule XipeTotec.OutcomeText do
     head ++ passes ++ waiting
   end
 
+  # the tables there are to look into (XipeTotec.Tables), one line each
+  defp outcome(%{method: "roster", ok?: true, result: %{"tables" => tables}}) do
+    [{:out, "roster  ok"}] ++
+      for t <- tables, do: {:out, "  #{t["flag"]}  #{t["name"]}  #{t["summary"]}  columns: #{Enum.join(t["columns"], " ")}"}
+  end
+
+  defp outcome(%{method: "eval/cancel", ok?: true, result: %{"pass_id" => id, "status" => "dequeued"}}),
+    do: [{:out, "eval/cancel  ok  pass #{id} taken out of the queue"}]
+
+  defp outcome(%{method: "eval/cancel", ok?: true, result: %{"pass_id" => id}}),
+    do: [{:out, "eval/cancel  ok  pass #{id} is being stopped (nothing of it is recorded)"}]
+
   defp outcome(%{method: method, ok?: true, result: result}), do: [{:out, "#{method}  ok  #{inspect(result)}"}]
 
   defp outcome(%{method: method, ok?: false, error: error}),

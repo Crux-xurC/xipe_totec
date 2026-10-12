@@ -18,9 +18,10 @@ defmodule XipeTotec.Input do
     * `show` -- the running server's book (`XipeTotec.Show`)
     * `scan` -- `scan/run`
     * `eval [id...] [--include-writes]` -- the `"eval"` command
-    * `search [<turn>]`, `dialogue depends <call_id>` -- start those
-      dialogues (`Dialogue.Search`, `Dialogue.Depends`); `quit dialogue`
-      ends one (said here only when none is held)
+    * `search [<turn>]`, `dialogue depends <call_id>`, `dialogue do
+      <method> [key=value...]` -- start those dialogues (`Dialogue.Search`,
+      `Dialogue.Depends`, `Dialogue.Do`); `quit dialogue` ends one (said
+      here only when none is held)
     * `do <method> [key=value...] [-- <method> ...]` -- a command list
       (`XipeTotec.CommandLine`, the same parsing as `xipe do`)
     * `<method> ...` -- the same without `do`: a first word that names a
@@ -81,6 +82,13 @@ defmodule XipeTotec.Input do
     do: {:commands, [%{"method" => "dialogue/depends", "params" => %{"call_id" => call_id}}]}
 
   defp command(["dialogue", "depends" | _]), do: {:error, "dialogue depends: in the dialogue window, write dialogue depends <call_id>"}
+  # what the line gives is read as `do`'s (key=value); the rest is asked for
+  defp command(["dialogue", "do", method | given]) do
+    [%{"params" => params}] = CommandLine.parse([method | given])
+    {:commands, [%{"method" => "dialogue/do", "params" => %{"method" => method, "given" => params}}]}
+  end
+
+  defp command(["dialogue", "do"]), do: {:error, "dialogue do: write dialogue do <method> [key=value...] (help lists the methods)"}
   defp command(["quit", "dialogue"]), do: {:error, "no dialogue is held"}
 
   defp command(["do", "--dir" | _]), do: {:error, "do: takes no --dir in the dialogue window (it acts on the open project)"}

@@ -4,6 +4,7 @@ Code.require_file("pipeline.exs", __DIR__)
 Code.require_file("dialogue.exs", __DIR__)
 Code.require_file("dialogue/depends.exs", __DIR__)
 Code.require_file("dialogue/search.exs", __DIR__)
+Code.require_file("dialogue/do.exs", __DIR__)
 
 defmodule XipeTotec.InOut do
   @moduledoc """
@@ -43,7 +44,7 @@ defmodule XipeTotec.InOut do
   ## The programs, and what a turn may ask of its driver
 
   `programs/0` is the one registry of dialogue programs (`dialogue/depends`,
-  `dialogue/search`), used by the CLI and the server alike. Tests pass
+  `dialogue/search`, `dialogue/do`), used by the CLI and the server alike. Tests pass
   their own map.
 
   `"dialogue/quit"` ends whatever dialogue is held (`quit dialogue`).
@@ -99,7 +100,13 @@ defmodule XipeTotec.InOut do
 
   @doc "The dialogue programs, by the method that starts each -- see moduledoc."
   @spec programs() :: programs()
-  def programs, do: %{"dialogue/depends" => XipeTotec.Dialogue.Depends, "dialogue/search" => XipeTotec.Dialogue.Search}
+  def programs do
+    %{
+      "dialogue/depends" => XipeTotec.Dialogue.Depends,
+      "dialogue/search" => XipeTotec.Dialogue.Search,
+      "dialogue/do" => XipeTotec.Dialogue.Do
+    }
+  end
 
   @doc """
   Runs one `%{"method" => ..., "params" => ...}` input against `dialogue`

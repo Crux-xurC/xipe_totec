@@ -259,15 +259,24 @@ defmodule XipeTotec.Runner do
     run = fn {language, ids} -> {language, ids, run_group(book, root, rows, language, ids, include_writes, pass_id, opts)} end
 
     ran =
-      case groups do
-        [one] -> [run.(one)]
-        _ -> groups |> Enum.map(&Task.async(fn -> run.(&1) end)) |> Task.await_many(:infinity)
+      try do
+        case groups do
+          [one] -> [run.(one)]
+          _ -> groups |> Enum.map(&Task.async(fn -> run.(&1) end)) |> Task.await_many(:infinity)
+        end
+      after
+        Passes.cancel_done(Keyword.get(opts, :project_dir), pass_id)
       end
 
     failed = for {language, ids, {:error, error}} <- ran, do: {language, ids, error}
     succeeded = for {_language, _ids, {:ok, results, env_status}} <- ran, do: {results, env_status}
 
     cond do
+      # stopped (eval/cancel): nothing of the pass is recorded, whatever a
+      # group had finished before
+      Enum.any?(failed, fn {_, _, error} -> error["code"] == "cancelled" end) ->
+        {book, %{method: "eval", ok?: false, result: nil, error: Passes.cancelled_error()}}
+
       # a single language that failed: its own error, as it is
       match?([_], ran) and match?([_], failed) ->
         [{_, _, error}] = failed
@@ -314,9 +323,16 @@ defmodule XipeTotec.Runner do
     case repl_opts(root, rows, language, opts) do
       {:ok, repl_opts, cleanup, env_status} ->
         # recorded as running for as long as the group's REPL works on `ids`
-        handle = Passes.start(Keyword.get(opts, :project_dir), pass_id, language, ids)
+        project_dir = Keyword.get(opts, :project_dir)
+        handle = Passes.start(project_dir, pass_id, language, ids)
         progress = fn call_id, phase -> Passes.progress(handle, call_id, phase) end
-        eval_opts = Keyword.merge(repl_opts, cwd: root, call_ids: ids, include_writes: include_writes, progress: progress)
+        # eval/cancel leaves a request the group's REPL wait looks for
+        cancelled? = fn -> Passes.cancel_requested?(project_dir, pass_id) end
+
+        eval_opts =
+          repl_opts
+          |> Keyword.merge(cwd: root, call_ids: ids, include_writes: include_writes, progress: progress)
+          |> Keyword.put_new(:cancelled?, cancelled?)
 
         result =
           try do
@@ -329,6 +345,7 @@ defmodule XipeTotec.Runner do
 
         case result do
           {:ok, _book, results} -> {:ok, results, env_status}
+          {:error, :cancelled} -> {:error, Passes.cancelled_error()}
           {:error, reason} -> {:error, %{"code" => "eval_failed", "message" => failure_message(reason)}}
         end
 

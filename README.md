@@ -122,11 +122,11 @@ disk とずれるファイルは、そのファイルだけ次の Scanner（Elix
 | スキャン | `Scanner`（behaviour）/ `Scanner.Lsp`（+ `Scanner.Lsp.Elixir`）/ `Scanner.Elixir` / `Lsp.Transport`（+ `.Relay`・`.Stdio`）/ `Project` / `SurfaceTable` | ファイルからカードと link を作る口と共通の帳簿付け、言語サーバー経由の実装（`documentSymbol`・`callHierarchy`、言語ごとの差は薄い dialect）、Elixir の自前の実装（AST 抽出、`defmodule` のみコンパイル。言語サーバーが無いときの予備）、言語サーバーへのつなぎ方（tezcatl の `/lsp`、無ければ自分で起動）、ディレクトリ横断の2パス走査（言語ごとに Scanner を優先順に試し、どれを使ったかを記録）、ファイルごとの言語判定 |
 | コマンド | `Runner` / `Dispatch` / `Pipeline` / `Address` / `GraphQuery` | コマンド列の実行（`$<n>.<path>` で前の結果を参照）、method の表、住所の解決、呼び出しグラフの BFS と書き出し |
 | 評価 | `Repl.Evaluator` / `Launch` / `Sender(.Direct)` / `Session` / `EvalTemplate` / `SourceSanitize` / `Eval.{Scan,FieldDrip,Parser,Result}` | REPL の起動・完了待ち・式の送信・マーカー受信・ハング時の SIGINT→SIGKILL |
-| 対話 | `InOut` / `Dialogue` / `Dialogue.Depends` / `Dialogue.Search` / `EvalTable` | 複数ターンの構造化対話（一覧は `InOut.programs/0`、CLI とサーバーで共通）、依存チェーン交渉、検索と、その `-e` が引く `eval_table`（計算行に関数と path を横付けした読み取り用の表） |
+| 対話 | `InOut` / `Dialogue` / `Dialogue.Depends` / `Dialogue.Search` / `Dialogue.Do` / `Tables` / `EvalTable` | 複数ターンの構造化対話（一覧は `InOut.programs/0`、CLI とサーバーで共通）、依存チェーン交渉、引数を尋ねて method を1つ実行する対話（`dialogue do`。尋ねる内容は `Methods` の `params`）、検索と、検索が引ける表の宣言（`Tables`。名前・印・列・行の読み方。`roster` も同じ一覧を返す）、その `-e` が引く `eval_table`（計算行に関数と path を横付けした読み取り用の表） |
 | 人向けの入出力 | `Input` / `Help` / `OutcomeText` / `Show` / `Serve.Input` | 1行の読み方（CLI と同じ書き方）、`help` の表、結果・`show` の行（CLI と対話窓で共通）、`input` method |
 | サーバー | `Protocol` / `Serve.Project` / `Serve.Socket` | §16.3 の wire 形、1プロジェクト1GenServer、WebSocket の入口 |
 | プロジェクト | `Workspace` / `ProjectRegistry` / `ProjectConfig` / `ProjectEnv` / `Info` / `Repl.Language` | どのプロジェクトを対象にするかの解決、3桁 ID の登録、プロジェクトごとの設定（`project.json`、`xipe config`）、対象のツールを走らせる環境（対象の flake の devShell など）、xipe_totec 自身の `info.json`（言語と拡張子、アダプタ一覧）と、このマシンで選択中のプロジェクト（`tables/selection.json`）、言語ごとの自己申告 |
-| 評価の周り | `Passes` / `GitCtx` / `CommandLine` | いま評価中のパス（`passes/` のファイル。`eval/status`、評価中の行を変えさせない、§51）、評価した行に記録する git の出どころ、`xipe do` の引数をコマンド列に読む |
+| 評価の周り | `Passes` / `GitCtx` / `CommandLine` | いま評価中のパス（`passes/` のファイル。`eval/status`、評価中の行を変えさせない、§51。止める依頼 `eval/cancel` もここのファイル）、評価した行に記録する git の出どころ、`xipe do` の引数をコマンド列に読む |
 
 ---
 
@@ -168,6 +168,7 @@ PATH に処理系が無ければ飛ばす）がある。
 | 独自追加 | `row/depends`（上流依存チェーン）・`row/set-result`（値の手入力）・`row/list`（計算行の一覧）・`row/check`（条件に当たる行があれば失敗）・`node/resolve`（住所から node の id）・`notify/passCompleted`（評価回の完了通知） | 実装済み（仕様 v0.4 には無い） |
 | 独自追加 | `input`（1行をそのまま受け、CLI と同じ書き方で読む。tezcatl の対話窓用） | 実装済み（2026-09-27、`Old.md` §40） |
 | 独自追加 | `eval/status`（いま評価中のパス。評価中の行は変えられない） | 実装済み（2026-10-06、`Old.md` §51） |
+| 独自追加 | `eval/cancel`（走っているパスを止める・順番待ちを外す。何も記録しない）、`roster`（`search` が引ける表と列） | 実装済み（2026-10-12） |
 | 独自追加 | `arity/set`（引数の既定値で呼べる引数の数を人が決める。`row/add` と link に使う） | 実装済み（2026-10-08、`Old.md` §53） |
 | 評価 | `eval`・`eval/run` | 実装済み。CLI（`xipe eval`／`xipe do ... eval`）は同期実行、`xipe serve` では非同期（`pass_id` を返す）。`eval/run` は `Pipeline`（`["eval"]`）経由 |
 | Pipeline 経由 | `row/update` | 実装済み。`["edit", "eval"]`：引数を変えてその行だけを評価する（Old.md §37） |
@@ -206,6 +207,7 @@ xipe do [--dir <dir>] <method> [key=value...] [-- <method> ...]
                            #        -- eval call_ids=$0.id
 xipe dialogue depends [<dir>] <call_id>
                            # 依存チェーン交渉（"y <値>" か "n" で答える）
+xipe dialogue do <method> [key=value...]   # 足りない引数を尋ねてもらって実行する（値は打ったとおりに渡る）
 xipe search [<turn>]       # 表（surface table / eval_table）を対話で絞り込む（-h で使い方）
 xipe start [<dir>] [--port N] [--lsp <url>] [--fs-root <dir>]
                            # §16.1 WebSocket の入口として常駐し、セッションとして記録する

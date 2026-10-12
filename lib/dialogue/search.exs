@@ -1,6 +1,5 @@
 Code.require_file("../dialogue.exs", __DIR__)
-Code.require_file("../eval_table.exs", __DIR__)
-Code.require_file("../surface_table.exs", __DIR__)
+Code.require_file("../tables.exs", __DIR__)
 Code.require_file("../input.exs", __DIR__)
 
 defmodule XipeTotec.Dialogue.Search do
@@ -10,10 +9,11 @@ defmodule XipeTotec.Dialogue.Search do
   values up in the next table, and finally view the rows. The join is not
   in a query language; it is the turns.
 
-  Two tables: `-s` the project's surface table (`SurfaceTable`), `-e` the
-  `eval_table` (`EvalTable`, calc rows with their function and path). Both
-  are read afresh on every turn from the read-only `ctx` `InOut` hands in.
-  Nothing is evaluated or written.
+  The tables are `XipeTotec.Tables`' (the same list `roster` gives):
+  `-s` the project's surface table (`SurfaceTable`), `-e` the `eval_table`
+  (`EvalTable`, calc rows with their function and path). They are read
+  afresh on every turn from the read-only `ctx` `InOut` hands in. Nothing
+  is evaluated or written.
 
   A turn (a leading `xipe` / `search` is ignored):
 
@@ -46,10 +46,11 @@ defmodule XipeTotec.Dialogue.Search do
 
   @behaviour XipeTotec.Dialogue
 
-  alias XipeTotec.{EvalTable, Input, SurfaceTable}
+  alias XipeTotec.{Input, Tables}
 
   @shown 10
-  @surface_columns ~w(id path depth language repl build_tool)
+  # the flags a turn may name a table with (-s, -e)
+  @flags Tables.flags()
 
   @impl true
   def start(params, ctx) do
@@ -84,7 +85,7 @@ defmodule XipeTotec.Dialogue.Search do
   defp turn([], _line, state, _ctx), do: {:hold, state, "-h for usage, quit dialogue to end"}
   defp turn(["-h"], _line, state, _ctx), do: {:hold, state, usage()}
 
-  defp turn([flag, "view", column | columns], _line, state, ctx) when flag in ["-s", "-e"] do
+  defp turn([flag, "view", column | columns], _line, state, ctx) when flag in @flags do
     with {:ok, rows, all} <- table(flag, ctx),
          :ok <- known(all, [column | columns]),
          {:ok, list} <- held(state) do
@@ -98,7 +99,7 @@ defmodule XipeTotec.Dialogue.Search do
     end
   end
 
-  defp turn([flag, column, "list", out], _line, state, ctx) when flag in ["-s", "-e"] do
+  defp turn([flag, column, "list", out], _line, state, ctx) when flag in @flags do
     with {:ok, rows, all} <- table(flag, ctx),
          :ok <- known(all, [column, out]),
          {:ok, list} <- held(state) do
@@ -109,7 +110,7 @@ defmodule XipeTotec.Dialogue.Search do
     end
   end
 
-  defp turn([flag, column, value | out], _line, state, ctx) when flag in ["-s", "-e"] and length(out) <= 1 do
+  defp turn([flag, column, value | out], _line, state, ctx) when flag in @flags and length(out) <= 1 do
     out = List.first(out) || "id"
 
     with {:ok, rows, all} <- table(flag, ctx),
@@ -140,14 +141,9 @@ defmodule XipeTotec.Dialogue.Search do
 
   # -- tables ----------------------------------------------------------------
 
-  defp table("-e", ctx), do: {:ok, EvalTable.rows(ctx.book), EvalTable.columns()}
-  defp table("-s", ctx), do: {:ok, surface_rows(ctx), @surface_columns}
-
-  # the saved surface table as it is (not regenerated or saved: a search
-  # writes nothing); none saved yet -> generated in memory
-  defp surface_rows(ctx) do
-    file = ctx[:project_dir] && Path.join(ctx.project_dir, "table")
-    if file && File.exists?(file), do: SurfaceTable.load(file), else: SurfaceTable.generate(ctx.root, [])
+  defp table(flag, ctx) do
+    table = Tables.by_flag(flag)
+    {:ok, Tables.rows(table, ctx), table.columns}
   end
 
   defp known(all, columns) do
@@ -214,16 +210,19 @@ defmodule XipeTotec.Dialogue.Search do
   defp quote_word(w), do: if(w == "" or String.match?(w, ~r/\s/), do: "'#{w}'", else: w)
 
   defp usage do
+    tables = Tables.all()
+    f = Enum.map_join(tables, "|", & &1.flag)
+    pad = String.duplicate(" ", max(5 - String.length(f), 0))
+
     """
-    -s|-e <column> <value> [<out>]   rows whose <column> is <value>; their <out> (default id) become the list
-    -s|-e <column> list <out>        the same for every value in the held list (replaces the list)
-    -s|-e view <column> [<col>...]   show the rows matching the held list's values
+    #{f} <column> <value> [<out>]#{pad}   rows whose <column> is <value>; their <out> (default id) become the list
+    #{f} <column> list <out>#{pad}        the same for every value in the held list (replaces the list)
+    #{f} view <column> [<col>...]#{pad}   show the rows matching the held list's values
     get id [-n]                      keep the list's n-th value (from 1, default 1) as x
     quit dialogue                    end the search
     any other line runs as an ordinary command (x is replaced by the kept id)
-    values: exact by default, ~<value> is a substring match, - is empty. -s is the surface table, -e the eval_table
-    -s columns: #{Enum.join(@surface_columns, " ")}
-    -e columns: #{Enum.join(EvalTable.columns(), " ")}\
+    values: exact by default, ~<value> is a substring match, - is empty. #{Enum.map_join(tables, ", ", &"#{&1.flag} is #{&1.summary}")}
+    #{Enum.map_join(tables, "\n", &"#{&1.flag} columns: #{Enum.join(&1.columns, " ")}")}\
     """
   end
 end

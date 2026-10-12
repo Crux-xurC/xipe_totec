@@ -254,6 +254,23 @@ $ xipe eval
 | `row/update` | `id` `args` | 計算行の引数を変え（`row/add` と同じ検査）、**その行だけ**を評価する |
 | `eval/run` | `call_ids`（省略で全件）`include_writes=true` | `eval` と同じ（仕様 §16 の名前） |
 | `eval/status` | なし | いま評価中のパス: 言語・経過時間・対象の行の数と、いま評価している行・その段（下記）。サーバーでは順番待ちのパスも出る |
+| `eval/cancel` | `pass_id`（走っているパスが1つなら省略可） | 走っているパスを止める（下記）。サーバーでは、順番待ちのパスを `pass_id` で外すこともできる |
+| `roster` | なし | `search` が引ける表の一覧: 名前・ターンで書く印（`-s`・`-e`）・列 |
+
+**パスを止める（`eval/cancel`）。** 走っているパスの REPL をプロセスグループごと止め、そのパスの結果は**何も記録しない**
+（先に終わっていた行の分も）。参照透明な関数なら、評価し直せば同じ値が出る。`writes` に分類して `--include-writes` で
+評価していたものだけは、書き込みが途中まで残りうる。止まるまでは一瞬（0.2 秒ごとに確かめる）で、REPL の起動中でも止まる。
+
+```
+$ xipe do eval/cancel
+eval/cancel  ok  pass 01M4R8F0… is being stopped (nothing of it is recorded)
+```
+
+- 止められた側は `eval  error  cancelled: …` で終わる（サーバーでは `notify/passCompleted` の `error.code` が `cancelled`）
+- `pass_id` は `eval/status` に出る。走っているパスが1つなら書かなくてよい。2つ以上なら書く
+- サーバーの順番待ちのパスは `eval/cancel pass_id=<id>` で列から外れる（`status` は `dequeued`）。走っているものは `cancelling`
+- 端末が別でも止められる（止める依頼も `passes/` のファイル）。何も走っていなければ `no_pass`
+- スキャンは止められない（`範囲.md`）
 
 **評価中の行は変えられない。** パスが走っている間、その対象の行への `row/update`・`row/set-result`・
 `row/remove` は `row_in_pass` で断られる（終わってからやり直す）。評価した値が、計算に使っていない
@@ -490,10 +507,50 @@ search> y
 | それ以外 | 普通のコマンドとして実行する（対話は続く）。`x`（`id=x`・`call_ids=[x]`・`⟦x⟧` も）は保持した id に置き換える |
 
 - `-s` は surface table（列: `id path depth language repl build_tool`）、`-e` は `eval_table`
-  （計算行に関数と `path` を横付けした表。列は `-h` で出る）
+  （計算行に関数と `path` を横付けした表。列は `-h` で出る）。引ける表と列の一覧は `xipe do roster` でも出る
 - 値は完全一致。`~<値>` で部分一致（`-e args ~⟦<id>⟧ id` でその行を参照している行）、`-` で空の
   セル（`-e module -` で関数が消えた行）。数値は文字として比べる。10件を超えると先頭10件と件数
 - 検索そのものは何も書き換えない。書き換えるのは、検索の中で打った普通のコマンドだけ
+
+### 5.2 尋ねてもらって実行する（`xipe dialogue do`）
+
+`xipe do <method> …` を、引数を1つずつ尋ねてもらって組み立てる対話。1行では書けない値（カンマを含むリスト・空白や
+引用符を含む文字列・タプル）を、**打ったとおり**に渡せる。関数の id を写す必要も無い。
+
+```
+$ xipe dialogue do row/add
+node? (a function: its id, or its name as Calc.add/2)
+do> Calc.average/1
+args? (a list of 1: { alone to open, one per line, } alone to close)
+do> {
+args: open -- one per line, } alone to close
+do> [1, 2, 3]
+  1: [1, 2, 3]
+do> }
+row/add
+  args = {
+    [1, 2, 3]
+  }
+  node = 01M4R8BV…  (Calc.average/1)
+Run it? (y/n)
+do> y
+Running row/add.
+row/add  ok  …
+```
+
+- 尋ねるのは、その method に**必ず要る引数のうち、行に書かなかったもの**だけ。書いた分は尋ねない
+  （`xipe dialogue do effect/set id=Calc.add/2` なら `effect` だけ）。省ける引数は尋ねないので、要るなら始める行に書く
+- 答えは行をそのまま受け取る（語に割らない・引用符を外さない・カンマを読まない）
+- **関数**は id か、表示されている名前で答える: `Calc.add/2`、引数の数を持たない言語は `Module.name`。同じ名前の関数が
+  2つ以上あれば、候補を並べて尋ね直す。始める行に `node=Calc.add/2` と書いてもよい
+- **リスト**は、`{` だけの行で開き、1行に1要素、`}` だけの行で閉じる。行全体が `{`・`}` のときだけ開閉するので、要素が
+  `{1, 2}` や `%{a: 1}` でも構わない。`{` のすぐ次に `}` で空のリスト。計算行の `args` は閉じたときに数を確かめ、合わなければ
+  尋ね直す
+- 選択肢・数は、合わない答えなら同じことをもう一度尋ねる
+- 全部揃うと、呼び出しを「引数 = 値」で見せる。**Book を書く method は `y`（実行）か `n`（やめる）を待つ**。読むだけのものは
+  そのまま実行する
+- `quit dialogue` で、何も実行せずにやめる
+- tezcatl の対話窓では `dialogue do <method> …` で始め、1行が1つの答え
 
 ---
 
@@ -553,8 +610,8 @@ tezcatl の対話窓はすべての行をこの形で送り、中身を解釈し
 - **1行が1回の `input`**。複数の行を続けて送ると、行どうしは同時に走る（行ごとに別のプロセス）。
   前の行の結果（`scan` で増えた関数、`row/add` した行、評価した値）を次の行で使うなら、返事を
   待ってから送るか、`--` でつないで1行にする
-- 端末が要るコマンド（`choice project`・`table generate`・`start`・`config`・`refresh`・
-  `dialogue depends`）は `input_error` で断る
+- 端末が要るコマンド（`choice project`・`table generate`・`start`・`config`・`refresh`）は `input_error` で断る
+  （`dialogue depends`・`dialogue do`・`search` は窓からも使える）
 - 返事の `dialogue.text` に、CLI が出すのと同じ行が入る。コマンドなら `result.outcomes` に
   コマンドごとの `method`・`ok`・`result`・`error` も入る。読めない行は `input_error`
 - 評価（`eval`・`eval/run`・`row/update`）を含む行は、その評価が終わるのを待ってから次の

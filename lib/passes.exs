@@ -27,6 +27,17 @@ defmodule XipeTotec.Passes do
   `EvalTemplate`). A file whose process is gone (killed, crashed) is not a
   running pass: `running/1` drops it, so nothing is left locked.
 
+  ## Stopping a pass
+
+  `eval/cancel` asks a running pass to stop by leaving a file next to its
+  records, `<project_dir>/passes/<pass_id>.cancel` (`request_cancel/2`). The
+  process that runs the pass looks for it while it waits on its REPL
+  (`cancel_requested?/2`, `Repl.Evaluator`'s `:cancelled?`), kills the REPL's
+  process group -- what a hung session gets -- and ends the pass with
+  `cancelled_error/0`, recording nothing. A file, like the records: the one
+  asking may be another OS process (the CLI stopping a server's pass, or the
+  other way round).
+
   Without a `project_dir` (tests, a bare `Runner.run/4`) nothing is
   written and nothing is locked.
   """
@@ -86,8 +97,37 @@ defmodule XipeTotec.Passes do
 
   def clear(project_dir, pass_id) do
     project_dir |> dir() |> Path.join("#{pass_id}-*.json") |> Path.wildcard() |> Enum.each(&File.rm/1)
+    cancel_done(project_dir, pass_id)
+  end
+
+  @doc "Asks the pass `pass_id` to stop (see moduledoc). The pass ends itself, a moment later."
+  @spec request_cancel(Path.t() | nil, String.t()) :: :ok
+  def request_cancel(nil, _pass_id), do: :ok
+
+  def request_cancel(project_dir, pass_id) do
+    File.mkdir_p!(dir(project_dir))
+    File.write!(cancel_file(project_dir, pass_id), "")
     :ok
   end
+
+  @doc "Whether `pass_id` was asked to stop."
+  @spec cancel_requested?(Path.t() | nil, String.t()) :: boolean()
+  def cancel_requested?(nil, _pass_id), do: false
+  def cancel_requested?(project_dir, pass_id), do: File.exists?(cancel_file(project_dir, pass_id))
+
+  @doc "The pass is over (stopped or not): a request to stop it goes."
+  @spec cancel_done(Path.t() | nil, String.t()) :: :ok
+  def cancel_done(nil, _pass_id), do: :ok
+
+  def cancel_done(project_dir, pass_id) do
+    File.rm(cancel_file(project_dir, pass_id))
+    :ok
+  end
+
+  @doc "What a stopped pass (or a pass taken out of a server's queue) is answered with."
+  @spec cancelled_error() :: map()
+  def cancelled_error,
+    do: %{"code" => "cancelled", "message" => "the pass was stopped (eval/cancel). Nothing was recorded -- evaluate again"}
 
   @doc "The running pass groups, oldest first. Records whose process is gone are removed."
   @spec running(Path.t() | nil) :: [map()]
@@ -135,6 +175,8 @@ defmodule XipeTotec.Passes do
   end
 
   defp dir(project_dir), do: Path.join(project_dir, "passes")
+
+  defp cancel_file(project_dir, pass_id), do: Path.join(dir(project_dir), "#{safe(pass_id)}.cancel")
 
   defp safe(language), do: String.replace(to_string(language), ~r/[^A-Za-z0-9_]/, "_")
 

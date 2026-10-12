@@ -161,6 +161,21 @@ defmodule XipeTotec.Help do
       """
     },
     %{
+      name: "dialogue do",
+      args: "<method> [key=value...]",
+      summary: "put a method call together by being asked for what the line didn't give, then run it",
+      window: true,
+      detail: """
+      asks for every required parameter of <method> that the line didn't give, one at a
+      time, then runs the call. An answer is the whole line as it is -- no quotes
+      removed, no commas read -- so a value the one-line form can't carry ([1,2,3] as one
+      argument, "a b") is typed unchanged. A function is answered by its id or its name
+      (Calc.add/2). A list: a line holding only { opens it, one element per line, a line
+      holding only } closes it. A method that writes shows the call and waits for y/n.
+      quit dialogue ends it without running anything.
+      """
+    },
+    %{
       name: "start",
       args: "[<dir>] [--port N] [--lsp <url>] [--fs-root <dir>]",
       summary: "stay up as the WebSocket entry (serve is an alias)",

@@ -54,6 +54,16 @@ defmodule XipeTotec.Repl.Evaluator do
   and calls `Sender.kill/1` either way. The stuck entry is reported as
   `session_hung` and every remaining entry as `:aborted` (a no-op on the
   book in `Core.apply_result/3`).
+
+  ## Stopping a pass
+
+  `:cancelled?` (0-arity, `eval/cancel`) is asked before the session is
+  launched, while it boots, before each entry and while an entry's result
+  is awaited (every 200 ms at the latest). Once it says yes the
+  session's process group is killed (`Sender.kill/1`, as for a hung
+  session, without the SIGINT grace) and `run_pass/3` returns
+  `{:error, :cancelled}`: nothing of the pass is recorded, not even the
+  entries that had finished.
   """
 
   alias XipeTotec.{Book, Core}
@@ -72,6 +82,7 @@ defmodule XipeTotec.Repl.Evaluator do
   @default_deadline_padding_ms 2_000
   @default_boot_timeout_ms 15_000
   @default_interrupt_grace_ms 2_000
+  @cancel_poll_ms 200
 
   @doc """
   Runs one recalc pass end-to-end: `Core.plan_recalc/3` (same `opts` keys:
@@ -111,6 +122,9 @@ defmodule XipeTotec.Repl.Evaluator do
       An entry that hits the deadline after `XT_CALLED` is recorded as
       `session_hung` with that phase named: the call finished, judging its
       value did not.
+    * `:cancelled?` -- `fn -> boolean end`, whether the pass was asked to
+      stop (moduledoc's "Stopping a pass"). `Runner` passes
+      `XipeTotec.Passes`' check; default never.
 
   `plan.skipped` (rows `Core.plan_recalc/3` left out because a referenced
   row's value couldn't be handed over) is reported first in `results` and
@@ -122,6 +136,7 @@ defmodule XipeTotec.Repl.Evaluator do
   the book is untouched in either case (nothing was evaluated, so there's
   nothing for `apply_results/3` to fold in; unlike a mid-pass hang, a
   boot failure has no partial results to report as `:aborted` either).
+  `{:error, :cancelled}` when `:cancelled?` said yes (the book untouched).
   """
   @spec run_pass(Book.t(), String.t(), keyword()) :: {:ok, Book.t(), [map()]} | {:error, term()}
   def run_pass(book, pass_id, opts) do
@@ -132,7 +147,11 @@ defmodule XipeTotec.Repl.Evaluator do
     hang_grace_ms = Keyword.get(opts, :hang_grace_ms)
     interrupt_grace_ms = Keyword.get(opts, :interrupt_grace_ms, @default_interrupt_grace_ms)
     launch_opts = Keyword.get(opts, :launch_opts, [])
-    adapter = opts |> adapter_from() |> Map.put(:progress, Keyword.get(opts, :progress) || fn _call_id, _phase -> :ok end)
+    adapter =
+      opts
+      |> adapter_from()
+      |> Map.put(:progress, Keyword.get(opts, :progress) || fn _call_id, _phase -> :ok end)
+      |> Map.put(:cancelled?, Keyword.get(opts, :cancelled?) || fn -> false end)
 
     plan_opts = Keyword.take(opts, [:call_ids, :include_writes])
     plan = Core.plan_recalc(book, pass_id, plan_opts)
@@ -162,11 +181,17 @@ defmodule XipeTotec.Repl.Evaluator do
   end
 
   defp run_plan(book, ctx, entries, pass_id, cwd, sender, adapter, boot_timeout_ms, hang_grace_ms, interrupt_grace_ms, launch_opts) do
+    if adapter.cancelled?.(),
+      do: {:error, :cancelled},
+      else: launch_and_run(book, ctx, entries, pass_id, cwd, sender, adapter, boot_timeout_ms, hang_grace_ms, interrupt_grace_ms, launch_opts)
+  end
+
+  defp launch_and_run(book, ctx, entries, pass_id, cwd, sender, adapter, boot_timeout_ms, hang_grace_ms, interrupt_grace_ms, launch_opts) do
     message = adapter.launch.build([{:cwd, cwd} | launch_opts])
 
     case sender.send(message) do
       {:ok, handle} ->
-        case Session.await_ready(sender, handle, message, boot_timeout_ms) do
+        case Session.await_ready(sender, handle, message, boot_timeout_ms, adapter.cancelled?) do
           :ok ->
             interruptible = Map.get(message, "interruptible", false)
             {status, results} = run_entries(entries, pass_id, handle, sender, adapter, interruptible, hang_grace_ms, interrupt_grace_ms)
@@ -179,9 +204,21 @@ defmodule XipeTotec.Repl.Evaluator do
             # {:DOWN,...} -> {:stop, :normal} shutdown, so a second
             # `write/2` could hit a dead GenServer (`:noproc`) instead of
             # the intended no-op.
-            if status == :ok, do: Session.close(sender, handle, message["exit_input"])
+            case status do
+              # stopped (eval/cancel): the process group goes at once, and
+              # nothing of the pass is kept
+              :cancelled ->
+                sender.kill(handle)
+                {:error, :cancelled}
 
-            {:ok, Core.apply_results(book, ctx, results), results}
+              _ ->
+                if status == :ok, do: Session.close(sender, handle, message["exit_input"])
+                {:ok, Core.apply_results(book, ctx, results), results}
+            end
+
+          {:error, :cancelled} ->
+            sender.kill(handle)
+            {:error, :cancelled}
 
           {:error, reason} ->
             sender.kill(handle)
@@ -196,6 +233,12 @@ defmodule XipeTotec.Repl.Evaluator do
   defp run_entries([], _pass_id, _handle, _sender, _adapter, _interruptible, _hang_grace_ms, _interrupt_grace_ms), do: {:ok, []}
 
   defp run_entries([entry | rest], pass_id, handle, sender, adapter, interruptible, hang_grace_ms, interrupt_grace_ms) do
+    if adapter.cancelled?.(),
+      do: {:cancelled, []},
+      else: run_entry(entry, rest, pass_id, handle, sender, adapter, interruptible, hang_grace_ms, interrupt_grace_ms)
+  end
+
+  defp run_entry(entry, rest, pass_id, handle, sender, adapter, interruptible, hang_grace_ms, interrupt_grace_ms) do
     adapter.progress.(entry.call_id, "calling")
     sender.write(handle, adapter.eval_template.build(entry))
     grace_ms = hang_grace_ms || entry.limits.timeout + @default_deadline_padding_ms
@@ -207,6 +250,9 @@ defmodule XipeTotec.Repl.Evaluator do
       {:ok, result} ->
         {status, rest_results} = run_entries(rest, pass_id, handle, sender, adapter, interruptible, hang_grace_ms, interrupt_grace_ms)
         {status, [result | rest_results]}
+
+      :cancelled ->
+        {:cancelled, []}
 
       {:hung, called?} ->
         end_hung_session(sender, handle, interruptible, interrupt_grace_ms)
@@ -268,15 +314,22 @@ defmodule XipeTotec.Repl.Evaluator do
       {:pending, cleaned} ->
         remaining = deadline - System.monotonic_time(:millisecond)
 
-        if remaining <= 0 do
-          {:hung, called?}
-        else
-          receive do
-            {^handle, {:data, chunk}} ->
-              wait_result(handle, call_id, cleaned.buffer <> chunk, session_gen, adapter, deadline, called?)
-          after
-            remaining -> {:hung, called?}
-          end
+        cond do
+          adapter.cancelled?.() ->
+            :cancelled
+
+          remaining <= 0 ->
+            {:hung, called?}
+
+          true ->
+            receive do
+              {^handle, {:data, chunk}} ->
+                wait_result(handle, call_id, cleaned.buffer <> chunk, session_gen, adapter, deadline, called?)
+            after
+              # woken to ask `cancelled?` again; the deadline itself is checked above
+              min(remaining, @cancel_poll_ms) ->
+                wait_result(handle, call_id, cleaned.buffer, session_gen, adapter, deadline, called?)
+            end
         end
     end
   end

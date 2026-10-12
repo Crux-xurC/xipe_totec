@@ -20,9 +20,23 @@ defmodule XipeTotec.Methods do
       (`Serve.Project`: `{"status": "started"}` then `notify/passCompleted`;
       a `:pipeline` method's stages before `"eval"` run at once)
 
+    * `params` -- its parameters as data, in the order they are written
+      and asked for (`Dialogue.Do` asks for the required ones a line didn't
+      give). Each is `%{name:, kind:, required:, list:}` plus, by kind,
+      `values:` (the choices) or `flat:`; `hint:` replaces how its value is
+      shown in `args`. The kinds:
+      * `:node` -- a function's (node's) id
+      * `:call` -- a calc row's id
+      * `:value` -- text taken as it is (a value in the target language, a reference, an id of another sort)
+      * `:choice` -- one of `values`
+      * `:number` -- a whole number
+      * `:flag` -- `true` or left out
+      * `:address` -- the columns naming a function (`module`/`name`/`arity`/`file`/`row`): one object, or with `flat: true` the method's own params
+      `list: true` is a list of that kind (`args`, `call_ids`, `arities`).
     * `args`/`summary` -- how its params are written in a command list
       (`xipe do`, the dialogue window's `input`) and what it does, one line
-      each: `help` prints them (`XipeTotec.Help`). A `:not_implemented`
+      each: `help` prints them (`XipeTotec.Help`). `args` is made from
+      `params` (`args_text/1`), not written by hand. A `:not_implemented`
       method has none and isn't printed
 
   Not listed: session bookkeeping `Serve.Socket` handles itself
@@ -33,28 +47,107 @@ defmodule XipeTotec.Methods do
   """
 
   @type route :: :dispatch | :repl | :pipeline | :not_implemented
-  @type spec :: %{route: route(), writes: boolean(), repl: boolean(), args: String.t(), summary: String.t() | nil}
+  @type kind :: :node | :call | :value | :choice | :number | :flag | :address
+  @type param :: %{
+          required(:name) => String.t(),
+          required(:kind) => kind(),
+          required(:required) => boolean(),
+          required(:list) => boolean(),
+          optional(:values) => [String.t()],
+          optional(:flat) => boolean(),
+          optional(:hint) => String.t()
+        }
+  @type spec :: %{route: route(), writes: boolean(), repl: boolean(), params: [param()], args: String.t(), summary: String.t() | nil}
+
+  # the address columns as a method's own params (card/get, node/resolve)
+  @flat_address %{name: "address", kind: :address, required: true, list: false, flat: true}
+  @call_ids %{name: "call_ids", kind: :call, required: false, list: true}
+  @include_writes %{name: "include_writes", kind: :flag, required: false, list: false}
 
   @methods %{
     "scan/run" => %{route: :dispatch, writes: true, summary: "read the sources and update the cards and links"},
-    "row/add" => %{route: :dispatch, writes: true, args: "node=<node id> args=[...]", summary: "make a calc row"},
-    "row/remove" => %{route: :dispatch, writes: true, args: "id=<call id>", summary: "remove a calc row"},
-    "row/set-result" => %{route: :dispatch, writes: true, args: "id=<call id> result=<value>", summary: "set a result value by hand, without evaluating"},
-    "effect/set" => %{route: :dispatch, writes: true, args: "id=<node id> effect=pure|reads|writes", summary: "classify a function's side effects (an unclassified function is never evaluated)"},
-    "arity/set" => %{route: :dispatch, writes: true, args: "id=<node id> arities=[1,2]", summary: "declare the argument counts default arguments allow (used for calc rows and links; arities=[<the node's own count>] resets it)"},
-    "card/get" => %{route: :dispatch, writes: false, args: "module= name= arity= file= row=", summary: "get the card (function, calc rows, links) an address names"},
-    "card/search" => %{route: :dispatch, writes: false, args: "module= name= arity= file= row=", summary: "find the cards matching an address"},
-    "cell/resolve" => %{route: :dispatch, writes: false, args: "ref=⟦<call id>⟧", summary: "look up a reference's current value"},
-    "graph/neighbors" => %{route: :dispatch, writes: false, args: "address=<address> [depth=N] [direction=in|out|both]", summary: "the neighbours in the call graph"},
-    "graph/export" => %{route: :dispatch, writes: false, args: "address=<address> format=mermaid|dot|json|doctest [depth=N]", summary: "export the call graph"},
-    "row/depends" => %{route: :dispatch, writes: false, args: "call_ids=[...]", summary: "walk calc rows' upstream dependencies (⟦id⟧)"},
-    "row/list" => %{route: :dispatch, writes: false, args: "[call_ids=[...]]", summary: "list the calc rows"},
-    "eval/status" => %{route: :dispatch, writes: false, args: "", summary: "the passes being evaluated now (rows, phase, elapsed time); a row being evaluated cannot be changed"},
-    "row/check" => %{route: :dispatch, writes: false, args: "[on=error,changed,unevaluated] [call_ids=[...]]", summary: "fail if any calc row meets the conditions"},
-    "node/resolve" => %{route: :dispatch, writes: false, args: "module= name= arity= file= row=", summary: "look up a function's (node's) id from an address"},
-    "eval" => %{route: :repl, writes: true, repl: true, args: "[call_ids=[...]] [include_writes=true]", summary: "evaluate the given calc rows in the REPL"},
-    "eval/run" => %{route: :pipeline, writes: true, repl: true, args: "[call_ids=[...]] [include_writes=true]", summary: "evaluate the given calc rows in the REPL"},
-    "row/update" => %{route: :pipeline, writes: true, repl: true, args: "id=<call id> args=[...]", summary: "change a row's arguments and evaluate that row only"},
+    "row/add" => %{
+      route: :dispatch,
+      writes: true,
+      params: [%{name: "node", kind: :node, required: true, list: false}, %{name: "args", kind: :value, required: true, list: true}],
+      summary: "make a calc row"
+    },
+    "row/remove" => %{route: :dispatch, writes: true, params: [%{name: "id", kind: :call, required: true, list: false}], summary: "remove a calc row"},
+    "row/set-result" => %{
+      route: :dispatch,
+      writes: true,
+      params: [%{name: "id", kind: :call, required: true, list: false}, %{name: "result", kind: :value, required: true, list: false}],
+      summary: "set a result value by hand, without evaluating"
+    },
+    "effect/set" => %{
+      route: :dispatch,
+      writes: true,
+      params: [
+        %{name: "id", kind: :node, required: true, list: false},
+        %{name: "effect", kind: :choice, required: true, list: false, values: ~w(pure reads writes)}
+      ],
+      summary: "classify a function's side effects (an unclassified function is never evaluated)"
+    },
+    "arity/set" => %{
+      route: :dispatch,
+      writes: true,
+      params: [%{name: "id", kind: :node, required: true, list: false}, %{name: "arities", kind: :number, required: true, list: true, hint: "[1,2]"}],
+      summary: "declare the argument counts default arguments allow (used for calc rows and links; arities=[<the node's own count>] resets it)"
+    },
+    "card/get" => %{route: :dispatch, writes: false, params: [@flat_address], summary: "get the card (function, calc rows, links) an address names"},
+    "card/search" => %{route: :dispatch, writes: false, params: [@flat_address], summary: "find the cards matching an address"},
+    "cell/resolve" => %{
+      route: :dispatch,
+      writes: false,
+      params: [%{name: "ref", kind: :value, required: true, list: false, hint: "⟦<call id>⟧"}],
+      summary: "look up a reference's current value"
+    },
+    "graph/neighbors" => %{
+      route: :dispatch,
+      writes: false,
+      params: [
+        %{name: "address", kind: :address, required: true, list: false},
+        %{name: "depth", kind: :number, required: false, list: false},
+        %{name: "direction", kind: :choice, required: false, list: false, values: ~w(in out both)}
+      ],
+      summary: "the neighbours in the call graph"
+    },
+    "graph/export" => %{
+      route: :dispatch,
+      writes: false,
+      params: [
+        %{name: "address", kind: :address, required: true, list: false},
+        %{name: "format", kind: :choice, required: true, list: false, values: ~w(mermaid dot json doctest)},
+        %{name: "depth", kind: :number, required: false, list: false}
+      ],
+      summary: "export the call graph"
+    },
+    "row/depends" => %{route: :dispatch, writes: false, params: [%{@call_ids | required: true}], summary: "walk calc rows' upstream dependencies (⟦id⟧)"},
+    "row/list" => %{route: :dispatch, writes: false, params: [@call_ids], summary: "list the calc rows"},
+    "eval/status" => %{route: :dispatch, writes: false, summary: "the passes being evaluated now (rows, phase, elapsed time); a row being evaluated cannot be changed"},
+    "eval/cancel" => %{
+      route: :dispatch,
+      writes: false,
+      params: [%{name: "pass_id", kind: :value, required: false, list: false, hint: "<pass id>"}],
+      summary: "stop a running pass (its REPL is killed, nothing is recorded), or take a queued one out; pass_id may be left out while one pass runs"
+    },
+    "roster" => %{route: :dispatch, writes: false, summary: "the tables search reads: each one's name, flag (-s, -e) and columns"},
+    "row/check" => %{
+      route: :dispatch,
+      writes: false,
+      params: [%{name: "on", kind: :choice, required: false, list: true, values: ~w(error changed unevaluated)}, @call_ids],
+      summary: "fail if any calc row meets the conditions"
+    },
+    "node/resolve" => %{route: :dispatch, writes: false, params: [@flat_address], summary: "look up a function's (node's) id from an address"},
+    "eval" => %{route: :repl, writes: true, repl: true, params: [@call_ids, @include_writes], summary: "evaluate the given calc rows in the REPL"},
+    "eval/run" => %{route: :pipeline, writes: true, repl: true, params: [@call_ids, @include_writes], summary: "evaluate the given calc rows in the REPL"},
+    "row/update" => %{
+      route: :pipeline,
+      writes: true,
+      repl: true,
+      params: [%{name: "id", kind: :call, required: true, list: false}, %{name: "args", kind: :value, required: true, list: true}],
+      summary: "change a row's arguments and evaluate that row only"
+    },
     "cell/complete" => %{route: :not_implemented, writes: false},
     "edit/propose" => %{route: :not_implemented, writes: false},
     "edit/apply" => %{route: :not_implemented, writes: true},
@@ -66,8 +159,41 @@ defmodule XipeTotec.Methods do
   }
 
   @spec all() :: %{String.t() => spec()}
-  def all,
-    do: Map.new(@methods, fn {name, spec} -> {name, spec |> Map.put_new(:repl, false) |> Map.put_new(:args, "") |> Map.put_new(:summary, nil)} end)
+  def all do
+    Map.new(@methods, fn {name, spec} ->
+      spec = spec |> Map.put_new(:repl, false) |> Map.put_new(:params, []) |> Map.put_new(:summary, nil)
+      {name, Map.put(spec, :args, args_text(spec.params))}
+    end)
+  end
+
+  @doc """
+  How `params` are written in a command list, as `help` shows them:
+  `name=<value>` each, an optional one in `[...]`.
+  """
+  @spec args_text([param()]) :: String.t()
+  def args_text(params), do: Enum.map_join(params, " ", &param_text/1)
+
+  @doc "The address columns a `flat` address param stands for."
+  @spec address_columns() :: [String.t()]
+  def address_columns, do: ~w(module name arity file row)
+
+  defp param_text(%{kind: :address, flat: true}), do: Enum.map_join(address_columns(), " ", &(&1 <> "="))
+
+  defp param_text(%{name: name, required: required} = param) do
+    text = "#{name}=#{value_text(param)}"
+    if required, do: text, else: "[#{text}]"
+  end
+
+  defp value_text(%{hint: hint}), do: hint
+  defp value_text(%{kind: :choice, list: true, values: values}), do: Enum.join(values, ",")
+  defp value_text(%{list: true}), do: "[...]"
+  defp value_text(%{kind: :node}), do: "<node id>"
+  defp value_text(%{kind: :call}), do: "<call id>"
+  defp value_text(%{kind: :value}), do: "<value>"
+  defp value_text(%{kind: :choice, values: values}), do: Enum.join(values, "|")
+  defp value_text(%{kind: :number}), do: "N"
+  defp value_text(%{kind: :flag}), do: "true"
+  defp value_text(%{kind: :address}), do: "<address>"
 
   @spec get(String.t()) :: spec() | nil
   def get(name), do: Map.get(all(), name)

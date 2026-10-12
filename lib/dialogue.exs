@@ -22,7 +22,7 @@ defmodule XipeTotec.Dialogue do
   `InOut` never inspects it, only threads it back on the next `answer/2`
   call.
 
-  Programs: `Dialogue.Depends`, `Dialogue.Search` (`InOut.programs/0`).
+  Programs: `Dialogue.Depends`, `Dialogue.Search`, `Dialogue.Do` (`InOut.programs/0`).
   """
 
   @doc "Starts a dialogue from the method name that named this program in `InOut`'s registry. `params` is that request's own params, unexamined by InOut."

@@ -246,6 +246,55 @@ defmodule ServeInputTest do
     assert state.dialogue == nil
   end
 
+  test "dialogue do from the window: asked line by line, the answers kept as typed, the call run on y", %{state: state} do
+    {_reply, state} = input(state, "effect/set id=n1 effect=pure")
+
+    {reply, state} = input(state, "dialogue do row/add")
+    assert %{"dialogue" => %{"hold" => true, "text" => "node? (a function" <> _}} = reply
+
+    {reply, state} = input(state, "M.f1/1")
+    assert %{"dialogue" => %{"hold" => true, "text" => "args? (a list of 1:" <> _}} = reply
+
+    {_reply, state} = input(state, "{")
+    # a value the one-line form can't carry: commas, quotes, a space
+    {reply, state} = input(state, ~s([1, "a b"]))
+    assert %{"dialogue" => %{"hold" => true, "text" => ~s(  1: [1, "a b"])}} = reply
+
+    {reply, state} = input(state, "}")
+    assert %{"dialogue" => %{"hold" => true, "text" => shown}} = reply
+    assert shown =~ "row/add\n  args = {\n    [1, \"a b\"]\n  }\n  node = n1  (M.f1/1)\nRun it? (y/n)"
+
+    {reply, state} = input(state, "y")
+    assert %{"dialogue" => %{"hold" => false, "text" => text}, "result" => %{"outcomes" => [%{"method" => "row/add", "ok" => true, "result" => %{"id" => id}}]}} = reply
+    assert text =~ "Running row/add.\nrow/add  ok"
+    assert state.dialogue == nil
+    assert Project.book().calls[id].args == [~s([1, "a b"])]
+  end
+
+  test "dialogue do with everything on its line: a read runs at once, what the dialogue said first", %{state: state} do
+    {reply, state} = input(state, "dialogue do roster")
+    assert %{"dialogue" => %{"hold" => false, "text" => text}, "result" => %{"outcomes" => [%{"method" => "roster", "ok" => true}]}} = reply
+    assert text =~ "roster\nroster  ok\n  -s  surface"
+    assert state.dialogue == nil
+
+    # an eval it ends in goes through the pass queue and is waited for
+    {reply, state} = input(state, "effect/set id=n1 effect=pure -- row/add node=n1 args=[5]")
+    %{"result" => %{"outcomes" => [_, %{"result" => %{"id" => call}}]}} = reply
+    {reply, state} = input(state, "dialogue do eval call_ids=[#{call}]")
+    assert %{"dialogue" => %{"hold" => true, "text" => shown}} = reply
+    assert shown == "eval\n  call_ids = {\n    #{call}\n  }\nRun it? (y/n)\n"
+    {reply, state} = input(state, "y")
+    assert %{"dialogue" => %{"hold" => false, "via_repl" => true, "text" => text}} = reply
+    assert text =~ "eval call #{call}  ok"
+    assert state.dialogue == nil
+  end
+
+  test "a dialogue that ends at once with nothing to run only says what it has to", %{state: state} do
+    {reply, state} = input(state, "dialogue do no/such")
+    assert %{"dialogue" => %{"hold" => false, "text" => "dialogue do: no such method: no/such" <> _}} = reply
+    assert state.dialogue == nil
+  end
+
   test "an unknown method is reported in the text, the rest still runs", %{state: state} do
     {reply, _state} = input(state, "no/such -- row/list")
     assert %{"result" => %{"outcomes" => [%{"ok" => false}, %{"ok" => true}]}, "dialogue" => %{"text" => text}} = reply

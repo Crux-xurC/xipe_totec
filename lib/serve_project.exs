@@ -41,6 +41,13 @@ defmodule XipeTotec.Serve.Project do
   `error`). One pass runs at a time; later requests queue in arrival
   order.
 
+  `"eval/cancel"` stops a pass: one still in the queue is taken out here
+  (and reported as any ended pass is, `notify/passCompleted` with the
+  `cancelled` error); the running one is asked to stop (`XipeTotec.Passes`'
+  "Stopping a pass") and ends itself a moment later, through the usual
+  completion above. A pass another process runs (the CLI's `xipe eval`) is
+  `Dispatch`'s to ask.
+
   ## So does scanning
 
   `"scan/run"` also runs off this process: with a language server behind
@@ -235,6 +242,11 @@ defmodule XipeTotec.Serve.Project do
     {:reply, {:ok, Map.put(result, "queued", queued(state))}, state}
   end
 
+  defp call({:request, "eval/cancel", params}, _from, state) do
+    {reply, state} = cancel_pass(params, state)
+    {:reply, reply, state}
+  end
+
   defp call({:request, method, params}, _from, state) do
     # Pipeline-routed methods checked first, never falling through to
     # Dispatch's own @not_implemented for them -- same
@@ -283,6 +295,18 @@ defmodule XipeTotec.Serve.Project do
     {:reply, {dialogue, %{hold: false, via_repl: false, text: nil, ok?: true, result: result, error: nil}}, state}
   end
 
+  defp call({:request_dialogue, dialogue, "eval/cancel", params, _opts}, _from, state) do
+    {reply, state} = cancel_pass(params, state)
+
+    outcome =
+      case reply do
+        {:ok, result} -> %{hold: false, via_repl: false, text: nil, ok?: true, result: result, error: nil}
+        {:error, error} -> %{hold: false, via_repl: false, text: nil, ok?: false, result: nil, error: error}
+      end
+
+    {:reply, {dialogue, outcome}, state}
+  end
+
   defp call({:request_dialogue, dialogue, "scan/run", _params, _opts}, from, state),
     do: {:noreply, request_scan({from, {:dialogue, dialogue}}, state)}
 
@@ -311,6 +335,8 @@ defmodule XipeTotec.Serve.Project do
   @impl true
   def handle_info({:pass_done, pass_id, outcome, ctx}, %{running: %{pass_id: pass_id, ref: ref}} = state) do
     Process.demonitor(ref, [:flush])
+    # a request to stop it that came too late to matter
+    XipeTotec.Passes.cancel_done(state.project_dir, pass_id)
 
     state =
       if outcome.ok? do
@@ -459,6 +485,35 @@ defmodule XipeTotec.Serve.Project do
   defp queued(state) do
     for {pass_id, params} <- :queue.to_list(state.queue),
         do: %{"pass_id" => pass_id, "call_ids" => List.wrap(params["call_ids"])}
+  end
+
+  # eval/cancel: this server's queue and running pass first, then whatever
+  # else runs on the project (Dispatch -- a CLI's pass)
+  defp cancel_pass(params, state) do
+    id = if is_map(params), do: params["pass_id"]
+    queued? = is_binary(id) and Enum.any?(:queue.to_list(state.queue), fn {pass_id, _} -> pass_id == id end)
+
+    cond do
+      # still waiting: out of the queue, and reported as an ended pass is
+      queued? ->
+        error = XipeTotec.Passes.cancelled_error()
+        queue = :queue.filter(fn {pass_id, _} -> pass_id != id end, state.queue)
+        push(state.sessions, "notify/passCompleted", %{"pass_id" => id, "ok" => false, "error" => error})
+        state = tell_watcher(%{state | queue: queue}, id, %{method: "eval", ok?: false, result: nil, error: error})
+        {{:ok, %{"pass_id" => id, "status" => "dequeued"}}, state}
+
+      # the running one: asked here, without waiting for its record (which
+      # is written only once its REPL is prepared)
+      state.running != nil and state.project_dir != nil and id in [nil, state.running.pass_id] ->
+        XipeTotec.Passes.request_cancel(state.project_dir, state.running.pass_id)
+        {{:ok, %{"pass_id" => state.running.pass_id, "status" => "cancelling"}}, state}
+
+      true ->
+        case Dispatch.handle(state.book, "eval/cancel", params, %{root: state.root, project_dir: state.project_dir}) do
+          {:ok, _book, result} -> {{:ok, result}, state}
+          {:error, _book, error} -> {{:error, error}, state}
+        end
+    end
   end
 
   defp tell_watcher(state, pass_id, outcome) do

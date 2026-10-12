@@ -6,6 +6,7 @@ Code.require_file("address.exs", __DIR__)
 Code.require_file("graph_query.exs", __DIR__)
 Code.require_file("methods.exs", __DIR__)
 Code.require_file("passes.exs", __DIR__)
+Code.require_file("tables.exs", __DIR__)
 Code.require_file("project_env.exs", __DIR__)
 Code.require_file("scanner/elixir.exs", __DIR__)
 
@@ -286,6 +287,47 @@ defmodule XipeTotec.Dispatch do
     {:ok, book, %{"running" => running}}
   end
 
+  # Asks a running pass to stop (XipeTotec.Passes' "Stopping a pass"): the
+  # process running it kills its REPL's process group and ends the pass,
+  # recording nothing. `pass_id` may be left out while only one pass runs.
+  # Serve.Project answers for its own queue and running pass before this.
+  def handle(book, "eval/cancel", params, ctx) when is_map(params) do
+    running = XipeTotec.Passes.running(ctx[:project_dir])
+    ids = running |> Enum.map(& &1["pass_id"]) |> Enum.uniq()
+
+    case {Map.get(params, "pass_id"), ids} do
+      {nil, []} ->
+        {:error, book, %{"code" => "no_pass", "message" => "no pass is running (eval/status shows the running and queued passes)"}}
+
+      {nil, [id]} ->
+        cancel_pass(book, ctx, running, id)
+
+      {nil, _many} ->
+        {:error, book, invalid_params("eval/cancel: #{length(ids)} passes are running (#{Enum.join(ids, ", ")}) -- give pass_id")}
+
+      {id, _} when is_binary(id) ->
+        if id in ids,
+          do: cancel_pass(book, ctx, running, id),
+          else: {:error, book, %{"code" => "no_pass", "message" => "no running pass #{id} (eval/status shows the running and queued passes)"}}
+
+      _ ->
+        {:error, book, invalid_params("eval/cancel takes pass_id (string), or nothing while one pass runs")}
+    end
+  end
+
+  def handle(book, "eval/cancel", _params, _ctx),
+    do: {:error, book, invalid_params("eval/cancel takes pass_id (string), or nothing while one pass runs")}
+
+  # The tables `search` reads (XipeTotec.Tables): each one's name, the flag
+  # that names it in a search turn, and its columns.
+  def handle(book, "roster", _params, _ctx) do
+    tables =
+      for t <- XipeTotec.Tables.all(),
+          do: %{"name" => t.name, "flag" => t.flag, "summary" => t.summary, "columns" => t.columns}
+
+    {:ok, book, %{"tables" => tables}}
+  end
+
   # The calc rows as a list: what `xipe show` prints and a
   # client can render as the table. `call_ids` (optional) narrows it to
   # those rows, in that order; otherwise every row, oldest first (ULIDs
@@ -495,6 +537,12 @@ defmodule XipeTotec.Dispatch do
       "error" => row[:error],
       "eval_count" => row[:eval_count] || 0
     }
+  end
+
+  defp cancel_pass(book, ctx, running, pass_id) do
+    XipeTotec.Passes.request_cancel(ctx[:project_dir], pass_id)
+    call_ids = for r <- running, r["pass_id"] == pass_id, id <- r["call_ids"] || [], do: id
+    {:ok, book, %{"pass_id" => pass_id, "status" => "cancelling", "call_ids" => call_ids}}
   end
 
   defp match_node_id({:nodes, id, _row}), do: id

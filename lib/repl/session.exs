@@ -10,6 +10,8 @@ defmodule XipeTotec.Repl.Session do
   """
 
   @ready_marker "XT_READY"
+  # how often a wait looks at `cancelled?` (await_ready/5)
+  @cancel_poll_ms 200
   # how much of a failed boot's output await_ready/4 hands back
   @boot_output_lines 30
 
@@ -27,13 +29,17 @@ defmodule XipeTotec.Repl.Session do
   stages together) elapses. An exit carries its status and the last
   #{@boot_output_lines} lines the REPL printed before it, which is where a compile error
   says what and where (`output`, `""` if it printed nothing).
+
+  `cancelled?` (0-arity) is asked while waiting: once it says yes this
+  returns `{:error, :cancelled}` (`eval/cancel` during a long boot). The
+  caller ends the session.
   """
-  @spec await_ready(module(), term(), map(), timeout()) ::
-          :ok | {:error, :timeout} | {:error, {:exited_before_ready, String.t(), String.t()}}
-  def await_ready(sender, handle, message, timeout \\ 10_000) do
+  @spec await_ready(module(), term(), map(), timeout(), (-> boolean())) ::
+          :ok | {:error, :timeout} | {:error, :cancelled} | {:error, {:exited_before_ready, String.t(), String.t()}}
+  def await_ready(sender, handle, message, timeout \\ 10_000, cancelled? \\ fn -> false end) do
     deadline = System.monotonic_time(:millisecond) + timeout
 
-    with {:ok, rest} <- wait_for(handle, message["ready_pattern"], "", deadline) do
+    with {:ok, rest} <- wait_for(handle, message["ready_pattern"], "", deadline, cancelled?) do
       case message["ready_probe"] do
         nil ->
           :ok
@@ -41,7 +47,7 @@ defmodule XipeTotec.Repl.Session do
         probe ->
           sender.write(handle, probe)
 
-          case wait_for(handle, @ready_marker, rest, deadline) do
+          case wait_for(handle, @ready_marker, rest, deadline, cancelled?) do
             {:ok, _rest} -> :ok
             error -> error
           end
@@ -51,9 +57,9 @@ defmodule XipeTotec.Repl.Session do
 
   # `{:ok, output after pattern}` once `pattern` is in the output (`nil`:
   # right away)
-  defp wait_for(_handle, nil, buffer, _deadline), do: {:ok, buffer}
+  defp wait_for(_handle, nil, buffer, _deadline, _cancelled?), do: {:ok, buffer}
 
-  defp wait_for(handle, pattern, buffer, deadline) do
+  defp wait_for(handle, pattern, buffer, deadline, cancelled?) do
     cond do
       String.contains?(buffer, pattern) ->
         [_, rest] = String.split(buffer, pattern, parts: 2)
@@ -64,10 +70,17 @@ defmodule XipeTotec.Repl.Session do
         {:error, {:exited_before_ready, Enum.at(match, 1), last_lines(output)}}
 
       true ->
+        remaining = max(deadline - System.monotonic_time(:millisecond), 0)
+
         receive do
-          {^handle, {:data, chunk}} -> wait_for(handle, pattern, buffer <> chunk, deadline)
+          {^handle, {:data, chunk}} -> wait_for(handle, pattern, buffer <> chunk, deadline, cancelled?)
         after
-          max(deadline - System.monotonic_time(:millisecond), 0) -> {:error, :timeout}
+          min(remaining, @cancel_poll_ms) ->
+            cond do
+              cancelled?.() -> {:error, :cancelled}
+              remaining <= @cancel_poll_ms -> {:error, :timeout}
+              true -> wait_for(handle, pattern, buffer, deadline, cancelled?)
+            end
         end
     end
   end

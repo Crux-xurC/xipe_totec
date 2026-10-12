@@ -44,7 +44,9 @@ defmodule XipeTotec.Serve.Input do
 
   A command that starts a dialogue (a method registered as a dialogue
   program) ends the line there: its question is the reply and the
-  dialogue is held for the next `input`.
+  dialogue is held for the next `input`. One that finishes at once with
+  commands of its own (`dialogue do` given everything on its line) has them
+  run next, in its place, and what it said comes first in the reply.
   """
 
   alias XipeTotec.{Dialogue, Input, Methods, OutcomeText, Protocol, Runner, Show}
@@ -141,12 +143,12 @@ defmodule XipeTotec.Serve.Input do
   # dialogue started on the way ends the line (see moduledoc)
   defp run(commands, project) do
     mon = Process.monitor(GenServer.whereis(project))
-    {outcomes, held} = run_each(commands, [], project, mon)
+    {outcomes, held, said} = run_each(commands, [], project, mon, "")
     Process.demonitor(mon, [:flush])
 
     via_repl = Enum.any?(outcomes, &Methods.repl?(&1.method))
     result = %{"outcomes" => Enum.map(outcomes, &wire/1)}
-    lines = if outcomes == [], do: "", else: OutcomeText.text(outcomes)
+    lines = said <> if(outcomes == [], do: "", else: OutcomeText.text(outcomes))
 
     case held do
       nil -> {:keep, ok(lines, result, via_repl)}
@@ -154,19 +156,31 @@ defmodule XipeTotec.Serve.Input do
     end
   end
 
-  defp run_each([], done, _project, _mon), do: {Enum.reverse(done), nil}
+  # `said`: the text of dialogues that finished at once on the way
+  defp run_each([], done, _project, _mon, said), do: {Enum.reverse(done), nil, said}
 
-  defp run_each([command | rest], done, project, mon) do
+  defp run_each([command | rest], done, project, mon, said) do
     %{"method" => method, "params" => params} = Runner.substitute_command(command, Enum.reverse(done))
-    {dialogue, out} = Project.request_dialogue(project, nil, method, params, watch: self())
+    {dialogue, out} = Project.request_dialogue(project, nil, method, params, watch: self(), defer_commands: true)
 
-    if out.hold do
+    case {out.hold, Map.get(out, :run)} do
       # a dialogue started here: its question ends the line (a line it
       # asks to run on start is not run -- answer it in the next line)
-      {Enum.reverse(done), {dialogue, out.text}}
-    else
-      outcome = await_pass(%{method: method, ok?: out.ok?, result: out.result, error: out.error}, mon)
-      run_each(rest, [outcome | done], project, mon)
+      {true, _} ->
+        {Enum.reverse(done), {dialogue, out.text}, said}
+
+      # a dialogue that finished at once: its commands run here, in its
+      # place, like any others (an evaluation through the pass queue)
+      {false, {:commands, commands}} ->
+        run_each(commands ++ rest, done, project, mon, said <> text_line(out.text))
+
+      # ... or finished with nothing to run: only what it said
+      {false, nil} when is_binary(out.text) ->
+        run_each(rest, done, project, mon, said <> text_line(out.text))
+
+      {false, _} ->
+        outcome = await_pass(%{method: method, ok?: out.ok?, result: out.result, error: out.error}, mon)
+        run_each(rest, [outcome | done], project, mon, said)
     end
   end
 

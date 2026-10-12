@@ -34,6 +34,34 @@ defmodule PassesTest.PeekingSender do
   def interrupt(_handle), do: :ok
 end
 
+# Boots, then never answers an entry: the pass waits on its REPL until it
+# is stopped. Tells the test when an entry was sent and when it was killed.
+defmodule PassesTest.SilentSender do
+  @behaviour XipeTotec.Repl.Sender
+
+  def send(message) do
+    handle = self()
+    Kernel.send(handle, {handle, {:data, message["ready_pattern"] <> "\nXT_READY\n"}})
+    {:ok, handle}
+  end
+
+  def write(_handle, text) do
+    case Regex.run(~r/XT_BEGIN_([^"\s]+)/, text) do
+      [_, call_id] -> Kernel.send(:persistent_term.get({__MODULE__, :test}), {:calling, call_id})
+      nil -> :ok
+    end
+
+    :ok
+  end
+
+  def kill(_handle) do
+    Kernel.send(:persistent_term.get({__MODULE__, :test}), :killed)
+    :ok
+  end
+
+  def interrupt(_handle), do: :ok
+end
+
 defmodule PassesTest do
   use ExUnit.Case, async: true
 
@@ -149,6 +177,94 @@ defmodule PassesTest do
     assert_received {:peek, "c1", [%{"pass_id" => "pX", "call_ids" => ["c1", "c2"], "current" => %{"call_id" => "c1", "phase" => "calling"}}]}
     assert_received {:peek, "c2", [%{"current" => %{"call_id" => "c2", "phase" => "calling"}}]}
     assert Passes.running(dir) == []
+  end
+
+  describe "eval/cancel" do
+    test "a request to stop is a file next to the records; clear/2 and cancel_done/2 remove it", %{dir: dir} do
+      refute Passes.cancel_requested?(dir, "p1")
+      Passes.request_cancel(dir, "p1")
+      assert Passes.cancel_requested?(dir, "p1")
+      # not a running pass by itself
+      assert Passes.running(dir) == []
+
+      Passes.cancel_done(dir, "p1")
+      refute Passes.cancel_requested?(dir, "p1")
+
+      Passes.request_cancel(dir, "p1")
+      Passes.clear(dir, "p1")
+      refute Passes.cancel_requested?(dir, "p1")
+
+      assert Passes.request_cancel(nil, "p1") == :ok
+      refute Passes.cancel_requested?(nil, "p1")
+    end
+
+    test "with nothing running it is no_pass; with one pass the id may be left out", %{dir: dir, book: book} do
+      ctx = %{root: dir, project_dir: dir}
+      assert {:error, ^book, %{"code" => "no_pass"}} = Dispatch.handle(book, "eval/cancel", %{}, ctx)
+
+      h = Passes.start(dir, "p1", "elixir", ["c1", "c2"])
+      assert {:error, ^book, %{"code" => "no_pass", "message" => msg}} = Dispatch.handle(book, "eval/cancel", %{"pass_id" => "p7"}, ctx)
+      assert msg =~ "no running pass p7"
+      refute Passes.cancel_requested?(dir, "p7")
+
+      assert {:ok, ^book, %{"pass_id" => "p1", "status" => "cancelling", "call_ids" => ["c1", "c2"]}} =
+               Dispatch.handle(book, "eval/cancel", %{}, ctx)
+
+      assert Passes.cancel_requested?(dir, "p1")
+      Passes.finish(h)
+    end
+
+    test "with more than one pass running the id must be given", %{dir: dir, book: book} do
+      ctx = %{root: dir, project_dir: dir}
+      h1 = Passes.start(dir, "p1", "elixir", ["c1"])
+      h2 = Passes.start(dir, "p2", "elixir", ["c2"])
+
+      assert {:error, ^book, %{"code" => "invalid_params", "message" => msg}} = Dispatch.handle(book, "eval/cancel", %{}, ctx)
+      assert msg =~ "2 passes are running"
+      assert {:ok, ^book, %{"pass_id" => "p2"}} = Dispatch.handle(book, "eval/cancel", %{"pass_id" => "p2"}, ctx)
+      refute Passes.cancel_requested?(dir, "p1")
+      assert Passes.cancel_requested?(dir, "p2")
+      Passes.finish(h1)
+      Passes.finish(h2)
+    end
+
+    test "a pass waiting on its REPL stops: the REPL is killed, nothing is recorded, no record is left", %{dir: dir, book: book} do
+      :persistent_term.put({PassesTest.SilentSender, :test}, self())
+      commands = [%{"method" => "eval", "params" => %{"call_ids" => ["c1", "c2"]}}]
+      opts = [sender: PassesTest.SilentSender, launch_opts: [], language: "elixir", project_dir: dir, pass_id: "pS"]
+      pass = Task.async(fn -> Runner.run(book, dir, commands, opts) end)
+
+      assert_receive {:calling, "c1"}, 2_000
+      assert {:ok, _, %{"pass_id" => "pS", "status" => "cancelling"}} = Dispatch.handle(book, "eval/cancel", %{}, %{root: dir, project_dir: dir})
+
+      assert {^book, [%{method: "eval", ok?: false, error: %{"code" => "cancelled"}} = outcome]} = Task.await(pass, 2_000)
+      assert_received :killed
+      # the second row was never sent
+      refute_received {:calling, "c2"}
+      assert Passes.running(dir) == []
+      refute Passes.cancel_requested?(dir, "pS")
+      assert OutcomeText.text([outcome]) =~ "eval  error  cancelled:"
+    end
+
+    test "a pass asked to stop before its REPL is launched never launches it", %{dir: dir, book: book} do
+      :persistent_term.put({PassesTest.SilentSender, :test}, self())
+      Passes.request_cancel(dir, "pE")
+      commands = [%{"method" => "eval", "params" => %{"call_ids" => ["c1"]}}]
+
+      assert {^book, [%{ok?: false, error: %{"code" => "cancelled"}}]} =
+               Runner.run(book, dir, commands, sender: PassesTest.SilentSender, launch_opts: [], language: "elixir", project_dir: dir, pass_id: "pE")
+
+      refute_received {:calling, _}
+      refute Passes.cancel_requested?(dir, "pE")
+    end
+
+    test "its lines" do
+      assert OutcomeText.text([%{method: "eval/cancel", ok?: true, result: %{"pass_id" => "p1", "status" => "cancelling"}, error: nil}]) =~
+               "eval/cancel  ok  pass p1 is being stopped"
+
+      assert OutcomeText.text([%{method: "eval/cancel", ok?: true, result: %{"pass_id" => "p2", "status" => "dequeued"}, error: nil}]) =~
+               "eval/cancel  ok  pass p2 taken out of the queue"
+    end
   end
 
   test "a skipped row's line says how to settle its upstream (same command, or dialogue depends)" do
