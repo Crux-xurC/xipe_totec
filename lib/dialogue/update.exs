@@ -102,7 +102,7 @@ defmodule XipeTotec.Dialogue.Update do
 
     case ProjectConfig.check(key, value) do
       {:ok, stored} ->
-        note = "written to #{own(ctx)}"
+        note = "to be written to #{own(ctx)}"
 
         case Do.start(%{"method" => "config/set", "given" => %{"key" => key, "value" => to_string(stored)}}, ctx) do
           {:hold, inner, text} -> {:hold, %{state | inner: inner}, note <> "\n" <> text}

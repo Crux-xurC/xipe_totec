@@ -73,6 +73,25 @@ defmodule DialogueUpdateTest do
       assert ProjectConfig.allowed_text("env.path") == "prepend|replace"
     end
 
+    test "a number written by hand as a string is read as the number; other shapes fall back", %{ctx: ctx, own: own} do
+      File.write!(own, JSON.encode!(%{"path" => "/work/calc", "eval" => %{"timeout" => "7000", "boot_timeout" => [1]}}))
+      assert %{"timeout" => 7000, "boot_timeout" => 15000} = ProjectConfig.load(ctx.project_dir)["eval"]
+    end
+
+    test "a project.json that can't be read as settings is not written over", %{ctx: ctx, own: own} do
+      broken = ~s({"path": "/work/calc", "eval": {"timeout": 7000},}\n)
+      File.write!(own, broken)
+      assert {:error, message} = ProjectConfig.put(ctx.project_dir, "eval.timeout", "12000")
+      assert message =~ "is not a JSON object"
+      assert File.read!(own) == broken
+
+      odd = JSON.encode!(%{"path" => "/work/calc", "eval" => 5})
+      File.write!(own, odd)
+      assert {:error, message} = ProjectConfig.put(ctx.project_dir, "eval.timeout", "12000")
+      assert message =~ "eval is not an object"
+      assert File.read!(own) == odd
+    end
+
     test "each setting says where its value comes from: the project's file, the defaults file, or built in", %{ctx: ctx, own: own, dir: dir} do
       defaults = Path.join(dir, "defaults.json")
       File.write!(defaults, JSON.encode!(%{"eval" => %{"timeout" => 7000, "nope" => 1}, "env" => %{"path" => "sideways"}}))
@@ -200,7 +219,7 @@ defmodule DialogueUpdateTest do
 
       assert {:hold, %{inner: inner}, text} = turns(ctx, %{}, ["eval.timeout", "20000"])
       assert inner != nil
-      assert text == "written to #{own}\nconfig/set\n  key = eval.timeout\n  value = 20000\nRun it? (y/n)"
+      assert text == "to be written to #{own}\nconfig/set\n  key = eval.timeout\n  value = 20000\nRun it? (y/n)"
 
       assert {:done, "Running config/set.", [%{"method" => "config/set", "params" => %{"key" => "eval.timeout", "value" => "20000"}}]} =
                turns(ctx, %{}, ["eval.timeout", "20000", "y"])

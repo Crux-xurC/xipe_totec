@@ -93,13 +93,49 @@ defmodule XipeTotec.ProjectConfig do
     end
   end
 
-  @doc "Set dotted `key` to `value` in `project_dir`'s project.json, keeping everything else."
+  @doc """
+  Set dotted `key` to `value` in `project_dir`'s project.json, keeping
+  everything else. A file that is there but can't be read as settings (not
+  JSON, not an object, a group that isn't one) is left as it is and the
+  write refused: written from what could be read, it would lose the
+  registry's `path` and every other setting.
+  """
   @spec put(Path.t(), String.t(), String.t()) :: :ok | {:error, String.t()}
   def put(project_dir, key, value) do
-    with {:ok, stored_value} <- check(key, value) do
-      path = String.split(key, ".")
-      stored = read(project_dir)
+    with {:ok, stored_value} <- check(key, value),
+         {:ok, stored} <- read_for_write(file(project_dir)),
+         path = String.split(key, "."),
+         :ok <- groups_ok(stored, Enum.drop(path, -1), file(project_dir)) do
       File.write!(file(project_dir), JSON.encode!(put_in(stored, Enum.map(path, &Access.key(&1, %{})), stored_value)) <> "\n")
+    end
+  end
+
+  # the file as put/3 will write it back: a missing one is empty, one that
+  # can't be read as an object is not written over
+  defp read_for_write(path) do
+    case File.read(path) do
+      {:error, :enoent} ->
+        {:ok, %{}}
+
+      {:error, reason} ->
+        {:error, "#{path} can't be read (#{:file.format_error(reason)}), so nothing was written"}
+
+      {:ok, text} ->
+        case JSON.decode(text) do
+          {:ok, %{} = map} -> {:ok, map}
+          _ -> {:error, "#{path} is not a JSON object (fix it by hand first), so nothing was written"}
+        end
+    end
+  end
+
+  # every group on the way to the key is an object (or not there yet)
+  defp groups_ok(_stored, [], _file), do: :ok
+
+  defp groups_ok(stored, [group | rest], file) do
+    case Map.get(stored, group) do
+      nil -> :ok
+      %{} = inner -> groups_ok(inner, rest, file)
+      _ -> {:error, "#{file}: #{group} is not an object (fix it by hand first), so nothing was written"}
     end
   end
 
@@ -142,12 +178,17 @@ defmodule XipeTotec.ProjectConfig do
   defp defaults(defaults_file), do: deep_merge(@builtin, defaults_file |> read_file() |> known())
 
   # a settings map cut down to the known keys with values that pass check/2
-  # (a hand-edited file with a typo or a wrong value falls back, per key)
+  # (a hand-edited file with a typo or a wrong value falls back, per key).
+  # The value kept is the checked one: a number written as a string
+  # ("7000") is the number, never the string
   defp known(settings) do
-    for {key, value} <- flatten(settings), Map.has_key?(@keys, key), match?({:ok, _}, check(key, to_string(value))), reduce: %{} do
-      acc -> put_in(acc, Enum.map(String.split(key, "."), &Access.key(&1, %{})), value)
+    for {key, value} <- flatten(settings), Map.has_key?(@keys, key), {:ok, stored} <- [checked(key, value)], reduce: %{} do
+      acc -> put_in(acc, Enum.map(String.split(key, "."), &Access.key(&1, %{})), stored)
     end
   end
+
+  defp checked(key, value) when is_binary(value) or is_integer(value), do: check(key, to_string(value))
+  defp checked(_key, _value), do: :error
 
   defp read(project_dir), do: read_file(file(project_dir))
 

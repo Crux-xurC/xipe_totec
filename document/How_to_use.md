@@ -628,7 +628,7 @@ key?
 update> eval.timeout
 eval.timeout? (100..600000 ms)
 update> 20000
-written to /…/001_calc/project.json
+to be written to /…/001_calc/project.json
 config/set
   key = eval.timeout
   value = 20000
