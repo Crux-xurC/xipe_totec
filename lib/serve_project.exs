@@ -70,6 +70,7 @@ defmodule XipeTotec.Serve.Project do
           optional(:eval_opts) => keyword(),
           optional(:project_id) => String.t(),
           optional(:project_dir) => Path.t(),
+          optional(:log_file) => Path.t(),
           root: String.t(),
           store_file: Path.t()
         }
@@ -96,6 +97,10 @@ defmodule XipeTotec.Serve.Project do
   @doc "The book as it is now (the dialogue window's `show`, `Serve.Input`)."
   @spec book(GenServer.server()) :: XipeTotec.Book.t()
   def book(pid \\ __MODULE__), do: GenServer.call(pid, :book)
+
+  @doc "The file what this server says is logged to (`XipeTotec.LogBuffer`), or `nil`."
+  @spec log_file(GenServer.server()) :: Path.t() | nil
+  def log_file(pid \\ __MODULE__), do: GenServer.call(pid, :log_file)
 
   @spec detach(GenServer.server(), pid()) :: :ok
   def detach(pid \\ __MODULE__, session_pid), do: GenServer.cast(pid, {:detach, session_pid})
@@ -153,6 +158,9 @@ defmodule XipeTotec.Serve.Project do
        # tables/project/<id>_<name>/: its saved surface table and
        # environment (ProjectEnv); nil -> generated per call, xipe's own env
        project_dir: Map.get(opts, :project_dir),
+       # XipeTotec.LogBuffer's file: what `input` answers is added to it, and
+       # a dialogue reads it (nil -> nothing is logged; tests)
+       log_file: Map.get(opts, :log_file),
        store_file: store_file,
        sessions: %{},
        programs: programs,
@@ -225,6 +233,7 @@ defmodule XipeTotec.Serve.Project do
 
   defp call(:info, _from, state), do: {:reply, %{"id" => state.project_id, "root" => state.root}, state}
   defp call(:book, _from, state), do: {:reply, state.book, state}
+  defp call(:log_file, _from, state), do: {:reply, state.log_file, state}
 
   defp call({:request, method, params}, _from, state) when method in @eval_methods do
     case start_repl_method(method, params, nil, state) do
@@ -312,7 +321,14 @@ defmodule XipeTotec.Serve.Project do
 
   defp call({:request_dialogue, dialogue, method, params, opts}, _from, state) do
     {new_dialogue, new_book, outcome} =
-      InOut.handle(dialogue, state.book, state.root, %{"method" => method, "params" => params}, Keyword.put_new(opts, :project_dir, state.project_dir), state.programs)
+      InOut.handle(
+        dialogue,
+        state.book,
+        state.root,
+        %{"method" => method, "params" => params},
+        opts |> Keyword.put_new(:project_dir, state.project_dir) |> Keyword.put_new(:log_file, state.log_file),
+        state.programs
+      )
 
     {new_book, state} = persist(state, new_book, [
       :sheets,

@@ -63,7 +63,7 @@ defmodule ServeInputTest do
   alias XipeTotec.Serve.{Project, Socket}
 
   # Serve.Project is a named GenServer: one test at a time (see serve_socket_test.exs)
-  setup do
+  setup context do
     dir = Path.join(System.tmp_dir!(), "xipe_totec_input_test_#{System.unique_integer([:positive])}")
     File.mkdir_p!(dir)
     store_file = Path.join(dir, "book.jsonl")
@@ -75,15 +75,24 @@ defmodule ServeInputTest do
 
     XipeTotec.Store.persist_diff(store_file, XipeTotec.Book.new(), nodes, [:nodes])
 
-    {:ok, pid} =
-      Project.start_link(%{
-        root: dir,
-        store_file: store_file,
-        project_id: "042",
-        programs:
-          Map.merge(XipeTotec.InOut.programs(), %{"toy/negotiate" => ServeInputTest.ToyDialogue, "toy/plain" => ServeInputTest.PlainDialogue}),
-        eval_opts: [sender: ServeInputTest.InstantSender, launch_opts: [], language: "elixir"]
-      })
+    opts = %{
+      root: dir,
+      store_file: store_file,
+      project_id: "042",
+      programs:
+        Map.merge(XipeTotec.InOut.programs(), %{"toy/negotiate" => ServeInputTest.ToyDialogue, "toy/plain" => ServeInputTest.PlainDialogue}),
+      eval_opts: [sender: ServeInputTest.InstantSender, launch_opts: [], language: "elixir"]
+    }
+
+    # a registered project's directory and the buffer of what was said
+    opts =
+      if context[:with_project],
+        do: Map.merge(opts, %{project_dir: Path.join(dir, "project"), log_file: Path.join(dir, "logging_buffer.txt")}),
+        else: opts
+
+    if context[:with_project], do: File.mkdir_p!(Path.join(dir, "project"))
+
+    {:ok, pid} = Project.start_link(opts)
 
     on_exit(fn ->
       # linked to the test process, it may be going down on its own already
@@ -307,6 +316,46 @@ defmodule ServeInputTest do
     assert text =~ "row/set-result  ok"
     assert state.dialogue == nil
     assert %{result: ~s(["a, b", 2]), result_source: "user"} = Project.book().calls[call]
+  end
+
+  @tag :with_project
+  test "what a line is answered with is logged; dialogue update offers the file a pass's limits line named", %{state: state, dir: dir} do
+    own = Path.join([dir, "project", "project.json"])
+    log = Path.join(dir, "logging_buffer.txt")
+
+    {_reply, state} = input(state, "effect/set id=n1 effect=pure -- row/add node=n1 args=[5] -- eval 'call_ids=[$1.id]'")
+    logged = File.read!(log)
+    assert logged =~ "effect/set  ok"
+    assert logged =~ "  eval: limit 5s per row (eval.timeout, #{XipeTotec.ProjectConfig.defaults_file()})"
+
+    {reply, state} = input(state, "dialogue update")
+    assert %{"dialogue" => %{"hold" => true, "text" => text}} = reply
+    assert text =~ "  1  #{XipeTotec.ProjectConfig.defaults_file()}  (the defaults)"
+    assert text =~ "  2  #{own}  (this project's settings)"
+
+    {_reply, state} = input(state, "2")
+    {_reply, state} = input(state, "eval.timeout")
+    {reply, state} = input(state, "9000")
+    assert %{"dialogue" => %{"hold" => true, "text" => shown}} = reply
+    assert shown =~ "config/set\n  key = eval.timeout\n  value = 9000\nRun it? (y/n)"
+
+    {reply, state} = input(state, "y")
+    assert %{"dialogue" => %{"hold" => false, "text" => text}} = reply
+    assert text =~ "config/set  ok  eval.timeout=9000 (eval.timeout, #{own})"
+    assert state.dialogue == nil
+    assert XipeTotec.ProjectConfig.load(Path.join(dir, "project"))["eval"]["timeout"] == 9000
+
+    # the next pass runs under it, and says so
+    {reply, _state} = input(state, "eval")
+    assert reply["dialogue"]["text"] =~ "  eval: limit 9s per row (eval.timeout, #{own})"
+    # the dialogue's own questions were logged too
+    assert File.read!(log) =~ "Run it? (y/n)"
+  end
+
+  test "without a log file nothing is logged anywhere", %{state: state, dir: dir} do
+    {_reply, _state} = input(state, "row/list")
+    assert Project.log_file() == nil
+    refute File.exists?(Path.join(dir, "logging_buffer.txt"))
   end
 
   test "a dialogue that ends at once with nothing to run only says what it has to", %{state: state} do

@@ -37,9 +37,9 @@ nix shell nixpkgs#ghc -c elixir test/live/repl_haskell_test.exs                 
 ## 実際に動かして確かめるとき（実環境を汚さない）
 
 xipe_totec は自分の状態を `__DIR__` 基準の固定の場所に持つ（`tables/project/…/book.jsonl`、
-`tables/session.json`、`info.json`）。環境変数で差し替えられないので、CLI を試すときは:
+`tables/session.json`、`tables/logging_buffer.txt`、`info.json`）。環境変数で差し替えられないので、CLI を試すときは:
 
-1. `lib/`・`main.exs`・`info.json`・`pipelines.json` を作業用ディレクトリへコピーする（OCaml・Haskell を評価するなら
+1. `lib/`・`main.exs`・`info.json`・`pipelines.json`・`defaults.json` を作業用ディレクトリへコピーする（OCaml・Haskell を評価するなら
    `XIPE_TOTEC_EMBODY_DIR=~/my_app/embody` も。embody は別リポジトリで、既定では xipe_totec の隣を探す）
 2. 対象も `test/fixtures/calc_sample/` のコピーを使う
 3. コピーした側で `XIPE_TOTEC_LSP=off elixir main.exs choice project <コピーした対象>` → `scan` → `do …` → `eval …`

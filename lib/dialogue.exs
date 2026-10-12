@@ -23,7 +23,7 @@ defmodule XipeTotec.Dialogue do
   call.
 
   Programs: `Dialogue.Depends`, `Dialogue.Search`, `Dialogue.Do`,
-  `Dialogue.Rewrite` (`InOut.programs/0`).
+  `Dialogue.Rewrite`, `Dialogue.Update` (`InOut.programs/0`).
   """
 
   @doc "Starts a dialogue from the method name that named this program in `InOut`'s registry. `params` is that request's own params, unexamined by InOut."
@@ -47,7 +47,8 @@ defmodule XipeTotec.Dialogue do
   #
   # A program that needs to read the Book on every turn implements
   # start/2 / answer/3 instead of start/1 / answer/2: `InOut` then hands it
-  # a read-only `ctx` (`%{book:, root:, project_dir:}`). It still never
+  # a read-only `ctx` (`%{book:, root:, project_dir:, log_file:}` --
+  # `log_file` is XipeTotec.LogBuffer's file, nil when nothing is logged). It still never
   # changes the Book itself -- changes go through commands.
   #
   # Besides :hold and :done, a turn may return `{:pass, state, line}`: the
@@ -56,7 +57,7 @@ defmodule XipeTotec.Dialogue do
   # prompt, `Serve.Input`) while the dialogue stays held. The driver runs it
   # rather than `InOut`, so an evaluation in it doesn't hold the server.
 
-  @type ctx :: %{book: XipeTotec.Book.t(), root: String.t(), project_dir: Path.t() | nil}
+  @type ctx :: %{book: XipeTotec.Book.t(), root: String.t(), project_dir: Path.t() | nil, log_file: Path.t() | nil}
   @type turn ::
           {:hold, term(), String.t()}
           | {:done, String.t(), [map()]}

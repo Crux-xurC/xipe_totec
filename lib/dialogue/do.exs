@@ -36,7 +36,8 @@ defmodule XipeTotec.Dialogue.Do do
 
   A wrong answer asks the same question again. When everything is there
   the call is shown, parameter by parameter; a method that writes the Book
-  then waits for `y` (run it) or `n` (drop it), any other runs at once.
+  (or a project's settings: `Methods`' `confirm`) then waits for `y` (run
+  it) or `n` (drop it), any other runs at once.
   The command goes to whoever drives the dialogue as structured params
   (`:done` with commands), never back through a line.
 
@@ -62,7 +63,7 @@ defmodule XipeTotec.Dialogue.Do do
       %{} = spec ->
         {given, notes} = settle_given(spec.params, given, ctx)
         pending = Enum.filter(spec.params, &(&1.required and not given?(&1, given)))
-        step(%{method: method, writes: spec.writes, params: given, pending: pending, list: nil, confirm: false}, ctx, notes)
+        step(%{method: method, writes: spec.writes or spec.confirm, params: given, pending: pending, list: nil, confirm: false}, ctx, notes)
 
       _ ->
         {:done, "dialogue do: no such method: #{method || ""} -- #{@usage}", []}

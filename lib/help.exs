@@ -192,6 +192,23 @@ defmodule XipeTotec.Help do
       """
     },
     %{
+      name: "dialogue update",
+      args: "[<file> [<key>]]",
+      summary: "change one of the open project's settings (time limits, environment): asked for the file, the key, the new value",
+      window: true,
+      detail: """
+      asks, in turn, for whatever the line didn't give: the file -- one of the settings
+      files xipe named lately (a pass's `limit ...` line names them), shown numbered,
+      answered 1-5 -- the key (every setting is shown with its value and what it may be),
+      and the new value. The settings: eval.timeout (ms one calc row may run),
+      eval.boot_timeout (ms a pass waits for its REPL, a build included), env.path,
+      env.refresh. A change is written to the project's own project.json -- also when the
+      defaults file was chosen: the defaults are every project's and are not rewritten.
+      It is shown first and written on y (config/set). A changed time limit applies from
+      the next pass. quit dialogue ends it without changing anything.
+      """
+    },
+    %{
       name: "start",
       args: "[<dir>] [--port N] [--lsp <url>] [--fs-root <dir>]",
       summary: "stay up as the WebSocket entry (serve is an alias)",
@@ -217,8 +234,11 @@ defmodule XipeTotec.Help do
       detail: """
       show or set the project's own settings (its project.json): env.path=prepend|replace
       (how the environment a flake.nix gives, resolved with nix print-dev-env, meets
-      xipe's own PATH) and env.refresh=auto|manual (a changed flake is resolved again on
-      the next scan/eval, or only on `xipe table generate`)
+      xipe's own PATH), env.refresh=auto|manual (a changed flake is resolved again on
+      the next scan/eval, or only on `xipe table generate`), eval.timeout=<ms> (how long
+      one calc row may run) and eval.boot_timeout=<ms> (how long a pass waits for its
+      REPL, a build included). Each is listed with what it may be and the file its value
+      comes from. `dialogue update` asks for the same, also from the dialogue window.
       """
     },
     %{

@@ -7,6 +7,7 @@ Code.require_file("graph_query.exs", __DIR__)
 Code.require_file("methods.exs", __DIR__)
 Code.require_file("passes.exs", __DIR__)
 Code.require_file("tables.exs", __DIR__)
+Code.require_file("project_config.exs", __DIR__)
 Code.require_file("project_env.exs", __DIR__)
 Code.require_file("scanner/elixir.exs", __DIR__)
 
@@ -355,6 +356,28 @@ defmodule XipeTotec.Dispatch do
 
   def handle(book, "eval/cancel", _params, _ctx),
     do: {:error, book, invalid_params("eval/cancel takes pass_id (string), or nothing while one pass runs")}
+
+  # One of the open project's settings (XipeTotec.ProjectConfig): written to
+  # its own project.json, never to the defaults. Not the Book's.
+  def handle(book, "config/set", %{"key" => key, "value" => value}, ctx) when is_binary(key) and is_binary(value) do
+    case ctx[:project_dir] do
+      nil ->
+        {:error, book, %{"code" => "no_project", "message" => "config/set: settings are a registered project's, and none is open here"}}
+
+      project_dir ->
+        case XipeTotec.ProjectConfig.put(project_dir, key, value) do
+          :ok ->
+            {:ok, stored} = XipeTotec.ProjectConfig.check(key, value)
+            {:ok, book, %{"key" => key, "value" => stored, "file" => XipeTotec.ProjectConfig.file(project_dir)}}
+
+          {:error, message} ->
+            {:error, book, invalid_params("config/set: " <> message)}
+        end
+    end
+  end
+
+  def handle(book, "config/set", _params, _ctx),
+    do: {:error, book, invalid_params("config/set needs key (string) and value (string)")}
 
   # The tables `search` reads (XipeTotec.Tables): each one's name, the flag
   # that names it in a search turn, its columns, and the ones that can be

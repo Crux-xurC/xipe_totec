@@ -20,9 +20,10 @@ defmodule XipeTotec.Input do
     * `eval [id...] [--include-writes]` -- the `"eval"` command
     * `search [<turn>]`, `dialogue depends <call_id>`, `dialogue do
       <method> [key=value...]`, `dialogue rewrite [<table> [<row>
-      [<column>]]]` -- start those dialogues (`Dialogue.Search`,
-      `Dialogue.Depends`, `Dialogue.Do`, `Dialogue.Rewrite`); `quit
-      dialogue` ends one (said here only when none is held)
+      [<column>]]]`, `dialogue update [<file> [<key>]]` -- start those
+      dialogues (`Dialogue.Search`, `Dialogue.Depends`, `Dialogue.Do`,
+      `Dialogue.Rewrite`, `Dialogue.Update`); `quit dialogue` ends one
+      (said here only when none is held)
     * `do <method> [key=value...] [-- <method> ...]` -- a command list
       (`XipeTotec.CommandLine`, the same parsing as `xipe do`)
     * `<method> ...` -- the same without `do`: a first word that names a
@@ -100,6 +101,16 @@ defmodule XipeTotec.Input do
 
   defp command(["dialogue", "rewrite" | _]),
     do: {:error, "dialogue rewrite: write dialogue rewrite [<table> [<row> [<column>]]] -- the new value is asked for, on a line of its own"}
+
+  # the file (its number among those named lately, or its path) and the
+  # key may be given; the value is always asked for
+  defp command(["dialogue", "update" | words]) when length(words) <= 2 do
+    params = ["file", "key"] |> Enum.zip(words) |> Map.new()
+    {:commands, [%{"method" => "dialogue/update", "params" => params}]}
+  end
+
+  defp command(["dialogue", "update" | _]),
+    do: {:error, "dialogue update: write dialogue update [<file> [<key>]] -- the new value is asked for, on a line of its own"}
 
   defp command(["quit", "dialogue"]), do: {:error, "no dialogue is held"}
 

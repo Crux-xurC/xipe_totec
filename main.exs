@@ -26,6 +26,7 @@ Code.require_file("lib/project_env.exs", __DIR__)
 Code.require_file("lib/help.exs", __DIR__)
 Code.require_file("lib/outcome_text.exs", __DIR__)
 Code.require_file("lib/show.exs", __DIR__)
+Code.require_file("lib/log_buffer.exs", __DIR__)
 
 defmodule XipeTotec.CLI do
   @moduledoc false
@@ -56,6 +57,7 @@ defmodule XipeTotec.CLI do
       ["dialogue", "depends" | rest] -> dialogue_depends(rest)
       ["dialogue", "do" | rest] -> dialogue_do(rest)
       ["dialogue", "rewrite" | rest] -> dialogue_rewrite(rest)
+      ["dialogue", "update" | rest] -> dialogue_update(rest)
       ["search" | rest] -> search(rest)
       ["refresh" | rest] -> refresh(rest)
       ["config" | rest] -> config(rest)
@@ -91,10 +93,14 @@ defmodule XipeTotec.CLI do
 
   defp print_env_status(prefix, status, verbose), do: print_lines(OutcomeText.env_lines(prefix, status, verbose))
 
+  # printed, and added to the buffer of what was said (LogBuffer): a
+  # dialogue can point back at a file a line named
   defp print_lines(lines) do
     for {stream, line} <- lines do
       if stream == :err, do: IO.puts(:stderr, line), else: IO.puts(line)
     end
+
+    XipeTotec.LogBuffer.append(XipeTotec.LogBuffer.default_file(), Enum.map(lines, &elem(&1, 1)))
   end
 
   # `xipe config [<dir>] [key=value...]`: a project's own settings
@@ -123,9 +129,12 @@ defmodule XipeTotec.CLI do
 
     IO.puts("project #{project.id}  #{project.path}")
 
-    for {key, value} <- ProjectConfig.flatten(ProjectConfig.load(project.dir)) do
-      IO.puts("#{key}=#{value}  (#{Enum.join(ProjectConfig.allowed()[key] || [], "|")})")
-    end
+    # each with what it may be and the file its value comes from
+    print_lines(
+      for {key, value, file} <- ProjectConfig.entries(project.dir) do
+        {:out, "#{key}=#{value}  (#{ProjectConfig.allowed_text(key)}, #{file || "built in"})"}
+      end
+    )
   end
 
   defp table_generate(args) do
@@ -213,7 +222,13 @@ defmodule XipeTotec.CLI do
 
     {:ok, _} = Application.ensure_all_started(:cowboy)
     {:ok, _} =
-      ServeProject.start_link(%{root: root, store_file: store_file, project_id: project.id, project_dir: project.dir})
+      ServeProject.start_link(%{
+        root: root,
+        store_file: store_file,
+        project_id: project.id,
+        project_dir: project.dir,
+        log_file: XipeTotec.LogBuffer.default_file()
+      })
 
     dispatch = :cowboy_router.compile([{:_, [{"/", XipeTotec.Serve.Socket, []}]}])
 
@@ -374,17 +389,30 @@ defmodule XipeTotec.CLI do
 
   defp dialogue_rewrite(_words), do: usage_error("xipe dialogue rewrite: usage: xipe dialogue rewrite [<table> [<row> [<column>]]]")
 
+  # `xipe dialogue update [<file> [<key>]]` (Dialogue.Update): one of the
+  # open project's settings changed; the new value is asked for
+  defp dialogue_update(words) when length(words) <= 2 do
+    params = ["file", "key"] |> Enum.zip(words) |> Map.new()
+    dialogue_start(%{"method" => "dialogue/update", "params" => params}, "update> ")
+  end
+
+  defp dialogue_update(_words), do: usage_error("xipe dialogue update: usage: xipe dialogue update [<file> [<key>]]")
+
   # a dialogue on the open project, driven at `prompt` to its end
   defp dialogue_start(first, prompt) do
     project = project!(nil)
-    opts = [ctx: GitCtx.read(project.path), project_dir: project.dir]
+    opts = [ctx: GitCtx.read(project.path), project_dir: project.dir, log_file: XipeTotec.LogBuffer.default_file()]
     book = Store.load(project.store_file)
     {dialogue, new_book, outcome} = InOut.handle(nil, book, project.path, first, opts, InOut.programs())
     dialogue_loop(project, opts, dialogue, book, new_book, outcome, prompt)
   end
 
   defp dialogue_loop(project, opts, dialogue, old_book, book, outcome, prompt) do
-    if outcome.text, do: IO.puts(outcome.text)
+    if outcome.text do
+      IO.puts(outcome.text)
+      XipeTotec.LogBuffer.append(XipeTotec.LogBuffer.default_file(), outcome.text)
+    end
+
     unless outcome.ok?, do: IO.puts(:stderr, "#{outcome.error["code"]}: #{outcome.error["message"]}")
     if match?(%{"outcomes" => _}, outcome.result), do: print_outcomes(outcome.result["outcomes"])
 

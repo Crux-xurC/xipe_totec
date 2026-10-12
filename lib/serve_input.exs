@@ -6,6 +6,7 @@ Code.require_file("dialogue.exs", __DIR__)
 Code.require_file("protocol.exs", __DIR__)
 Code.require_file("methods.exs", __DIR__)
 Code.require_file("runner.exs", __DIR__)
+Code.require_file("log_buffer.exs", __DIR__)
 
 defmodule XipeTotec.Serve.Input do
   @moduledoc """
@@ -66,11 +67,24 @@ defmodule XipeTotec.Serve.Input do
   """
   @spec start(String.t(), XipeTotec.InOut.dialogue(), GenServer.server()) ::
           {:now, XipeTotec.InOut.dialogue(), outcome()} | {:later, reference(), XipeTotec.InOut.dialogue()}
-  def start(line, dialogue, project \\ Project)
+  def start(line, dialogue, project \\ Project) do
+    case answer(line, dialogue, project) do
+      {:now, _dialogue, outcome} = now ->
+        log(project, outcome)
+        now
+
+      later ->
+        later
+    end
+  end
+
+  # what a line was answered with goes to the buffer of what was said
+  # (XipeTotec.LogBuffer), as the CLI's printed lines do
+  defp log(project, outcome), do: XipeTotec.LogBuffer.append(Project.log_file(project), outcome[:text])
 
   # held: the line is the dialogue's (its answer, or `quit dialogue`); a
   # turn may leave a line or commands for us to run (InOut's `:run`)
-  def start(line, {mod, _state} = dialogue, project) do
+  defp answer(line, {mod, _state} = dialogue, project) do
     %{"method" => method, "params" => params} = Dialogue.line_request(mod, line)
     {dialogue, outcome} = Project.request_dialogue(project, dialogue, method, params, defer_commands: true)
     outcome = from_dialogue(outcome)
@@ -81,18 +95,18 @@ defmodule XipeTotec.Serve.Input do
 
       {:line, line} ->
         case Input.parse(line) do
-          {:commands, commands} -> later(dialogue, fn -> after_text(outcome, dialogue, run(commands, project)) end)
+          {:commands, commands} -> later(project, dialogue, fn -> after_text(outcome, dialogue, run(commands, project)) end)
           other -> {:now, dialogue, %{ok(show_text(other, project), %{}, false) | hold: dialogue != nil}}
         end
 
       {:commands, commands} ->
-        later(dialogue, fn -> after_text(outcome, dialogue, run(commands, project)) end)
+        later(project, dialogue, fn -> after_text(outcome, dialogue, run(commands, project)) end)
     end
   end
 
-  def start(line, nil, project) do
+  defp answer(line, nil, project) do
     case Input.parse(line) do
-      {:commands, commands} -> later(nil, fn -> run(commands, project) end)
+      {:commands, commands} -> later(project, nil, fn -> run(commands, project) end)
       {:error, message} -> {:now, nil, failed("input_error", message)}
       other -> {:now, nil, ok(show_text(other, project), %{}, false)}
     end
@@ -109,7 +123,7 @@ defmodule XipeTotec.Serve.Input do
   end
 
   # `fun` (-> {dialogue | :keep, outcome}) off this process
-  defp later(dialogue, fun) do
+  defp later(project, dialogue, fun) do
     caller = self()
     ref = make_ref()
 
@@ -124,6 +138,7 @@ defmodule XipeTotec.Serve.Input do
           kind, reason -> {:keep, failed("input_failed", Exception.format_banner(kind, reason, __STACKTRACE__))}
         end
 
+      log(project, outcome)
       send(caller, {:xipe_input_done, ref, change, outcome})
     end)
 

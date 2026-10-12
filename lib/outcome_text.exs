@@ -26,6 +26,7 @@ defmodule XipeTotec.OutcomeText do
   defp outcome(%{method: method, ok?: true, result: %{"results" => results} = result}) do
     head = if method != "eval", do: [{:out, "#{method}  ok#{if result["id"], do: "  id=#{result["id"]}", else: ""}"}], else: []
     env = if status = result["env"], do: env_lines("  eval", status, false), else: []
+    env = env ++ limits_lines(result["limits"])
     calls = for r <- results, do: {:out, "  eval call #{r.call_id}  #{eval_call(r.outcome, r.call_id)}  compare=#{r.compare}"}
     not_run = for n <- Map.get(result, "not_run", []), do: {:out, "  eval call #{n["id"]}  not run  #{n["reason"]}"}
     head ++ env ++ calls ++ not_run
@@ -66,6 +67,9 @@ defmodule XipeTotec.OutcomeText do
       end
   end
 
+  defp outcome(%{method: "config/set", ok?: true, result: %{"key" => key, "value" => value, "file" => file}}),
+    do: [{:out, "config/set  ok  #{key}=#{value} (#{key}, #{file})"}]
+
   defp outcome(%{method: "eval/cancel", ok?: true, result: %{"pass_id" => id, "status" => "dequeued"}}),
     do: [{:out, "eval/cancel  ok  pass #{id} taken out of the queue"}]
 
@@ -90,6 +94,23 @@ defmodule XipeTotec.OutcomeText do
       true -> []
     end
   end
+
+  # the time limits a pass ran under, once per pass, each with the setting
+  # and the file it came from last in parentheses (XipeTotec.LogBuffer reads
+  # that back: `dialogue update` offers the file)
+  defp limits_lines(%{"timeout" => row} = limits) do
+    boot = if b = limits["boot_timeout"], do: ", #{seconds(b["ms"])} to boot #{source(b)}", else: ""
+    [{:out, "  eval: limit #{seconds(row["ms"])} per row #{source(row)}#{boot}"}]
+  end
+
+  defp limits_lines(_limits), do: []
+
+  defp source(%{"key" => key, "file" => nil}), do: "(#{key}, built in)"
+  defp source(%{"key" => key, "file" => file}), do: "(#{key}, #{file})"
+
+  # 5000 -> "5s", 1500 -> "1.5s"
+  defp seconds(ms) when rem(ms, 1000) == 0, do: "#{div(ms, 1000)}s"
+  defp seconds(ms), do: "#{ms / 1000}s"
 
   defp eval_call({:ok, %{repr: repr, display: display}}, _id), do: "ok       repr=#{repr}  #{display}"
   defp eval_call(:timeout, _id), do: "timeout"

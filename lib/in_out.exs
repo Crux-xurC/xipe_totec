@@ -6,6 +6,7 @@ Code.require_file("dialogue/depends.exs", __DIR__)
 Code.require_file("dialogue/search.exs", __DIR__)
 Code.require_file("dialogue/do.exs", __DIR__)
 Code.require_file("dialogue/rewrite.exs", __DIR__)
+Code.require_file("dialogue/update.exs", __DIR__)
 
 defmodule XipeTotec.InOut do
   @moduledoc """
@@ -45,14 +46,15 @@ defmodule XipeTotec.InOut do
   ## The programs, and what a turn may ask of its driver
 
   `programs/0` is the one registry of dialogue programs (`dialogue/depends`,
-  `dialogue/search`, `dialogue/do`, `dialogue/rewrite`), used by the CLI and
-  the server alike. Tests pass
+  `dialogue/search`, `dialogue/do`, `dialogue/rewrite`, `dialogue/update`),
+  used by the CLI and the server alike. Tests pass
   their own map.
 
   `"dialogue/quit"` ends whatever dialogue is held (`quit dialogue`).
 
   A program with `start/2`/`answer/3` gets a read-only `ctx` (the book,
-  root and project dir -- `Dialogue`). Two things are left to the caller
+  root, project dir and the buffer of what was said, `opts[:log_file]` --
+  `Dialogue`). Two things are left to the caller
   (the driver) instead of done here, marked on the outcome as `:run`:
 
     * `{:line, line}` -- a turn returned `{:pass, state, line}`: an ordinary
@@ -107,7 +109,8 @@ defmodule XipeTotec.InOut do
       "dialogue/depends" => XipeTotec.Dialogue.Depends,
       "dialogue/search" => XipeTotec.Dialogue.Search,
       "dialogue/do" => XipeTotec.Dialogue.Do,
-      "dialogue/rewrite" => XipeTotec.Dialogue.Rewrite
+      "dialogue/rewrite" => XipeTotec.Dialogue.Rewrite,
+      "dialogue/update" => XipeTotec.Dialogue.Update
     }
   end
 
@@ -185,7 +188,7 @@ defmodule XipeTotec.InOut do
 
   defp run_program(mod, fun, args, book, root, opts) do
     Code.ensure_loaded(mod)
-    ctx = %{book: book, root: root, project_dir: Keyword.get(opts, :project_dir)}
+    ctx = %{book: book, root: root, project_dir: Keyword.get(opts, :project_dir), log_file: Keyword.get(opts, :log_file)}
 
     turn =
       if function_exported?(mod, fun, length(args) + 1),

@@ -115,14 +115,14 @@ defmodule ProjectEnvTest do
 
   describe "ProjectConfig" do
     test "defaults, put keeps path, bad key/value refused", %{project_dir: project_dir} do
-      assert ProjectConfig.load(project_dir) == %{"env" => %{"path" => "prepend", "refresh" => "auto"}}
+      assert ProjectConfig.load(project_dir)["env"] == %{"path" => "prepend", "refresh" => "auto"}
       assert :ok = ProjectConfig.put(project_dir, "env.refresh", "manual")
       assert ProjectConfig.load(project_dir)["env"] == %{"path" => "prepend", "refresh" => "manual"}
       assert %{"path" => _} = project_dir |> Path.join("project.json") |> File.read!() |> JSON.decode!()
 
       assert {:error, _} = ProjectConfig.put(project_dir, "env.path", "sideways")
       assert {:error, _} = ProjectConfig.put(project_dir, "nope", "x")
-      assert ProjectConfig.flatten(ProjectConfig.load(project_dir)) == [{"env.path", "prepend"}, {"env.refresh", "manual"}]
+      assert [{"env.path", "prepend"}, {"env.refresh", "manual"} | _] = ProjectConfig.flatten(ProjectConfig.load(project_dir))
     end
   end
 end

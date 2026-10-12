@@ -16,6 +16,9 @@ defmodule XipeTotec.Methods do
         last may be `"eval"`
       * `:not_implemented` -- a reserved method name, answered `not_implemented`
     * `writes` -- whether it can change the Book
+    * `confirm` -- changes something that isn't the Book (a project's
+      settings): `Dialogue.Do` shows the call and waits for `y`, as it does
+      for one that `writes`
     * `repl` -- whether the server runs it as an asynchronous eval pass
       (`Serve.Project`: `{"status": "started"}` then `notify/passCompleted`;
       a `:pipeline` method's stages before `"eval"` run at once)
@@ -143,6 +146,13 @@ defmodule XipeTotec.Methods do
       params: [%{name: "pass_id", kind: :value, required: false, list: false, hint: "<pass id>"}],
       summary: "stop a running pass (its REPL is killed, nothing is recorded), or take a queued one out; pass_id may be left out while one pass runs"
     },
+    "config/set" => %{
+      route: :dispatch,
+      writes: false,
+      confirm: true,
+      params: [%{name: "key", kind: :value, required: true, list: false, hint: "<setting>"}, %{name: "value", kind: :value, required: true, list: false}],
+      summary: "set one of the open project's settings (env.path, env.refresh, eval.timeout, eval.boot_timeout); written to its own project.json"
+    },
     "roster" => %{route: :dispatch, writes: false, summary: "the tables search reads: each one's name, flag (-s, -e), columns, and the columns dialogue rewrite can change"},
     "row/check" => %{
       route: :dispatch,
@@ -173,7 +183,7 @@ defmodule XipeTotec.Methods do
   @spec all() :: %{String.t() => spec()}
   def all do
     Map.new(@methods, fn {name, spec} ->
-      spec = spec |> Map.put_new(:repl, false) |> Map.put_new(:params, []) |> Map.put_new(:summary, nil)
+      spec = spec |> Map.put_new(:repl, false) |> Map.put_new(:confirm, false) |> Map.put_new(:params, []) |> Map.put_new(:summary, nil)
       {name, Map.put(spec, :args, args_text(spec.params))}
     end)
   end

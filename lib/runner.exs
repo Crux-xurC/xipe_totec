@@ -6,6 +6,7 @@ Code.require_file("pipeline.exs", __DIR__)
 Code.require_file("repl/evaluator.exs", __DIR__)
 Code.require_file("info.exs", __DIR__)
 Code.require_file("project_env.exs", __DIR__)
+Code.require_file("project_config.exs", __DIR__)
 Code.require_file("passes.exs", __DIR__)
 
 defmodule XipeTotec.Runner do
@@ -54,7 +55,7 @@ defmodule XipeTotec.Runner do
   to a string is left as written.
   """
 
-  alias XipeTotec.{Book, Core, Dispatch, Info, Passes, Pipeline, Project, ProjectEnv, SurfaceTable}
+  alias XipeTotec.{Book, Core, Dispatch, Info, Passes, Pipeline, Project, ProjectConfig, ProjectEnv, SurfaceTable}
   alias XipeTotec.Repl.Evaluator
 
   @type command :: %{String.t() => term()}
@@ -313,8 +314,24 @@ defmodule XipeTotec.Runner do
             _ -> result
           end
 
+        result = with_limits(result, Keyword.get(opts, :project_dir))
+
         {new_book, %{method: "eval", ok?: true, result: result, error: nil}}
     end
+  end
+
+  # the time limits the pass ran under and the file each came from, as
+  # `"limits"`: OutcomeText says them once per pass, naming the file, so a
+  # person (and `dialogue update`) can find where to change them
+  defp with_limits(result, nil), do: result
+
+  defp with_limits(result, project_dir) do
+    limits =
+      for {"eval." <> name, value, file} <- ProjectConfig.entries(project_dir), into: %{} do
+        {name, %{"ms" => value, "key" => "eval." <> name, "file" => file}}
+      end
+
+    Map.put(result, "limits", limits)
   end
 
   # one language's REPL over `ids`: `{:ok, results, env_status}` (results
@@ -329,10 +346,16 @@ defmodule XipeTotec.Runner do
         # eval/cancel leaves a request the group's REPL wait looks for
         cancelled? = fn -> Passes.cancel_requested?(project_dir, pass_id) end
 
+        # the project's time limits (eval.timeout, eval.boot_timeout), read
+        # as the pass starts: a change applies from the next pass
+        limits = ProjectConfig.load(project_dir)["eval"]
+
         eval_opts =
           repl_opts
           |> Keyword.merge(cwd: root, call_ids: ids, include_writes: include_writes, progress: progress)
           |> Keyword.put_new(:cancelled?, cancelled?)
+          |> Keyword.put_new(:timeout_ms, limits["timeout"])
+          |> Keyword.put_new(:boot_timeout_ms, limits["boot_timeout"])
 
         result =
           try do

@@ -122,7 +122,7 @@ disk とずれるファイルは、そのファイルだけ次の Scanner（Elix
 | スキャン | `Scanner`（behaviour）/ `Scanner.Lsp`（+ `Scanner.Lsp.Elixir`）/ `Scanner.Elixir` / `Lsp.Transport`（+ `.Relay`・`.Stdio`）/ `Project` / `SurfaceTable` | ファイルからカードと link を作る口と共通の帳簿付け、言語サーバー経由の実装（`documentSymbol`・`callHierarchy`、言語ごとの差は薄い dialect）、Elixir の自前の実装（AST 抽出、`defmodule` のみコンパイル。言語サーバーが無いときの予備）、言語サーバーへのつなぎ方（tezcatl の `/lsp`、無ければ自分で起動）、ディレクトリ横断の2パス走査（言語ごとに Scanner を優先順に試し、どれを使ったかを記録）、ファイルごとの言語判定 |
 | コマンド | `Runner` / `Dispatch` / `Pipeline` / `Address` / `GraphQuery` | コマンド列の実行（`$<n>.<path>` で前の結果を参照）、method の表、住所の解決、呼び出しグラフの BFS と書き出し |
 | 評価 | `Repl.Evaluator` / `Launch` / `Sender(.Direct)` / `Session` / `EvalTemplate` / `SourceSanitize` / `Eval.{Scan,FieldDrip,Parser,Result}` | REPL の起動・完了待ち・式の送信・マーカー受信・ハング時の SIGINT→SIGKILL |
-| 対話 | `InOut` / `Dialogue` / `Dialogue.Depends` / `Dialogue.Search` / `Dialogue.Do` / `Dialogue.Rewrite` / `Tables` / `EvalTable` | 複数ターンの構造化対話（一覧は `InOut.programs/0`、CLI とサーバーで共通）、依存チェーン交渉、引数を尋ねて method を1つ実行する対話（`dialogue do`。尋ねる内容は `Methods` の `params`）、検索と、表の値を1つ手で書き換える対話（`dialogue rewrite`。列ごとの method は `Tables` の `writes`、値を尋ねるところからは `Dialogue.Do`）、検索が引ける表の宣言（`Tables`。名前・印・列・行の読み方・書き換えられる列。`roster` も同じ一覧を返す）、その `-e` が引く `eval_table`（計算行に関数と path を横付けした読み取り用の表） |
+| 対話 | `InOut` / `Dialogue` / `Dialogue.Depends` / `Dialogue.Search` / `Dialogue.Do` / `Dialogue.Rewrite` / `Dialogue.Update` / `LogBuffer` / `Tables` / `EvalTable` | 複数ターンの構造化対話（一覧は `InOut.programs/0`、CLI とサーバーで共通）、依存チェーン交渉、引数を尋ねて method を1つ実行する対話（`dialogue do`。尋ねる内容は `Methods` の `params`）、検索と、表の値を1つ手で書き換える対話（`dialogue rewrite`。列ごとの method は `Tables` の `writes`、値を尋ねるところからは `Dialogue.Do`）、設定を1つ変える対話（`dialogue update`。ファイルは `LogBuffer` ＝ 出した行の記録 `tables/logging_buffer.txt` から選ぶ。書くのは `config/set`）、検索が引ける表の宣言（`Tables`。名前・印・列・行の読み方・書き換えられる列。`roster` も同じ一覧を返す）、その `-e` が引く `eval_table`（計算行に関数と path を横付けした読み取り用の表） |
 | 人向けの入出力 | `Input` / `Help` / `OutcomeText` / `Show` / `Serve.Input` | 1行の読み方（CLI と同じ書き方）、`help` の表、結果・`show` の行（CLI と対話窓で共通）、`input` method |
 | サーバー | `Protocol` / `Serve.Project` / `Serve.Socket` | §16.3 の wire 形、1プロジェクト1GenServer、WebSocket の入口 |
 | プロジェクト | `Workspace` / `ProjectRegistry` / `ProjectConfig` / `ProjectEnv` / `Info` / `Repl.Language` | どのプロジェクトを対象にするかの解決、3桁 ID の登録、プロジェクトごとの設定（`project.json`、`xipe config`）、対象のツールを走らせる環境（対象の flake の devShell など）、xipe_totec 自身の `info.json`（言語と拡張子、アダプタ一覧）と、このマシンで選択中のプロジェクト（`tables/selection.json`）、言語ごとの自己申告 |
@@ -154,6 +154,12 @@ PATH に処理系が無ければ飛ばす）がある。
   入れて、そこから上を評価するか」を対話で決められる
 - `xipe search` で、surface table と `eval_table` を対話のターンを重ねて絞り込める
   （`Old.md` §41）。どちらの対話も tezcatl の対話窓から使える
+- `xipe dialogue do <method>` で、足りない引数を1つずつ尋ねてもらって実行できる。答えは行のまま渡るので、
+  1行では書けない値（カンマを含むリスト、引用符を含む文字列）が通る。関数は名前（`Calc.add/2`）でも答えられる
+- `xipe dialogue rewrite` で、表の値を1つ、評価せずに書き換えられる（引数・値・期待値・関数の分類）
+- 計算行の時間の上限と REPL の起動を待つ時間は、プロジェクトごとに変えられる（`eval.timeout`・`eval.boot_timeout`。
+  `xipe dialogue update` か `xipe config`）。評価の出力に、そのパスの上限と値の出どころのファイルが出る
+- 走っているパスは `eval/cancel` で止められる（REPL をプロセスグループごと止め、何も記録しない）
 
 `xipe serve`（WebSocket）経由でも評価できる。`eval`／`eval/run`／`row/update` はすぐに `pass_id` を
 返し、評価は別プロセスで走る（評価中もほかの要求に応答する）。終わると
@@ -169,7 +175,7 @@ PATH に処理系が無ければ飛ばす）がある。
 | 独自追加 | `input`（1行をそのまま受け、CLI と同じ書き方で読む。tezcatl の対話窓用） | 実装済み（2026-09-27、`Old.md` §40） |
 | 独自追加 | `eval/status`（いま評価中のパス。評価中の行は変えられない） | 実装済み（2026-10-06、`Old.md` §51） |
 | 独自追加 | `eval/cancel`（走っているパスを止める・順番待ちを外す。何も記録しない）、`roster`（`search` が引ける表と列） | 実装済み（2026-10-12） |
-| 独自追加 | `row/set-prev`（期待値を手で置く）、`row/set-args`（引数だけを変える。評価しない） | 実装済み（2026-10-13） |
+| 独自追加 | `row/set-prev`（期待値を手で置く）、`row/set-args`（引数だけを変える。評価しない）、`config/set`（プロジェクトの設定を1つ変える） | 実装済み（2026-10-13） |
 | 独自追加 | `arity/set`（引数の既定値で呼べる引数の数を人が決める。`row/add` と link に使う） | 実装済み（2026-10-08、`Old.md` §53） |
 | 評価 | `eval`・`eval/run` | 実装済み。CLI（`xipe eval`／`xipe do ... eval`）は同期実行、`xipe serve` では非同期（`pass_id` を返す）。`eval/run` は `Pipeline`（`["eval"]`）経由 |
 | Pipeline 経由 | `row/update` | 実装済み。`["edit", "eval"]`：引数を変えてその行だけを評価する（Old.md §37） |
@@ -210,6 +216,7 @@ xipe dialogue depends [<dir>] <call_id>
                            # 依存チェーン交渉（"y <値>" か "n" で答える）
 xipe dialogue do <method> [key=value...]   # 足りない引数を尋ねてもらって実行する（値は打ったとおりに渡る）
 xipe dialogue rewrite [<table> [<row> [<column>]]]   # 表の値を1つ、評価せずに手で書き換える（値は尋ねられる）
+xipe dialogue update [<file> [<key>]]   # 設定を1つ変える（時間の上限など。ファイル・キー・値を尋ねられる）
 xipe search [<turn>]       # 表（surface table / eval_table）を対話で絞り込む（-h で使い方）
 xipe start [<dir>] [--port N] [--lsp <url>] [--fs-root <dir>]
                            # §16.1 WebSocket の入口として常駐し、セッションとして記録する

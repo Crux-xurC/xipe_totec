@@ -257,6 +257,7 @@ $ xipe eval
 | `eval/run` | `call_ids`（省略で全件）`include_writes=true` | `eval` と同じ（仕様 §16 の名前） |
 | `eval/status` | なし | いま評価中のパス: 言語・経過時間・対象の行の数と、いま評価している行・その段（下記）。サーバーでは順番待ちのパスも出る |
 | `eval/cancel` | `pass_id`（走っているパスが1つなら省略可） | 走っているパスを止める（下記）。サーバーでは、順番待ちのパスを `pass_id` で外すこともできる |
+| `config/set` | `key` `value` | 開いているプロジェクトの設定を1つ変える（§4.1。`dialogue update` が最後に実行するもの）。その `project.json` に書く |
 | `roster` | なし | `search` が引ける表の一覧: 名前・ターンで書く印（`-s`・`-e`）・列・`dialogue rewrite` で書き換えられる列 |
 
 **パスを止める（`eval/cancel`）。** 走っているパスの REPL をプロセスグループごと止め、そのパスの結果は**何も記録しない**
@@ -384,8 +385,10 @@ REPL（`iex`）は1回の評価（pass）の間だけ保持し、評価が終わ
 変数を持ち越すことはない。起動の完了は、`iex` のバナーが出た後に `IO.puts("XT_" <> "READY")` を
 送り、`XT_READY` が返ってくることで確かめる。
 
-計算行は1つずつ、別プロセスの中で timeout 5秒と max_heap 付きで実行される。`iex` の
-起動（`XT_READY` が返るまで）を15秒待っても完了しなければ、その pass は `boot_failed` になる。
+計算行は1つずつ、別プロセスの中で timeout（既定 5秒）と max_heap 付きで実行される。`iex` の
+起動（`XT_READY` が返るまで）を既定で15秒待っても完了しなければ、その pass は `boot_failed` になる。
+2つの時間はプロジェクトごとに変えられる（`eval.timeout`・`eval.boot_timeout`、§4.3・§5.4）。評価の出力の
+`eval: limit …` の行が、そのパスの上限と、値の出どころのファイルを示す。
 起動の途中で `iex` が終了したとき（対象のコードがコンパイルできないなど）も `boot_failed` で、
 そのときは `iex` が最後に出した30行（コンパイルエラーのファイル名・行番号を含む）がエラーの文に付く。
 
@@ -435,14 +438,17 @@ tezcatl の中継経由の言語サーバーは tezcatl の環境で動くので
 - スキャン・評価の結果の `env`（`xipe scan` の出力）に、`cached`（保存済みを使った）・`resolved`
   （取り直した）・`stale`・`error` のどれかが出る。`stale`・`error` は評価のときにも警告が出る
 
-設定はプロジェクトごと（`project.json`）で、`xipe config` で見る・変える。
+設定はプロジェクトごと（`project.json`）で、`xipe config` か `xipe dialogue update`（§5.4。対話窓からも）で見る・変える。
+決めていないキーは既定値（xipe_totec の `defaults.json`）になる。一覧の括弧は、取りうる値と、今の値の出どころのファイル。
 
 ```
 $ xipe config
 project 002  /home/user/work/fcalc
-env.path=prepend  (prepend|replace)
-env.refresh=auto  (auto|manual)
-$ xipe config env.refresh=manual
+env.path=prepend  (prepend|replace, /…/xipe_totec/defaults.json)
+env.refresh=auto  (auto|manual, /…/xipe_totec/defaults.json)
+eval.boot_timeout=15000  (1000..1800000 ms, /…/xipe_totec/defaults.json)
+eval.timeout=5000  (100..600000 ms, /…/xipe_totec/defaults.json)
+$ xipe config env.refresh=manual eval.timeout=20000
 ```
 
 | 設定 | 値 | 意味 |
@@ -451,6 +457,8 @@ $ xipe config env.refresh=manual
 | | `replace` | flake の `PATH` だけを使う。flake に無いコマンドは使えない（elixir-ls は初回に `git` を使うので、flake に `git` が無いと起動しない） |
 | `env.refresh` | `auto`（既定） | flake が変わっていれば、次のスキャン・評価のときに取り直す（その回は数秒遅くなる） |
 | | `manual` | `xipe table generate` のときだけ取り直す。それまでは古い環境のまま動き、警告を出す |
+| `eval.timeout` | ms（既定 5000、100〜600000） | 計算行1件が走ってよい時間。超えた行は `timeout`。変えると次のパスから効く |
+| `eval.boot_timeout` | ms（既定 15000、1000〜1800000） | パスが REPL の準備（ビルド込み）を待つ時間。超えると `boot_failed` |
 
 新しい環境で elixir-ls を初めて起動すると、elixir-ls が自分自身をコンパイルするので時間がかかる。
 そのスキャンは待ちきれずに自前の解析器（`Scanner.Elixir`）へ切り替わることがあるが、2回目からは
@@ -595,6 +603,53 @@ $ xipe eval 01M4R9XA…
 - surface table（`-s`）にはまだ書き換えられる列が無い（言語を手で決める `surface/set` は案）
 - `quit dialogue` で、何も変えずにやめる
 
+### 5.4 設定を変える（`xipe dialogue update`）
+
+開いているプロジェクトの設定を1つ変える対話。ファイル → キー → 値の順に尋ねる。計算行の時間の上限（`eval.timeout`）と
+REPL の起動を待つ時間（`eval.boot_timeout`）はここで変える。
+
+評価すると、そのパスの上限と、その値がどのファイルから来たかが1行出る。
+
+```
+$ xipe eval
+  eval: limit 5s per row (eval.timeout, /…/xipe_totec/defaults.json), 15s to boot (eval.boot_timeout, /…/xipe_totec/defaults.json)
+  eval call 01M4R8BX…  timeout  compare=skipped
+$ xipe dialogue update
+  1  /…/xipe_totec/defaults.json  (the defaults)
+  2  /…/tables/project/001_calc/project.json  (this project's settings)
+file? (1-2)
+update> 1
+/…/defaults.json holds the defaults, which are every project's: the change is written to /…/001_calc/project.json
+  env.path = prepend  (prepend|replace)  default
+  env.refresh = auto  (auto|manual)  default
+  eval.boot_timeout = 15000  (1000..1800000 ms)  default
+  eval.timeout = 5000  (100..600000 ms)  default
+key?
+update> eval.timeout
+eval.timeout? (100..600000 ms)
+update> 20000
+written to /…/001_calc/project.json
+config/set
+  key = eval.timeout
+  value = 20000
+Run it? (y/n)
+update> y
+config/set  ok  eval.timeout=20000 (eval.timeout, /…/001_calc/project.json)
+```
+
+- **ファイル**は、xipe が最近出した行に出てきた設定のファイルを、新しい順に別々のものを5つまで、番号を付けて見せる。
+  `1`〜`5`（またはパス）で答える。開いているプロジェクトの `project.json` は必ずその中にある。1つしか無ければ尋ねない
+- 選んで意味があるのは2つ: このプロジェクトの `project.json` と、既定値の `defaults.json`。**既定値を選んでも既定値の
+  ファイルは書き換えない**（全部のプロジェクトのものなので）── 値はこのプロジェクトの `project.json` に書く、と言ってから進む。
+  ほかのプロジェクトのファイルは断る（`xipe choice project` で開いてから）
+- **キー**を尋ねるとき、全部の設定を「今の値・取りうる値・このプロジェクトが決めたものか既定値か」で見せる
+- **値**は打った時点で確かめ、合わなければ理由を言って尋ね直す。時間は ms の整数（`eval.timeout` は 100〜600000、
+  `eval.boot_timeout` は 1000〜1800000）
+- 書く前に呼び出しを見せて `y/n` を待つ。**変えた上限は次のパスから効く**（走っているパスには効かない。止めるなら `eval/cancel`）
+- ファイルとキーは始める行に書いてもよい（`xipe dialogue update 2 eval.timeout`）。値は必ず尋ねる
+- 出した行の記録は `tables/logging_buffer.txt`（100行まで。全プロジェクト共通、CLI とサーバーで同じファイル）。対話窓の返事も入る
+- `xipe config [key=value]` は今までどおり使える（1行で書けるのでスクリプト向き）。一覧は、取りうる値と値の出どころのファイルつき
+
 ---
 
 ## 6. 常駐サーバー（`xipe start`）
@@ -654,7 +709,8 @@ tezcatl の対話窓はすべての行をこの形で送り、中身を解釈し
   前の行の結果（`scan` で増えた関数、`row/add` した行、評価した値）を次の行で使うなら、返事を
   待ってから送るか、`--` でつないで1行にする
 - 端末が要るコマンド（`choice project`・`table generate`・`start`・`config`・`refresh`）は `input_error` で断る
-  （`dialogue depends`・`dialogue do`・`dialogue rewrite`・`search` は窓からも使える）
+  （`dialogue depends`・`dialogue do`・`dialogue rewrite`・`dialogue update`・`search` は窓からも使える。設定は窓からは
+  `dialogue update` か `config/set` で）
 - 返事の `dialogue.text` に、CLI が出すのと同じ行が入る。コマンドなら `result.outcomes` に
   コマンドごとの `method`・`ok`・`result`・`error` も入る。読めない行は `input_error`
 - 評価（`eval`・`eval/run`・`row/update`）を含む行は、その評価が終わるのを待ってから次の
@@ -715,6 +771,8 @@ xipe eval                                # 何度でも。compare で変化を�
 | `tables/project/<id>_<名前>/table` | ファイル→言語の表（言語・REPL・ビルドツール）。スキャン・評価はこれを読む |
 | `tables/project/<id>_<名前>/book.jsonl` | Book。追記のみの JSON Lines で、同じ id の最後の行が現在の値 |
 | `tables/selection.json` | 選択中のプロジェクト（`xipe choice project` が書く） |
+| `tables/logging_buffer.txt` | xipe が出した行の記録（100行まで。全プロジェクト共通。`dialogue update` がファイルを選ぶのに読む） |
+| `defaults.json`（xipe_totec の直下、git 管理） | 設定の既定値。プロジェクトが決めていないキーはここから |
 | `tables/session.json` | 動いている `xipe start` の記録 |
 | `tables/project/<id>_<名前>/passes/` | いま評価中のパス（言語ごとに1ファイル。終われば消える。`eval/status`、評価中の行を変えさせない） |
 
@@ -812,8 +870,10 @@ xipe refresh -a     # 両方
 | `not run  effect not classified` | `effect/set` で分類していない。§2.4 |
 | `not run  effect=writes -- pass --include-writes` | `xipe eval --include-writes`（`xipe do` なら `eval include_writes=true`） |
 | `eval call bash.id  not run  unknown call id` | `$0.id` を引用符で囲んでいない。§3.3 |
-| `crash ... undefined variable "hi"`（文字列を渡したつもり） | `"` が語の解釈で外れた。`'args=["hi"]'` と引用符ごと包む（端末でも対話窓でも同じ。§3.3・§6.2） |
-| `timeout`（重い関数） | 1件5秒の上限（§4.1）。今は変えられない（`eval.timeout` の設定を足す予定、`課題.md` §3） |
+| `crash ... undefined variable "hi"`（文字列を渡したつもり） | `"` が語の解釈で外れた。`'args=["hi"]'` と引用符ごと包む（端末でも対話窓でも同じ。§3.3・§6.2）。`dialogue do row/add` なら打ったとおりに渡る（§5.2） |
+| リストを1つの引数にしたいのに、カンマで割れる（`args=[1,2,3]` が3つの引数になる） | 1行の書き方では書けない。`xipe dialogue do row/add`（§5.2）で、`{` と `}` の行で囲んで1行に1要素 |
+| 評価が終わらない・待ちたくない | `xipe do eval/cancel`（§3.2）。別の端末からでも、対話窓からでも |
+| `timeout`（重い関数） | 1件あたりの上限（既定 5秒、§4.1）。`xipe dialogue update` で `eval.timeout` を伸ばす（§5.4） |
 | 対話窓で、前の行で足したはずの関数・計算行が「無い」と言われる | 前の行がまだ終わっていない（行どうしは同時に走る）。返事を待つか `--` で1行にする（§6.2） |
 | `row/add: ... takes 1 arg(s), got 3` | 引数の数が合わない。リストを1引数で渡せない制限にも注意（§3.3） |
 | `row/add: ... is private` | `defp` の関数は計算行にできない |
@@ -821,7 +881,7 @@ xipe refresh -a     # 両方
 | `row_in_pass: row ... is being evaluated` | その行はいま評価中。終わってから変える。何が走っているかは `xipe do eval/status`（§3.2） |
 | `crash` のスタックトレースの行番号がずれる | `mix.exs` のない対象では、抜き出した一時ファイル上の行番号になる |
 | `boot_failed: the REPL exited before it was ready` | 起動中に `iex` が終了した。たいていは対象のコードがコンパイルできない。続く出力にファイル名と行番号が出る |
-| `boot_failed`（`:timeout`） | `iex` が15秒以内に起動しなかった。Mix プロジェクトなら、一度 `mix compile` を済ませておく |
+| `boot_failed`（`:timeout`） | REPL が時間内（既定 15秒）に起動しなかった。`eval.boot_timeout` を伸ばす（§5.4）か、Mix プロジェクトなら一度 `mix compile` を済ませておく |
 | `xipe start: a session is already running` | 既に動いている。止めるなら記録にある pid に SIGTERM を送る |
 | サーバーの表に CLI の変更が出ない | サーバーは次の要求で取り込むが、tezcatl の表は自動では変わらない。`matrix update` で取り直す |
 | スキャンが遅い | 初回は elixir-ls の起動を待つ。急ぐなら `XIPE_TOTEC_LSP=off` |

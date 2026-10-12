@@ -100,6 +100,9 @@ defmodule XipeTotec.Repl.Evaluator do
       (`argv: ["iex"], files: [...]`) vs. mix-mode defaults
     * `:sender` -- a `Repl.Sender` implementation (default `Sender.Direct`)
     * `:boot_timeout_ms` (default #{@default_boot_timeout_ms})
+    * `:timeout_ms` -- how long one entry may run, in place of the plan's
+      own (`entry.limits.timeout`); `Runner` passes the project's
+      `eval.timeout`
     * `:hang_grace_ms` -- override for the "declare the session hung"
       absolute deadline (default: computed per entry as
       `entry.limits.timeout + #{@default_deadline_padding_ms}`, see
@@ -154,7 +157,7 @@ defmodule XipeTotec.Repl.Evaluator do
       |> Map.put(:cancelled?, Keyword.get(opts, :cancelled?) || fn -> false end)
 
     plan_opts = Keyword.take(opts, [:call_ids, :include_writes])
-    plan = Core.plan_recalc(book, pass_id, plan_opts)
+    plan = book |> Core.plan_recalc(pass_id, plan_opts) |> with_timeout(Keyword.get(opts, :timeout_ms))
 
     case plan.entries do
       [] ->
@@ -167,6 +170,11 @@ defmodule XipeTotec.Repl.Evaluator do
         end
     end
   end
+
+  defp with_timeout(plan, nil), do: plan
+
+  defp with_timeout(plan, timeout_ms),
+    do: %{plan | entries: Enum.map(plan.entries, &%{&1 | limits: %{&1.limits | timeout: timeout_ms}})}
 
   # See moduledoc's "Language independence" section -- these four are the
   # only pieces that vary per target language/REPL; everything else in this
