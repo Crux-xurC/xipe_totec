@@ -7,6 +7,7 @@ Code.require_file("graph_query.exs", __DIR__)
 Code.require_file("methods.exs", __DIR__)
 Code.require_file("passes.exs", __DIR__)
 Code.require_file("tables.exs", __DIR__)
+Code.require_file("card_table.exs", __DIR__)
 Code.require_file("project_config.exs", __DIR__)
 Code.require_file("project_env.exs", __DIR__)
 Code.require_file("scanner/elixir.exs", __DIR__)
@@ -398,7 +399,8 @@ defmodule XipeTotec.Dispatch do
   end
 
   # The calc rows as a list: what `xipe show` prints and a
-  # client can render as the table. `call_ids` (optional) narrows it to
+  # client can render as the table. Each row carries where its function is
+  # defined (`path` from the project's root, `line`), so a client can open it. `call_ids` (optional) narrows it to
   # those rows, in that order; otherwise every row, oldest first (ULIDs
   # sort by creation time).
   def handle(book, "row/list", params, _ctx) when is_map(params) do
@@ -408,6 +410,13 @@ defmodule XipeTotec.Dispatch do
       {:error, error} -> {:error, book, error}
     end
   end
+
+  # Every function a scan found, whole (XipeTotec.CardTable): its label,
+  # effect and visibility, where it is defined (`path` from the project's
+  # root, `line`), and how many calc rows it has. In file order. Picking and
+  # sorting are the reader's -- card/get and card/search take an address.
+  def handle(book, "card/list", _params, _ctx),
+    do: {:ok, book, %{"cards" => XipeTotec.CardTable.rows(book)}}
 
   # An address (the same columns card/get takes) to the one node
   # it names, so a command list can go on with `$N.id` instead
@@ -592,12 +601,16 @@ defmodule XipeTotec.Dispatch do
   # from `label` being nil.
   defp list_row(book, id) do
     row = Book.get(book, :calls, id)
+    # where the row's function is defined (nil when a rescan removed it)
+    {path, line} = XipeTotec.CardTable.place(book, row.node)
 
     %{
       "id" => id,
       "node" => row.node,
       "linked" => Book.get(book, :nodes, row.node) != nil,
       "label" => Core.call_label(book, id),
+      "path" => path,
+      "line" => line,
       "args" => row.args,
       "value" => row[:result],
       "repr" => row[:repr],

@@ -110,6 +110,7 @@ defmodule XipeTotec.Methods do
       summary: "declare the argument counts default arguments allow (used for calc rows and links; arities=[<the node's own count>] resets it)"
     },
     "card/get" => %{route: :dispatch, writes: false, params: [@flat_address], summary: "get the card (function, calc rows, links) an address names"},
+    "card/list" => %{route: :dispatch, writes: false, summary: "list every function (card): its file and line, effect, and how many calc rows it has"},
     "card/search" => %{route: :dispatch, writes: false, params: [@flat_address], summary: "find the cards matching an address"},
     "cell/resolve" => %{
       route: :dispatch,
@@ -138,7 +139,7 @@ defmodule XipeTotec.Methods do
       summary: "export the call graph"
     },
     "row/depends" => %{route: :dispatch, writes: false, params: [%{@call_ids | required: true}], summary: "walk calc rows' upstream dependencies (⟦id⟧)"},
-    "row/list" => %{route: :dispatch, writes: false, params: [@call_ids], summary: "list the calc rows"},
+    "row/list" => %{route: :dispatch, writes: false, params: [@call_ids], summary: "list the calc rows (each with its function's file and line)"},
     "eval/status" => %{route: :dispatch, writes: false, summary: "the passes being evaluated now (rows, phase, elapsed time); a row being evaluated cannot be changed"},
     "eval/cancel" => %{
       route: :dispatch,

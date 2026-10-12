@@ -342,6 +342,39 @@ defmodule DispatchTest do
       assert %{"id" => "c3", "state" => "eval_error", "error" => "boom"} = r3
     end
 
+    test "row/list: each row says where its function is defined (path, line); empty once the function is gone", %{book: book} do
+      book = Book.put(book, :nodes, "n1", Map.put(Book.get(book, :nodes, "n1"), :span, 4))
+      assert {:ok, _, %{"rows" => [r1, r2, _]}} = Dispatch.handle(book, "row/list", %{})
+      assert %{"id" => "c1", "path" => "lib/calc.ex", "line" => 4} = r1
+      # scanned without a position: the file is known, the line is not
+      assert %{"id" => "c2", "path" => "lib/calc.ex", "line" => nil} = r2
+
+      book = Book.delete(book, :nodes, "n1")
+      assert {:ok, _, %{"rows" => [%{"id" => "c1", "path" => nil, "line" => nil} | _]}} = Dispatch.handle(book, "row/list", %{})
+    end
+
+    test "card/list: every function, in file order, with its place and how many calc rows it has", %{book: book} do
+      book =
+        book
+        |> Core.put_sheet("s0", %{path: "lib/a.ex"})
+        |> Core.put_node("n9", %{sheet: "s0", module: "A", name: "go", anykey: 0, span: 2, visibility: "private"})
+        |> Book.put(:nodes, "n1", Map.merge(Book.get(book, :nodes, "n1"), %{span: 9, effect: "pure"}))
+        |> Book.put(:nodes, "n2", Map.put(Book.get(book, :nodes, "n2"), :span, 3))
+        # its sheet is gone: no place, listed last
+        |> Core.put_node("n0", %{sheet: "gone", module: "Old", name: "f", anykey: 1, span: 1})
+
+      assert {:ok, ^book, %{"cards" => cards}} = Dispatch.handle(book, "card/list", %{})
+      assert Enum.map(cards, & &1["id"]) == ["n9", "n3", "n2", "n1", "n0"]
+      assert Enum.all?(cards, &(Map.keys(&1) |> Enum.sort() == Enum.sort(XipeTotec.CardTable.columns())))
+
+      assert %{"label" => "A.go/0", "path" => "lib/a.ex", "line" => 2, "rows" => 0, "visibility" => "private"} = hd(cards)
+      assert %{"id" => "n2", "label" => "Calc.square/1", "path" => "lib/calc.ex", "line" => 3, "rows" => 2} = Enum.at(cards, 2)
+      assert %{"id" => "n1", "module" => "Calc", "name" => "add", "anykey" => 2, "effect" => "pure", "line" => 9, "rows" => 1} = Enum.at(cards, 3)
+      assert %{"id" => "n0", "path" => nil, "line" => nil} = List.last(cards)
+      # no params are needed, and none are read
+      assert {:ok, _, %{"cards" => ^cards}} = Dispatch.handle(book, "card/list", nil)
+    end
+
     test "row/list: a row whose node a rescan removed is linked=false (its state unchanged)", %{book: book} do
       assert {:ok, _, %{"rows" => [%{"linked" => true} | _]}} = Dispatch.handle(book, "row/list", %{})
       book = Book.delete(book, :nodes, "n1")

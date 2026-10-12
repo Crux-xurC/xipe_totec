@@ -248,9 +248,10 @@ $ xipe eval
 | `row/set-args` | `id` `args` | 計算行の引数だけを変える（`row/add` と同じ検査）。**評価しない** ── 値は前の引数のもののまま残るので、あとで `eval` する |
 | `eval` | `call_ids`（省略で全件）`include_writes=true` | 評価する |
 | `card/get` / `card/search` | 住所（下記） | カード（関数＋その計算行＋link）を取り出す |
+| `card/list` | ─ | 関数（カード）の一覧を丸ごと返す（`cards`）。1件は `id`・`label`・`module`・`name`・`anykey`・`effect`・`visibility`・`path`（プロジェクトのルートから）・`line`（定義の始まる行、1 始まり）・`rows`（計算行の数）。ファイルの順（`path`・`line`）に並ぶ。計算行の無い関数も入る。絞る・並べるのは受け取った側 |
 | `cell/resolve` | `ref`（`⟦id⟧` の形） | その行の現在の値・repr・state |
 | `row/depends` | `call_ids` | その行と、参照で辿れる上流の行を、深い順に並べる |
-| `row/list` | `call_ids`（省略で全件） | 計算行の一覧（関数・引数・値・repr・state・compare）。`xipe show` の `row` 行と同じもの。各行の `linked` は、その行の関数がまだあるか（`false` は scan で関数が消えて切れた行。`state` は最後の評価のままなので、`ok` でも切れていることがある。作り直す） |
+| `row/list` | `call_ids`（省略で全件） | 計算行の一覧（関数・引数・値・repr・state・compare）。`xipe show` の `row` 行と同じもの。各行の `path`・`line` は、その行の関数が定義されているファイル（プロジェクトのルートから）と行（1 始まり。関数が消えていれば両方 `null`、Scanner が位置を取れなければ `line` だけ `null`）。各行の `linked` は、その行の関数がまだあるか（`false` は scan で関数が消えて切れた行。`state` は最後の評価のままなので、`ok` でも切れていることがある。作り直す） |
 | `node/resolve` | 住所（下記） | 住所に当てはまる関数を1つに決め、その `id` を返す。0件は `not_found`、2件以上は `ambiguous`（候補付き） |
 | `row/check` | `call_ids`（省略で全件）`on`（既定 `error`） | 行が `on` の状態なら失敗する（§3.4） |
 | `row/update` | `id` `args` | 計算行の引数を変え（`row/add` と同じ検査）、**その行だけ**を評価する |
