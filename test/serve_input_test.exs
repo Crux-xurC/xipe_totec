@@ -289,6 +289,26 @@ defmodule ServeInputTest do
     assert state.dialogue == nil
   end
 
+  test "dialogue rewrite from the window: the row is shown, the value is the line, written on y", %{state: state} do
+    {reply, state} = input(state, "effect/set id=n1 effect=pure -- row/add node=n1 args=[5]")
+    %{"result" => %{"outcomes" => [_, %{"result" => %{"id" => call}}]}} = reply
+
+    {reply, state} = input(state, "dialogue rewrite -e #{call}")
+    assert %{"dialogue" => %{"hold" => true, "text" => text}} = reply
+    assert text =~ "id=#{call}  node=n1  module=M  name=f1"
+    assert text =~ "column? (args | effect | prev | result)"
+
+    {reply, state} = input(state, "result")
+    assert %{"dialogue" => %{"hold" => true, "text" => "result? (the line is taken as it is)"}} = reply
+
+    {_reply, state} = input(state, ~s(["a, b", 2]))
+    {reply, state} = input(state, "y")
+    assert %{"dialogue" => %{"hold" => false, "text" => text}} = reply
+    assert text =~ "row/set-result  ok"
+    assert state.dialogue == nil
+    assert %{result: ~s(["a, b", 2]), result_source: "user"} = Project.book().calls[call]
+  end
+
   test "a dialogue that ends at once with nothing to run only says what it has to", %{state: state} do
     {reply, state} = input(state, "dialogue do no/such")
     assert %{"dialogue" => %{"hold" => false, "text" => "dialogue do: no such method: no/such" <> _}} = reply

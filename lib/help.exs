@@ -176,6 +176,22 @@ defmodule XipeTotec.Help do
       """
     },
     %{
+      name: "dialogue rewrite",
+      args: "[<table> [<row> [<column>]]]",
+      summary: "change one value of a table by hand, without evaluating: asked for the table, the row, the column, the new value",
+      window: true,
+      detail: """
+      asks, in turn, for whatever the line didn't give: the table (-e, as in search), the
+      row (its id; the row is shown), the column, and the new value -- a line of its own,
+      taken as it is. Only the columns roster lists as rewritable can be changed (args,
+      result, prev, effect); each is written by its own method (row/set-args,
+      row/set-result, row/set-prev, effect/set), shown before it runs, on y. Nothing is
+      evaluated: evaluate afterwards with eval. effect belongs to the row's function, so
+      every row of that function is affected. quit dialogue ends it without changing
+      anything.
+      """
+    },
+    %{
       name: "start",
       args: "[<dir>] [--port N] [--lsp <url>] [--fs-root <dir>]",
       summary: "stay up as the WebSocket entry (serve is an alias)",

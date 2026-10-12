@@ -244,6 +244,8 @@ $ xipe eval
 | `effect/set` | `id`（node）`effect` | 副作用を分類する |
 | `arity/set` | `id`（node）`arities` | 引数の既定値で呼べる引数の数を決める（§2.4） |
 | `row/set-result` | `id` `result` | 評価せずに、結果の値を手で書き込む（対象言語のリテラルで） |
+| `row/set-prev` | `id` `prev` | 評価せずに、前回の値（次の評価が比べる相手＝期待値）を手で書き込む。次の評価でまた置き換わる |
+| `row/set-args` | `id` `args` | 計算行の引数だけを変える（`row/add` と同じ検査）。**評価しない** ── 値は前の引数のもののまま残るので、あとで `eval` する |
 | `eval` | `call_ids`（省略で全件）`include_writes=true` | 評価する |
 | `card/get` / `card/search` | 住所（下記） | カード（関数＋その計算行＋link）を取り出す |
 | `cell/resolve` | `ref`（`⟦id⟧` の形） | その行の現在の値・repr・state |
@@ -255,7 +257,7 @@ $ xipe eval
 | `eval/run` | `call_ids`（省略で全件）`include_writes=true` | `eval` と同じ（仕様 §16 の名前） |
 | `eval/status` | なし | いま評価中のパス: 言語・経過時間・対象の行の数と、いま評価している行・その段（下記）。サーバーでは順番待ちのパスも出る |
 | `eval/cancel` | `pass_id`（走っているパスが1つなら省略可） | 走っているパスを止める（下記）。サーバーでは、順番待ちのパスを `pass_id` で外すこともできる |
-| `roster` | なし | `search` が引ける表の一覧: 名前・ターンで書く印（`-s`・`-e`）・列 |
+| `roster` | なし | `search` が引ける表の一覧: 名前・ターンで書く印（`-s`・`-e`）・列・`dialogue rewrite` で書き換えられる列 |
 
 **パスを止める（`eval/cancel`）。** 走っているパスの REPL をプロセスグループごと止め、そのパスの結果は**何も記録しない**
 （先に終わっていた行の分も）。参照透明な関数なら、評価し直せば同じ値が出る。`writes` に分類して `--include-writes` で
@@ -552,6 +554,47 @@ row/add  ok  …
 - `quit dialogue` で、何も実行せずにやめる
 - tezcatl の対話窓では `dialogue do <method> …` で始め、1行が1つの答え
 
+### 5.3 表の値を手で書き換える（`xipe dialogue rewrite`）
+
+表の値を1つ、**評価せずに**書き換える対話。表 → 行 → 列 → 値の順に尋ねる。期待値を置く（`prev`）、値を手で入れる
+（`result`）、引数だけ変える（`args`）、関数の分類を変える（`effect`）に使う。
+
+```
+$ xipe dialogue rewrite
+row? (its id in the eval_table)
+rewrite> 01M4R9XA…
+id=01M4R9XA…  node=01M4R8BV…  module=Calc  name=average  …  args=[1, 2, 3]  result=2.0  …
+column? (args | effect | prev | result)
+rewrite> prev
+prev? (the line is taken as it is)
+rewrite> 3.0
+row/set-prev
+  id = 01M4R9XA…  (Calc.average/1)
+  prev = 3.0
+Run it? (y/n)
+rewrite> y
+Running row/set-prev.
+row/set-prev  ok  …
+$ xipe eval 01M4R9XA…
+  eval call 01M4R9XA…  ok  repr=exact  2.0  compare=changed
+```
+
+- 表・行・列は始める行に書いてもよい（`xipe dialogue rewrite -e <行の id> prev`）。書いた分は尋ねない。**値は必ず尋ねる**
+  （行に書くと語に割られるので、1行まるごとで受け取る）
+- 表は `search` と同じ印（`-e`）か名前（`eval`）。書き換えられる列がある表が1つだけの間は尋ねない
+- 行を答えると、その行を全部の列で見せる（何を変えようとしているかを確かめるため）
+- 書き換えられるのは `xipe do roster` に `rewritable` と出る列だけ: `args`・`result`・`prev`・`effect`。それ以外
+  （`compare`・`repr` など）は評価やスキャンが決める値なので断る
+- 列ごとに、今ある method を1つ実行する: `args` → `row/set-args`、`result` → `row/set-result`、`prev` → `row/set-prev`、
+  `effect` → `effect/set`。実行の前に呼び出しを見せて `y/n` を待つ。method の検査（引数の数、評価中の行は変えられない）は
+  そのまま効く
+- **評価はしない。** `args` を変えても値は前の引数のもののまま残る。あとで `eval` する（変えて評価まで一度にするなら
+  `row/update`）
+- `effect` はその行のものではなく関数のもの。その関数の行すべてに効く、と値を尋ねる前に言う
+- 値の入れ方は `dialogue do`（§5.2）と同じ: 行をそのまま、リスト（`args`）は `{` と `}` の行で囲む
+- surface table（`-s`）にはまだ書き換えられる列が無い（言語を手で決める `surface/set` は案）
+- `quit dialogue` で、何も変えずにやめる
+
 ---
 
 ## 6. 常駐サーバー（`xipe start`）
@@ -611,7 +654,7 @@ tezcatl の対話窓はすべての行をこの形で送り、中身を解釈し
   前の行の結果（`scan` で増えた関数、`row/add` した行、評価した値）を次の行で使うなら、返事を
   待ってから送るか、`--` でつないで1行にする
 - 端末が要るコマンド（`choice project`・`table generate`・`start`・`config`・`refresh`）は `input_error` で断る
-  （`dialogue depends`・`dialogue do`・`search` は窓からも使える）
+  （`dialogue depends`・`dialogue do`・`dialogue rewrite`・`search` は窓からも使える）
 - 返事の `dialogue.text` に、CLI が出すのと同じ行が入る。コマンドなら `result.outcomes` に
   コマンドごとの `method`・`ok`・`result`・`error` も入る。読めない行は `input_error`
 - 評価（`eval`・`eval/run`・`row/update`）を含む行は、その評価が終わるのを待ってから次の

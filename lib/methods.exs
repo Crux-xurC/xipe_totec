@@ -79,6 +79,18 @@ defmodule XipeTotec.Methods do
       params: [%{name: "id", kind: :call, required: true, list: false}, %{name: "result", kind: :value, required: true, list: false}],
       summary: "set a result value by hand, without evaluating"
     },
+    "row/set-prev" => %{
+      route: :dispatch,
+      writes: true,
+      params: [%{name: "id", kind: :call, required: true, list: false}, %{name: "prev", kind: :value, required: true, list: false}],
+      summary: "set by hand the value the next evaluation is compared with (an expectation), without evaluating"
+    },
+    "row/set-args" => %{
+      route: :dispatch,
+      writes: true,
+      params: [%{name: "id", kind: :call, required: true, list: false}, %{name: "args", kind: :value, required: true, list: true}],
+      summary: "change a row's arguments without evaluating it (its result stays the old arguments' until eval)"
+    },
     "effect/set" => %{
       route: :dispatch,
       writes: true,
@@ -131,7 +143,7 @@ defmodule XipeTotec.Methods do
       params: [%{name: "pass_id", kind: :value, required: false, list: false, hint: "<pass id>"}],
       summary: "stop a running pass (its REPL is killed, nothing is recorded), or take a queued one out; pass_id may be left out while one pass runs"
     },
-    "roster" => %{route: :dispatch, writes: false, summary: "the tables search reads: each one's name, flag (-s, -e) and columns"},
+    "roster" => %{route: :dispatch, writes: false, summary: "the tables search reads: each one's name, flag (-s, -e), columns, and the columns dialogue rewrite can change"},
     "row/check" => %{
       route: :dispatch,
       writes: false,

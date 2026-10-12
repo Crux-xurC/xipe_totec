@@ -182,10 +182,7 @@ defmodule XipeTotec.Dialogue.Search do
   defp matches?(cell, "-"), do: text(cell) == ""
   defp matches?(cell, value), do: text(cell) == value
 
-  defp text(nil), do: ""
-  defp text(list) when is_list(list), do: Enum.map_join(list, ", ", &text/1)
-  defp text(value) when is_binary(value), do: value
-  defp text(value), do: to_string(value)
+  defp text(value), do: Tables.text(value)
 
   # -- passing a line on ---------------------------------------------------------
 

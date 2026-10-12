@@ -287,6 +287,44 @@ defmodule XipeTotec.Dispatch do
     {:ok, book, %{"running" => running}}
   end
 
+  # The expectation a row's next evaluation is compared with, set by hand
+  # (Core.set_prev/3). The evaluation after that replaces it, as always.
+  def handle(book, "row/set-prev", %{"id" => call_id, "prev" => prev}, ctx)
+      when is_binary(call_id) and is_binary(prev) do
+    cond do
+      Book.get(book, :calls, call_id) == nil -> {:error, book, not_found("call", call_id)}
+      error = XipeTotec.Passes.refuse(ctx[:project_dir], call_id) -> {:error, book, error}
+      true -> {:ok, Core.set_prev(book, call_id, prev), %{"id" => call_id, "prev" => prev}}
+    end
+  end
+
+  def handle(book, "row/set-prev", _params, _ctx),
+    do: {:error, book, invalid_params("row/set-prev needs id (string) and prev (string)")}
+
+  # A row's arguments changed without evaluating it (row/update is the one
+  # that also evaluates). Checked as row/add's are. The row keeps the
+  # result of its last evaluation -- of the old arguments -- until `eval`.
+  def handle(book, "row/set-args", %{"id" => call_id, "args" => args}, ctx) when is_binary(call_id) do
+    refused = XipeTotec.Passes.refuse(ctx[:project_dir], call_id)
+
+    case Book.get(book, :calls, call_id) do
+      nil ->
+        {:error, book, not_found("call", call_id)}
+
+      _row when refused != nil ->
+        {:error, book, refused}
+
+      row ->
+        case check_args(book, row.node, args, "row/set-args", ctx[:root]) do
+          :ok -> {:ok, Core.edit_args(book, call_id, args), %{"id" => call_id, "args" => args}}
+          {:error, error} -> {:error, book, error}
+        end
+    end
+  end
+
+  def handle(book, "row/set-args", _params, _ctx),
+    do: {:error, book, invalid_params("row/set-args needs id (string) and args ([string])")}
+
   # Asks a running pass to stop (XipeTotec.Passes' "Stopping a pass"): the
   # process running it kills its REPL's process group and ends the pass,
   # recording nothing. `pass_id` may be left out while only one pass runs.
@@ -319,11 +357,19 @@ defmodule XipeTotec.Dispatch do
     do: {:error, book, invalid_params("eval/cancel takes pass_id (string), or nothing while one pass runs")}
 
   # The tables `search` reads (XipeTotec.Tables): each one's name, the flag
-  # that names it in a search turn, and its columns.
+  # that names it in a search turn, its columns, and the ones that can be
+  # rewritten by hand.
   def handle(book, "roster", _params, _ctx) do
     tables =
       for t <- XipeTotec.Tables.all(),
-          do: %{"name" => t.name, "flag" => t.flag, "summary" => t.summary, "columns" => t.columns}
+          do: %{
+            "name" => t.name,
+            "flag" => t.flag,
+            "summary" => t.summary,
+            "columns" => t.columns,
+            # column => the method that rewrites it (dialogue rewrite)
+            "writes" => Map.new(t.writes, fn {column, w} -> {column, w.method} end)
+          }
 
     {:ok, book, %{"tables" => tables}}
   end

@@ -55,6 +55,7 @@ defmodule XipeTotec.CLI do
       ["do" | rest] -> do_cmd(rest)
       ["dialogue", "depends" | rest] -> dialogue_depends(rest)
       ["dialogue", "do" | rest] -> dialogue_do(rest)
+      ["dialogue", "rewrite" | rest] -> dialogue_rewrite(rest)
       ["search" | rest] -> search(rest)
       ["refresh" | rest] -> refresh(rest)
       ["config" | rest] -> config(rest)
@@ -360,13 +361,26 @@ defmodule XipeTotec.CLI do
   defp dialogue_do([]), do: usage_error("xipe dialogue do: usage: xipe dialogue do <method> [key=value...]")
 
   defp dialogue_do([method | given]) do
+    [%{"params" => params}] = CommandLine.parse([method | given])
+    dialogue_start(%{"method" => "dialogue/do", "params" => %{"method" => method, "given" => params}}, "do> ")
+  end
+
+  # `xipe dialogue rewrite [<table> [<row> [<column>]]]` (Dialogue.Rewrite):
+  # one value of a table changed by hand; the new value is asked for
+  defp dialogue_rewrite(words) when length(words) <= 3 do
+    params = ["table", "row", "column"] |> Enum.zip(words) |> Map.new()
+    dialogue_start(%{"method" => "dialogue/rewrite", "params" => params}, "rewrite> ")
+  end
+
+  defp dialogue_rewrite(_words), do: usage_error("xipe dialogue rewrite: usage: xipe dialogue rewrite [<table> [<row> [<column>]]]")
+
+  # a dialogue on the open project, driven at `prompt` to its end
+  defp dialogue_start(first, prompt) do
     project = project!(nil)
     opts = [ctx: GitCtx.read(project.path), project_dir: project.dir]
-    [%{"params" => params}] = CommandLine.parse([method | given])
-    first = %{"method" => "dialogue/do", "params" => %{"method" => method, "given" => params}}
     book = Store.load(project.store_file)
     {dialogue, new_book, outcome} = InOut.handle(nil, book, project.path, first, opts, InOut.programs())
-    dialogue_loop(project, opts, dialogue, book, new_book, outcome, "do> ")
+    dialogue_loop(project, opts, dialogue, book, new_book, outcome, prompt)
   end
 
   defp dialogue_loop(project, opts, dialogue, old_book, book, outcome, prompt) do

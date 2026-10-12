@@ -19,9 +19,10 @@ defmodule XipeTotec.Input do
     * `scan` -- `scan/run`
     * `eval [id...] [--include-writes]` -- the `"eval"` command
     * `search [<turn>]`, `dialogue depends <call_id>`, `dialogue do
-      <method> [key=value...]` -- start those dialogues (`Dialogue.Search`,
-      `Dialogue.Depends`, `Dialogue.Do`); `quit dialogue` ends one (said
-      here only when none is held)
+      <method> [key=value...]`, `dialogue rewrite [<table> [<row>
+      [<column>]]]` -- start those dialogues (`Dialogue.Search`,
+      `Dialogue.Depends`, `Dialogue.Do`, `Dialogue.Rewrite`); `quit
+      dialogue` ends one (said here only when none is held)
     * `do <method> [key=value...] [-- <method> ...]` -- a command list
       (`XipeTotec.CommandLine`, the same parsing as `xipe do`)
     * `<method> ...` -- the same without `do`: a first word that names a
@@ -89,6 +90,17 @@ defmodule XipeTotec.Input do
   end
 
   defp command(["dialogue", "do"]), do: {:error, "dialogue do: write dialogue do <method> [key=value...] (help lists the methods)"}
+
+  # the table, row and column may be given; the value is always asked for
+  # (a line of its own is taken as it is, a word here would not be)
+  defp command(["dialogue", "rewrite" | words]) when length(words) <= 3 do
+    params = ["table", "row", "column"] |> Enum.zip(words) |> Map.new()
+    {:commands, [%{"method" => "dialogue/rewrite", "params" => params}]}
+  end
+
+  defp command(["dialogue", "rewrite" | _]),
+    do: {:error, "dialogue rewrite: write dialogue rewrite [<table> [<row> [<column>]]] -- the new value is asked for, on a line of its own"}
+
   defp command(["quit", "dialogue"]), do: {:error, "no dialogue is held"}
 
   defp command(["do", "--dir" | _]), do: {:error, "do: takes no --dir in the dialogue window (it acts on the open project)"}

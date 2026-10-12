@@ -59,7 +59,11 @@ defmodule XipeTotec.OutcomeText do
   # the tables there are to look into (XipeTotec.Tables), one line each
   defp outcome(%{method: "roster", ok?: true, result: %{"tables" => tables}}) do
     [{:out, "roster  ok"}] ++
-      for t <- tables, do: {:out, "  #{t["flag"]}  #{t["name"]}  #{t["summary"]}  columns: #{Enum.join(t["columns"], " ")}"}
+      for t <- tables do
+        rewritable = t |> Map.get("writes", %{}) |> Map.keys() |> Enum.sort()
+        tail = if rewritable == [], do: "", else: "  rewritable: #{Enum.join(rewritable, " ")}"
+        {:out, "  #{t["flag"]}  #{t["name"]}  #{t["summary"]}  columns: #{Enum.join(t["columns"], " ")}#{tail}"}
+      end
   end
 
   defp outcome(%{method: "eval/cancel", ok?: true, result: %{"pass_id" => id, "status" => "dequeued"}}),
