@@ -42,15 +42,19 @@ defmodule XipeTotec.Session do
   end
 
   @doc "Write `record` as this OS process's session (`os_pid` and `started_at` are filled in)."
-  @spec write(record(), Path.t()) :: :ok
+  @spec write(record(), Path.t()) :: :ok | {:error, String.t()}
   def write(record, path \\ @default_path) do
     record =
       record
       |> Map.merge(owner())
       |> Map.put("started_at", DateTime.utc_now() |> DateTime.to_iso8601())
 
-    File.mkdir_p!(Path.dirname(path))
-    File.write!(path, JSON.encode!(record) <> "\n")
+    with :ok <- File.mkdir_p(Path.dirname(path)),
+         :ok <- File.write(path, JSON.encode!(record) <> "\n") do
+      :ok
+    else
+      {:error, why} -> {:error, "#{path} could not be written: #{:file.format_error(why)}"}
+    end
   end
 
   @doc "Remove the record -- only if it is this OS process's own (never another session's)."

@@ -106,7 +106,10 @@ defmodule XipeTotec.ProjectConfig do
          {:ok, stored} <- read_for_write(file(project_dir)),
          path = String.split(key, "."),
          :ok <- groups_ok(stored, Enum.drop(path, -1), file(project_dir)) do
-      File.write!(file(project_dir), JSON.encode!(put_in(stored, Enum.map(path, &Access.key(&1, %{})), stored_value)) <> "\n")
+      case File.write(file(project_dir), JSON.encode!(put_in(stored, Enum.map(path, &Access.key(&1, %{})), stored_value)) <> "\n") do
+        :ok -> :ok
+        {:error, why} -> {:error, "#{file(project_dir)} could not be written: #{:file.format_error(why)}"}
+      end
     end
   end
 

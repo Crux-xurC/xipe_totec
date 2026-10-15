@@ -111,8 +111,49 @@ defmodule StoreTest do
     refute File.exists?(path <> ".lock")
     # held by a running process (this one, as another writer would see it)
     File.write!(path <> ".lock", JSON.encode!(XipeTotec.Session.owner()))
-    assert_raise RuntimeError, ~r/is held by another process/, fn -> Store.with_lock(path, fn -> :ran end, 50) end
+    assert {:error, {:lock_busy, _, "pid " <> _} = why} = Store.with_lock(path, fn -> :ran end, 50)
+    assert Store.describe(why) =~ "is held by another process (pid "
     File.rm!(path <> ".lock")
+  end
+
+  test "two takers of the same gone owner's lock: the second does not remove the lock the first made", %{path: path} do
+    stale = JSON.encode!(%{"os_pid" => "999999999", "os_started" => "never"})
+    File.write!(path <> ".lock", stale)
+    parent = self()
+
+    takers =
+      for i <- 1..8 do
+        spawn(fn ->
+          Store.with_lock(path, fn ->
+            send(parent, {:in, i})
+            Process.sleep(20)
+            send(parent, {:out, i})
+          end)
+        end)
+      end
+
+    # never two inside at once
+    order = for _ <- 1..(2 * length(takers)), do: receive(do: (m -> m), after: (5_000 -> :timeout))
+    refute :timeout in order
+    assert order |> Enum.chunk_every(2) |> Enum.all?(fn [{:in, i}, {:out, i}] -> true; _ -> false end)
+    refute File.exists?(path <> ".lock")
+    refute File.exists?(path <> ".lock.takeover")
+  end
+
+  test "a file that cannot be written is an answer, not an exception (nothing changes)", %{path: path} do
+    Store.append(path, %{type: "call", id: "a", args: []})
+    File.chmod!(path, 0o444)
+
+    try do
+      assert {:error, {:not_written, ^path, :eacces} = why} = Store.append(path, %{type: "call", id: "b", args: []})
+      assert Store.describe(why) =~ "could not be written: permission denied"
+      {book, pos} = Store.load_with_pos(path)
+      assert {:error, {:not_written, _, _}} = Store.persist_diff_since(path, pos, book, Book.put(book, :calls, "c", %{args: []}), [:calls])
+    after
+      File.chmod!(path, 0o644)
+    end
+
+    assert Store.load(path).calls |> Map.keys() == ["a"]
   end
 
   test "persist_diff_since: the rows another writer appended are folded in; ours win on the same row", %{path: path} do
@@ -124,12 +165,12 @@ defmodule StoreTest do
     Store.persist_diff(path, cli0, cli1, [:calls])
     # the server writes its change of c1 (from the book it read before)
     mine = Book.put(server, :calls, "c1", %{args: ["1"], result: "server"})
-    {merged, pos2} = Store.persist_diff_since(path, pos, server, mine, [:calls])
+    {:ok, merged, pos2} = Store.persist_diff_since(path, pos, server, mine, [:calls])
     assert merged.calls["c2"].args == ["2"]
     assert merged.calls["c1"].result == "server"
     assert Store.load(path) == merged
     assert pos2 == File.stat!(path).size
     # nothing new: the book stays, the position too
-    assert Store.persist_diff_since(path, pos2, merged, merged, [:calls]) == {merged, pos2}
+    assert Store.persist_diff_since(path, pos2, merged, merged, [:calls]) == {:ok, merged, pos2}
   end
 end

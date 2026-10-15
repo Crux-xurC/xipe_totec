@@ -95,8 +95,12 @@ defmodule XipeTotec.Project do
   A scanner that handed some files to the next one (`Scanner.fallbacks/1`)
   adds `"fallbacks" => [%{"path" =>, "reason" =>}]` to its language's entry.
   `:table_file` is the project's saved surface table (`sheets/3`).
+  A file that cannot be read, or that its scanner cannot parse (a syntax
+  error), is `{:error, message}` naming the file -- `scan/run`'s
+  `scan_failed`, in the CLI as in the server -- and nothing of the scan is
+  kept.
   """
-  @spec scan_dir_report(XipeTotec.Book.t(), String.t(), keyword()) :: map()
+  @spec scan_dir_report(XipeTotec.Book.t(), String.t(), keyword()) :: map() | {:error, String.t()}
   def scan_dir_report(book, dir, opts \\ []) do
     info = Keyword.get_lazy(opts, :info, &Info.load/0)
     sheets = sheets(dir, info, Keyword.get(opts, :table_file))
@@ -112,18 +116,27 @@ defmodule XipeTotec.Project do
         {language, pick_scanner(scanners_for(language, info, opts), dir, language, Keyword.put(scanner_opts, :files, files))}
       end)
 
-    files =
+    read =
       for %{path: path, language: language} <- sheets do
         %{scanner: scanner, ctx: ctx} = picked[language]
-        {scanner, %{root: dir, path: path, source: File.read!(Path.join(dir, path)), ctx: ctx}}
+
+        case File.read(Path.join(dir, path)) do
+          {:ok, source} -> {:ok, {scanner, %{root: dir, path: path, source: source, ctx: ctx}}}
+          {:error, why} -> {:error, "#{path}: cannot be read (#{:file.format_error(why)})"}
+        end
       end
 
+    files = for {:ok, file} <- read, do: file
+    unreadable = for {:error, message} <- read, do: message
+
     try do
+      if unreadable != [], do: throw({:scan_failed, Enum.join(unreadable, "; ")})
+
       {book, node_ids} =
         Enum.reduce(files, {book, %{}}, fn {scanner, file}, {book, node_ids} ->
           sheet_id = Identity.sheet_id(book, file.path) || Id.ulid()
           book = Core.put_sheet(book, sheet_id, %{path: file.path, source_hash: content_hash(file.source)})
-          {book, these_ids} = scanner.scan_defs(book, sheet_id, file)
+          {book, these_ids} = parsed(file.path, fn -> scanner.scan_defs(book, sheet_id, file) end)
           {book, Map.merge(node_ids, these_ids)}
         end)
 
@@ -131,7 +144,7 @@ defmodule XipeTotec.Project do
 
       {book, failures} =
         Enum.reduce(files, {book, []}, fn {scanner, file}, {book, failures} ->
-          {book, these} = scanner.scan_links_report(book, node_ids, file)
+          {book, these} = parsed(file.path, fn -> scanner.scan_links_report(book, node_ids, file) end)
           {book, failures ++ Enum.map(these, &Map.put(&1, :path, file.path))}
         end)
 
@@ -151,9 +164,21 @@ defmodule XipeTotec.Project do
       # a scanner reports the calls that missed only by arity (Scanner.arity_miss/3) with its failures
       {misses, failures} = Enum.split_with(failures, &Map.has_key?(&1, :called))
       %{book: book, paths: paths, link_failures: failures, arity_misses: Enum.uniq(misses), scanners: scanners}
+    catch
+      :throw, {:scan_failed, message} -> {:error, message}
     after
       for {_language, %{scanner: scanner, ctx: ctx}} <- picked, function_exported?(scanner, :finish, 1), do: scanner.finish(ctx)
     end
+  end
+
+  # A scanner reads the source with its language's own parser, which raises
+  # on a syntax error (Elixir's Code.string_to_quoted!): taken here, at the
+  # one place a file is handed to a scanner, as that file's scan_failed --
+  # the first line of the parser's message, after the file's path
+  defp parsed(path, fun) do
+    fun.()
+  rescue
+    e -> throw({:scan_failed, "#{path}: " <> (e |> Exception.message() |> String.split("\n") |> hd())})
   end
 
   # The first of `candidates` whose begin/3 accepts (one without begin/3

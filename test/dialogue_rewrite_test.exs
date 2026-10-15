@@ -116,7 +116,7 @@ defmodule DialogueRewriteTest do
     test "a row of a running pass is refused by both", %{ctx: ctx} do
       dir = Path.join(System.tmp_dir!(), "xipe_totec_rewrite_test_#{System.unique_integer([:positive])}")
       on_exit(fn -> File.rm_rf!(dir) end)
-      h = XipeTotec.Passes.start(dir, "p1", "elixir", ["c1"])
+      {:ok, h} = XipeTotec.Passes.start(dir, "p1", "elixir", ["c1"])
       pctx = %{root: dir, project_dir: dir}
 
       assert {:error, _, %{"code" => "row_in_pass"}} = Dispatch.handle(ctx.book, "row/set-prev", %{"id" => "c1", "prev" => "3"}, pctx)

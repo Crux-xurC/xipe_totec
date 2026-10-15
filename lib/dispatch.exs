@@ -54,29 +54,10 @@ defmodule XipeTotec.Dispatch do
     project_dir = Map.get(ctx, :project_dir)
     {env, env_status} = ProjectEnv.resolve(root, project_dir)
     table_file = if project_dir, do: Path.join(project_dir, "table")
-    report = Project.scan_dir_report(book, root, table_file: table_file, scanner_opts: [env: env])
-    %{book: new_book, paths: paths, link_failures: link_failures} = report
-
-    result = %{
-      "paths" => paths,
-      "sheets" => map_size(new_book.sheets),
-      "nodes" => map_size(new_book.nodes),
-      "links" => map_size(new_book.links),
-      "link_failures" =>
-        Enum.map(link_failures, &%{"path" => &1.path, "module" => &1.module, "reason" => &1.reason}),
-      "scanners" => report.scanners
-    }
-
-    # calls that matched no node only by arity -- most likely default arguments
-    # not declared yet (arity/set); left out when there are none
-    result =
-      case Map.get(report, :arity_misses, []) do
-        [] -> result
-        misses -> Map.put(result, "arity_misses", Enum.map(misses, &arity_miss_note(new_book, &1)))
-      end
-
-
-    {:ok, new_book, if(project_dir, do: Map.put(result, "env", env_status), else: result)}
+    case Project.scan_dir_report(book, root, table_file: table_file, scanner_opts: [env: env]) do
+      {:error, message} -> {:error, book, %{"code" => "scan_failed", "message" => message <> " -- nothing of the scan was kept"}}
+      report -> scan_result(report, project_dir, env_status)
+    end
   end
 
   def handle(book, "row/add", %{"node" => node_id, "args" => args}, ctx)
@@ -622,9 +603,14 @@ defmodule XipeTotec.Dispatch do
   end
 
   defp cancel_pass(book, ctx, running, pass_id) do
-    XipeTotec.Passes.request_cancel(ctx[:project_dir], pass_id)
-    call_ids = for r <- running, r["pass_id"] == pass_id, id <- r["call_ids"] || [], do: id
-    {:ok, book, %{"pass_id" => pass_id, "status" => "cancelling", "call_ids" => call_ids}}
+    case XipeTotec.Passes.request_cancel(ctx[:project_dir], pass_id) do
+      :ok ->
+        call_ids = for r <- running, r["pass_id"] == pass_id, id <- r["call_ids"] || [], do: id
+        {:ok, book, %{"pass_id" => pass_id, "status" => "cancelling", "call_ids" => call_ids}}
+
+      {:error, message} ->
+        {:error, book, %{"code" => "not_cancelled", "message" => message}}
+    end
   end
 
   defp match_node_id({:nodes, id, _row}), do: id
@@ -688,4 +674,30 @@ defmodule XipeTotec.Dispatch do
 
   defp seconds_since(_iso, _now), do: nil
 
+
+  # scan/run's answer from a scan that went through (Project.scan_dir_report/3)
+  defp scan_result(report, project_dir, env_status) do
+    %{book: new_book, paths: paths, link_failures: link_failures} = report
+
+    result = %{
+      "paths" => paths,
+      "sheets" => map_size(new_book.sheets),
+      "nodes" => map_size(new_book.nodes),
+      "links" => map_size(new_book.links),
+      "link_failures" =>
+        Enum.map(link_failures, &%{"path" => &1.path, "module" => &1.module, "reason" => &1.reason}),
+      "scanners" => report.scanners
+    }
+
+    # calls that matched no node only by arity -- most likely default arguments
+    # not declared yet (arity/set); left out when there are none
+    result =
+      case Map.get(report, :arity_misses, []) do
+        [] -> result
+        misses -> Map.put(result, "arity_misses", Enum.map(misses, &arity_miss_note(new_book, &1)))
+      end
+
+
+    {:ok, new_book, if(project_dir, do: Map.put(result, "env", env_status), else: result)}
+  end
 end

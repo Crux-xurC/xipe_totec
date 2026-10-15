@@ -83,7 +83,7 @@ defmodule PassesTest do
 
   test "a running group is recorded, shows its row and phase, and goes when it finishes", %{dir: dir} do
     assert Passes.running(dir) == []
-    h = Passes.start(dir, "p1", "elixir", ["c1", "c2"])
+    {:ok, h} = Passes.start(dir, "p1", "elixir", ["c1", "c2"])
     assert [%{"pass_id" => "p1", "language" => "elixir", "call_ids" => ["c1", "c2"], "current" => nil}] = Passes.running(dir)
 
     Passes.progress(h, "c1", "classifying")
@@ -94,7 +94,7 @@ defmodule PassesTest do
   end
 
   test "without a project_dir nothing is written or locked" do
-    assert Passes.start(nil, "p1", "elixir", ["c1"]) == nil
+    assert Passes.start(nil, "p1", "elixir", ["c1"]) == {:ok, nil}
     assert Passes.progress(nil, "c1", "calling") == :ok
     assert Passes.running(nil) == []
     assert Passes.refuse(nil, "c1") == nil
@@ -120,7 +120,7 @@ defmodule PassesTest do
 
   describe "a row of a running pass can't be changed" do
     setup %{dir: dir} do
-      h = Passes.start(dir, "p1", "elixir", ["c1"])
+      {:ok, h} = Passes.start(dir, "p1", "elixir", ["c1"])
       on_exit(fn -> Passes.finish(h) end)
       :ok
     end
@@ -202,7 +202,7 @@ defmodule PassesTest do
       ctx = %{root: dir, project_dir: dir}
       assert {:error, ^book, %{"code" => "no_pass"}} = Dispatch.handle(book, "eval/cancel", %{}, ctx)
 
-      h = Passes.start(dir, "p1", "elixir", ["c1", "c2"])
+      {:ok, h} = Passes.start(dir, "p1", "elixir", ["c1", "c2"])
       assert {:error, ^book, %{"code" => "no_pass", "message" => msg}} = Dispatch.handle(book, "eval/cancel", %{"pass_id" => "p7"}, ctx)
       assert msg =~ "no running pass p7"
       refute Passes.cancel_requested?(dir, "p7")
@@ -216,8 +216,8 @@ defmodule PassesTest do
 
     test "with more than one pass running the id must be given", %{dir: dir, book: book} do
       ctx = %{root: dir, project_dir: dir}
-      h1 = Passes.start(dir, "p1", "elixir", ["c1"])
-      h2 = Passes.start(dir, "p2", "elixir", ["c2"])
+      {:ok, h1} = Passes.start(dir, "p1", "elixir", ["c1"])
+      {:ok, h2} = Passes.start(dir, "p2", "elixir", ["c2"])
 
       assert {:error, ^book, %{"code" => "invalid_params", "message" => msg}} = Dispatch.handle(book, "eval/cancel", %{}, ctx)
       assert msg =~ "2 passes are running"

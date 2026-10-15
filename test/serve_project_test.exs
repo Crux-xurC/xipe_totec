@@ -539,4 +539,44 @@ defmodule ServeProjectTest do
     assert {:ok, {:notify, "notify/rowChanged", _}} = XipeTotec.Protocol.decode(text)
     assert map_size(XipeTotec.Store.load(store_file).calls) == 1
   end
+
+  # a book.jsonl that cannot be written (2026-10-16): an answer, and the
+  # server goes on -- a raise from a pass ending took `xipe start` down
+  test "a request whose change cannot be written answers book_not_written; the book stays", %{store_file: store_file} do
+    File.chmod!(store_file, 0o444)
+    on_exit(fn -> File.chmod(store_file, 0o644) end)
+
+    assert {:error, %{"code" => "book_not_written", "message" => message}} =
+             Project.request("row/add", %{"node" => "n0", "args" => []})
+
+    assert message =~ "could not be written" and message =~ "nothing was changed"
+    assert map_size(Project.book().calls) == 0
+    File.chmod!(store_file, 0o644)
+    assert {:ok, _} = Project.request("row/add", %{"node" => "n0", "args" => []})
+  end
+
+  test "a pass whose results cannot be written is said as an ended pass; the server goes on", %{store_file: store_file} do
+    {:ok, %{"id" => call_id}} = Project.request("row/add", %{"node" => "n0", "args" => []})
+    :ok = Project.attach(self())
+    pid = Process.whereis(Project)
+    ref = Process.monitor(pid)
+    File.chmod!(store_file, 0o444)
+    on_exit(fn -> File.chmod(store_file, 0o644) end)
+
+    # a pass ended (as Runner's process reports it), with a result for the row
+    result = %{call_id: call_id, outcome: {:ok, %{repr: "exact", display: "2", type: "integer", bin: nil}}, compare: "none", evaluated_at: "2026-10-16T00:00:00Z", session_gen: "p1"}
+    :sys.replace_state(pid, fn st -> %{st | running: %{pass_id: "p1", pid: self(), ref: make_ref()}} end)
+    send(pid, {:pass_done, "p1", %{method: "eval", ok?: true, result: %{"results" => [result]}, error: nil}, %{commit: nil, commit_at: nil, dirty: nil}})
+
+    assert_receive {:xipe_out, text}, 2_000
+    assert {:ok, {:notify, "notify/passCompleted", %{"ok" => false, "error" => %{"code" => "book_not_written", "message" => message}}}} =
+             XipeTotec.Protocol.decode(text)
+
+    assert message =~ "were not recorded"
+    refute_received {:DOWN, ^ref, _, _, _}
+    assert Process.alive?(pid)
+    # not kept in memory either: the book is the file's
+    assert Project.book().calls[call_id].eval_count in [nil, 0]
+  end
+
 end

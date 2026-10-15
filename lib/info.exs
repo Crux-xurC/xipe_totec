@@ -31,16 +31,42 @@ defmodule XipeTotec.Info do
   """
   @spec load(Path.t()) :: t()
   def load(path \\ @default_path) do
-    case File.read(path) do
-      {:ok, content} -> JSON.decode!(content)
-      {:error, :enoent} -> %{"languages" => [], "extensions" => %{}, "repls" => []}
+    case read(path) do
+      {:ok, info} -> info
+      {:error, message} -> raise ArgumentError, message
     end
   end
 
-  @doc "Writes `info` (a plain string-keyed map, JSON-safe values only, same B2 rule `Repl.Launch` follows) to `path` (default: xipe_totec's own `info.json`)."
-  @spec save(t(), Path.t()) :: :ok
+  @doc """
+  `{:ok, info}` (the empty scaffold when there is no file), or
+  `{:error, message}` when `path` is not readable JSON (a hand edit) or
+  cannot be read. The CLI checks it before a command (`xipe refresh -a`
+  makes it again), so `load/1` past that point reads a sound file.
+  """
+  @spec read(Path.t()) :: {:ok, t()} | {:error, String.t()}
+  def read(path \\ @default_path) do
+    case File.read(path) do
+      {:ok, content} ->
+        case JSON.decode(content) do
+          {:ok, %{} = info} -> {:ok, info}
+          _ -> {:error, "#{path} is not readable JSON (a hand edit?) -- `xipe refresh -a` makes it again"}
+        end
+
+      {:error, :enoent} ->
+        {:ok, %{"languages" => [], "extensions" => %{}, "repls" => []}}
+
+      {:error, why} ->
+        {:error, "#{path} cannot be read: #{:file.format_error(why)}"}
+    end
+  end
+
+  @doc "Writes `info` (a plain string-keyed map, JSON-safe values only, same B2 rule `Repl.Launch` follows) to `path` (default: xipe_totec's own `info.json`). -> :ok | {:error, message}"
+  @spec save(t(), Path.t()) :: :ok | {:error, String.t()}
   def save(info, path \\ @default_path) when is_map(info) do
-    File.write!(path, JSON.encode!(info) <> "\n")
+    case File.write(path, JSON.encode!(info) <> "\n") do
+      :ok -> :ok
+      {:error, why} -> {:error, "#{path} could not be written: #{:file.format_error(why)}"}
+    end
   end
 
   @doc """

@@ -26,6 +26,16 @@ defmodule XipeTotec.Store do
   And a write never follows a line cut off by a crash: the file is made to
   end in a newline first, so the cut line stays one bad line (skipped on
   load) instead of swallowing the next.
+
+  ## Failures are results
+
+  A write that cannot be done is an answer, never an exception: the lock
+  another process keeps past the wait (`{:lock_busy, lock, holder}`), a
+  lock that cannot be made (`{:lock, lock, reason}`), a file that cannot be
+  written (`{:not_written, path, reason}`). The writers return
+  `{:error, reason}`; `describe/1` is the line a person reads. (A raise
+  here took the whole `xipe start` down when it came from a pass or a scan
+  ending, and printed a stack trace in the CLI.)
   """
 
   alias XipeTotec.Book
@@ -39,50 +49,94 @@ defmodule XipeTotec.Store do
     "provider" => :providers
   }
   @table_types Map.new(@tables, fn {type, table} -> {table, type} end)
+  @lock_wait_ms 10_000
+
+  @type reason ::
+          {:lock_busy, Path.t(), String.t()} | {:lock, Path.t(), term()} | {:not_written, Path.t(), term()}
 
   @doc "Append one row (atom-keyed map, must include `:type` and `:id`) to the log at `path`."
-  @spec append(Path.t(), map()) :: :ok
+  @spec append(Path.t(), map()) :: :ok | {:error, reason()}
   def append(path, row) when is_map(row) do
     with_lock(path, fn -> write_lines(path, line(row)) end)
   end
 
-  # under the lock: after a newline, whatever the last write left
+  @doc "The line a person reads for a write that could not be done."
+  @spec describe(reason()) :: String.t()
+  def describe({:lock_busy, lock, holder}),
+    do: "#{lock} is held by another process (#{holder}) -- waited #{div(@lock_wait_ms, 1000)} s"
+
+  def describe({:lock, lock, why}), do: "cannot take #{lock}: #{format_error(why)}"
+  def describe({:not_written, path, why}), do: "#{path} could not be written: #{format_error(why)}"
+
+  defp format_error(why) when is_atom(why), do: why |> :file.format_error() |> to_string()
+  defp format_error(why), do: inspect(why)
+
+  # under the lock: after a newline, whatever the last write left. A write
+  # that fails part way (a full disk) is cut back to where the file ended,
+  # so "nothing was written" stays true and no half of a change is read later
   defp write_lines(path, lines) do
-    ensure_newline(path)
-    File.write!(path, lines, [:append])
-    :ok
+    with :ok <- ensure_newline(path) do
+      size = case File.stat(path) do
+        {:ok, %File.Stat{size: n}} -> n
+        _ -> 0
+      end
+
+      case File.write(path, lines, [:append]) do
+        :ok ->
+          :ok
+
+        {:error, why} ->
+          cut_back(path, size)
+          {:error, {:not_written, path, why}}
+      end
+    else
+      {:error, why} -> {:error, {:not_written, path, why}}
+    end
+  end
+
+  defp cut_back(path, size) do
+    with {:ok, io} <- :file.open(path, [:read, :write, :binary]) do
+      _ = :file.position(io, size)
+      _ = :file.truncate(io)
+      :file.close(io)
+    end
   end
 
   # a file whose last line was cut off (a crash mid-write) gets its newline,
   # so what is appended next starts a line of its own
   defp ensure_newline(path) do
-    case File.stat(path) do
-      {:ok, %File.Stat{size: n}} when n > 0 ->
-        {:ok, io} = :file.open(path, [:read, :binary])
-        last = :file.pread(io, n - 1, 1)
-        :file.close(io)
-        if last != {:ok, "\n"}, do: File.write!(path, "\n", [:append])
-
-      _ ->
-        :ok
+    with {:ok, %File.Stat{size: n}} when n > 0 <- File.stat(path),
+         {:ok, io} <- :file.open(path, [:read, :binary]) do
+      last = :file.pread(io, n - 1, 1)
+      :file.close(io)
+      if last != {:ok, "\n"}, do: File.write(path, "\n", [:append]), else: :ok
+    else
+      {:ok, %File.Stat{}} -> :ok
+      {:error, :enoent} -> :ok
+      {:error, why} -> {:error, why}
     end
   end
-
-  @lock_wait_ms 10_000
 
   @doc """
   Run `fun` holding the write lock of `path` (`<path>.lock`, holding this
   OS process's `os_pid` + `os_started`). Waits up to `wait_ms` for another
-  owner; a lock whose owner is gone is taken over. -> what `fun` returns
+  owner; a lock whose owner is gone is taken over. -> what `fun` returns, or
+  `{:error, {:lock_busy, lock, holder}}` / `{:error, {:lock, lock, reason}}`
+  when the lock was not had (`fun` did not run)
   """
   def with_lock(path, fun, wait_ms \\ @lock_wait_ms) do
     lock = path <> ".lock"
-    acquire(lock, System.monotonic_time(:millisecond) + wait_ms)
 
-    try do
-      fun.()
-    after
-      File.rm(lock)
+    case acquire(lock, System.monotonic_time(:millisecond) + wait_ms) do
+      :ok ->
+        try do
+          fun.()
+        after
+          File.rm(lock)
+        end
+
+      {:error, _} = e ->
+        e
     end
   end
 
@@ -92,30 +146,69 @@ defmodule XipeTotec.Store do
         :ok
 
       {:error, :enoent} ->
-        File.mkdir_p!(Path.dirname(lock))
-        acquire(lock, deadline)
+        case File.mkdir_p(Path.dirname(lock)) do
+          :ok -> acquire(lock, deadline)
+          {:error, why} -> {:error, {:lock, lock, why}}
+        end
 
       {:error, :eexist} ->
         held = File.read(lock)
 
         cond do
           stale?(held) ->
-            # gone owner: taken over -- unless it changed meanwhile (another took it first)
-            if File.read(lock) == held, do: File.rm(lock)
+            take_over(lock, held)
             acquire(lock, deadline)
 
           System.monotonic_time(:millisecond) > deadline ->
-            raise "xipe: #{lock} is held by another process (#{inspect(held)}) -- waited #{@lock_wait_ms} ms"
+            {:error, {:lock_busy, lock, holder(held)}}
 
           true ->
             Process.sleep(10)
             acquire(lock, deadline)
         end
 
-      {:error, reason} ->
-        raise "xipe: cannot take #{lock}: #{inspect(reason)}"
+      {:error, why} ->
+        {:error, {:lock, lock, why}}
     end
   end
+
+  # A gone owner's lock is removed by one taker at a time: `<lock>.takeover`
+  # (made exclusively) is held while the lock is read again and removed,
+  # so a second taker that saw the same stale lock cannot remove the lock
+  # the first one has just made. A takeover mark left by a taker that died
+  # in those few instructions goes after a second.
+  @takeover_stale_ms 1_000
+
+  defp take_over(lock, held) do
+    mark = lock <> ".takeover"
+
+    case File.write(mark, "", [:exclusive]) do
+      :ok ->
+        if File.read(lock) == held, do: File.rm(lock)
+        File.rm(mark)
+
+      {:error, :eexist} ->
+        case File.stat(mark, time: :posix) do
+          {:ok, %File.Stat{mtime: m}} ->
+            if System.os_time(:second) - m > div(@takeover_stale_ms, 1000), do: File.rm(mark), else: Process.sleep(10)
+
+          _ ->
+            :ok
+        end
+
+      _ ->
+        Process.sleep(10)
+    end
+  end
+
+  defp holder({:ok, text}) do
+    case JSON.decode(text) do
+      {:ok, %{"os_pid" => pid}} -> "pid #{pid}"
+      _ -> String.slice(text, 0, 80)
+    end
+  end
+
+  defp holder(_), do: "unknown"
 
   # a lock whose owner is no longer running (an empty one is being written: not stale)
   defp stale?({:ok, ""}), do: false
@@ -182,22 +275,39 @@ defmodule XipeTotec.Store do
         catch_up(path, 0, Book.new())
 
       {:ok, %File.Stat{size: n}} when n > pos ->
-        {:ok, io} = :file.open(path, [:read, :binary])
-        {:ok, bytes} = :file.pread(io, pos, n - pos)
-        :file.close(io)
+        case read_range(path, pos, n - pos) do
+          {:ok, bytes} ->
+            case :binary.matches(bytes, "\n") do
+              [] ->
+                {book, pos}
 
-        case :binary.matches(bytes, "\n") do
-          [] ->
+              ms ->
+                {last, 1} = List.last(ms)
+                whole = binary_part(bytes, 0, last + 1)
+                {whole |> String.split("\n") |> Enum.reduce(book, &fold_line/2), pos + last + 1}
+            end
+
+          # cannot be read now: nothing new is taken, the next read tries again
+          :error ->
             {book, pos}
-
-          ms ->
-            {last, 1} = List.last(ms)
-            whole = binary_part(bytes, 0, last + 1)
-            {whole |> String.split("\n") |> Enum.reduce(book, &fold_line/2), pos + last + 1}
         end
 
       _ ->
         {book, pos}
+    end
+  end
+
+  defp read_range(path, pos, n) do
+    with {:ok, io} <- :file.open(path, [:read, :binary]) do
+      result = :file.pread(io, pos, n)
+      :file.close(io)
+
+      case result do
+        {:ok, bytes} when is_binary(bytes) -> {:ok, bytes}
+        _ -> :error
+      end
+    else
+      _ -> :error
     end
   end
 
@@ -225,20 +335,22 @@ defmodule XipeTotec.Store do
   any that disappeared. Used for a scan (`Project.persist_scan/3`) and for
   the effect of any `Dispatch.handle/4` call in `Serve.Project`.
   """
-  @spec persist_diff(Path.t(), Book.t(), Book.t(), [Book.table()]) :: :ok
+  @spec persist_diff(Path.t(), Book.t(), Book.t(), [Book.table()]) :: :ok | {:error, reason()}
   def persist_diff(path, old_book, new_book, tables) do
     # all the changed rows in one append (a scan can change hundreds), in a
     # fixed order
-    lines = diff_lines(old_book, new_book, tables)
-    if lines != [], do: with_lock(path, fn -> write_lines(path, lines) end)
-    :ok
+    case diff_lines(old_book, new_book, tables) do
+      [] -> :ok
+      lines -> with_lock(path, fn -> write_lines(path, lines) end)
+    end
   end
 
   @doc """
   `persist_diff/4` for a writer that keeps the book in memory (the server):
   under the lock, the lines others appended since `pos` are folded in first,
   then this diff is written -- and wins where both changed the same row.
-  -> {the book as the file now has it, the new pos}
+  -> {:ok, the book as the file now has it, the new pos} | {:error, reason}
+  (nothing written: the caller keeps the book it had)
   """
   def persist_diff_since(path, pos, old_book, new_book, tables) do
     lines = diff_lines(old_book, new_book, tables)
@@ -249,12 +361,17 @@ defmodule XipeTotec.Store do
       merged = lines |> Enum.map(&String.trim_trailing/1) |> Enum.reduce(caught, &fold_line/2)
 
       if lines == [] do
-        {merged, at}
+        {:ok, merged, at}
       else
-        write_lines(path, lines)
-        # what was just written (and anything before it) is read: past it
-        {_, end_pos} = catch_up(path, at, Book.new())
-        {merged, end_pos}
+        case write_lines(path, lines) do
+          :ok ->
+            # what was just written (and anything before it) is read: past it
+            {_, end_pos} = catch_up(path, at, Book.new())
+            {:ok, merged, end_pos}
+
+          {:error, _} = e ->
+            e
+        end
       end
     end)
   end
@@ -272,28 +389,26 @@ defmodule XipeTotec.Store do
   end
 
   @doc "Rewrite `path` to hold only the current folded state."
-  @spec compact(Path.t()) :: :ok
+  @spec compact(Path.t()) :: :ok | {:error, reason()}
   def compact(path), do: with_lock(path, fn -> compact_now(path) end)
 
   defp compact_now(path) do
     book = load(path)
     tmp = path <> ".compact-tmp"
 
-    File.open!(tmp, [:write], fn io ->
+    text =
       for {type, table} <- @tables, {id, row} <- Map.fetch!(book, table) do
-        line =
-          row
-          |> Map.put(:type, type)
-          |> Map.put(:id, id)
-          |> stringify_keys()
-          |> JSON.encode!()
-
-        IO.write(io, line <> "\n")
+        row |> Map.put(:type, type) |> Map.put(:id, id) |> line()
       end
-    end)
 
-    File.rename!(tmp, path)
-    :ok
+    with :ok <- File.write(tmp, text),
+         :ok <- File.rename(tmp, path) do
+      :ok
+    else
+      {:error, why} ->
+        File.rm(tmp)
+        {:error, {:not_written, path, why}}
+    end
   end
 
   defp stringify_keys(map), do: Map.new(map, fn {k, v} -> {to_string(k), v} end)

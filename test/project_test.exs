@@ -249,4 +249,20 @@ defmodule ProjectTest do
     assert map_size(final.nodes) == 1
     assert Book.all(final, :links) == []
   end
+
+  # scan_failed naming the file, in the CLI as in the server (2026-10-16:
+  # the CLI printed the parser's stack trace)
+  test "a file with a syntax error, or one that cannot be read: {:error, message} naming it, nothing kept", %{dir: dir} do
+    File.write!(Path.join(dir, "lib/broken.ex"), "defmodule Broken do\n  def x( end\nend\n")
+    assert {:error, message} = Project.scan_dir_report(Book.new(), dir)
+    assert message =~ "lib/broken.ex: "
+
+    File.rm!(Path.join(dir, "lib/broken.ex"))
+    locked = Path.join(dir, "lib/locked.ex")
+    File.write!(locked, "defmodule Locked do\nend\n")
+    File.chmod!(locked, 0o000)
+    on_exit(fn -> File.chmod(locked, 0o600) end)
+    assert {:error, message} = Project.scan_dir_report(Book.new(), dir)
+    assert message =~ "lib/locked.ex: cannot be read (permission denied)"
+  end
 end

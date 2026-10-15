@@ -101,4 +101,12 @@ defmodule InfoTest do
            ]
     assert refreshed["languages"] == ["placeholder"]
   end
+
+  test "read/1: a file that is not readable JSON is its message (xipe refresh -a makes it again), never a crash", %{path: path} do
+    File.write!(path, "{")
+    assert {:error, message} = Info.read(path)
+    assert message =~ "xipe refresh -a"
+    File.write!(path, "[1]")
+    assert {:error, _} = Info.read(path)
+  end
 end

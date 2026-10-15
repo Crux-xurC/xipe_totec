@@ -102,4 +102,23 @@ defmodule WorkspaceTest do
     assert Workspace.selection_path(roots) == Path.join(Path.dirname(roots.registry), "selection.json")
     assert JSON.decode!(File.read!(Workspace.selection_path(roots))) == %{"project" => project.id}
   end
+
+  test "a project.json that is not readable: choose/2 and resolve/2 answer its message (2026-10-16)", %{roots: roots, proj_a: a, proj_b: b} do
+    {pa, :new} = Workspace.choose(a, roots)
+    File.write!(Path.join(pa.dir, "project.json"), "[")
+    assert {:error, message} = Workspace.choose(b, roots)
+    assert message =~ "project.json is not readable JSON"
+    assert {:error, ^message} = Workspace.resolve(b, roots)
+    # the selected project itself
+    assert {:error, _} = Workspace.resolve(nil, roots)
+  end
+
+  test "a surface table that is not readable is made again by generate_table/2 (2026-10-16)", %{roots: roots, proj_a: a} do
+    {project, _rows} = Workspace.generate_table(a, roots)
+    File.write!(project.table_file, "[")
+    assert {:error, message} = XipeTotec.SurfaceTable.read(project.table_file)
+    assert message =~ "xipe table generate"
+    assert {_project, [%{"path" => "m.exs"}]} = Workspace.generate_table(a, roots)
+    assert {:ok, [_]} = XipeTotec.SurfaceTable.read(project.table_file)
+  end
 end

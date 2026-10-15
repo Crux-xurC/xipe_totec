@@ -62,7 +62,8 @@ defmodule XipeTotec.ProjectEnv do
         force or settings["refresh"] == "auto" or cached == nil ->
           case print_dev_env(root, opts) do
             {:ok, variables} ->
-              File.write!(cache_file(project_dir), JSON.encode!(%{"source" => "flake.nix", "hash" => hash, "variables" => variables}) <> "\n")
+              # a cache: one that cannot be written is only resolved again next time
+              _ = File.write(cache_file(project_dir), JSON.encode!(%{"source" => "flake.nix", "hash" => hash, "variables" => variables}) <> "\n")
               {apply_path(variables, settings), status("flake.nix", "resolved")}
 
             {:error, message} ->

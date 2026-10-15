@@ -18,6 +18,11 @@ defmodule XipeTotec.ProjectRegistry do
 
   `register/2` only creates the id, the directory and `project.json`; it
   never touches `table` (the `SurfaceTable` file).
+
+  A `project.json` that is not readable JSON (a hand edit) is an answer,
+  `{:error, message}` naming the file, never an exception: `find/2` cannot
+  tell whether that entry is the path asked for, so it does not register
+  the path again under a new id either (crux, 2026-10-16).
   """
 
   @default_root Path.expand("../tables/project", __DIR__)
@@ -25,15 +30,21 @@ defmodule XipeTotec.ProjectRegistry do
   @type id :: String.t()
 
   @doc "Returns `path`'s existing id (after `Path.expand/1` normalization), or `nil` if no registered project matches."
-  @spec find(String.t(), Path.t()) :: id() | nil
+  @spec find(String.t(), Path.t()) :: id() | nil | {:error, String.t()}
   def find(path, root \\ @default_root) do
     target = Path.expand(path)
+    read = for {id, dir} <- entries(root), do: {id, dir, read_path(dir)}
 
-    root
-    |> entries()
-    |> Enum.find_value(fn {id, dir} ->
-      if read_path(dir) == target, do: id
-    end)
+    case Enum.find(read, fn {_id, _dir, got} -> got == {:ok, target} end) do
+      {id, _dir, _} ->
+        id
+
+      nil ->
+        case for({_id, dir, {:error, _}} <- read, do: dir) do
+          [] -> nil
+          broken -> {:error, unreadable(broken)}
+        end
+    end
   end
 
   @doc "The next id to assign: the highest existing id under `root` (default `0`, i.e. `\"000\"` is never assigned) + 1, zero-padded to 3 digits."
@@ -54,30 +65,46 @@ defmodule XipeTotec.ProjectRegistry do
   creates `tables/project/<id>_<basename>/`, and writes `project.json`
   (`%{"path" => Path.expand(path)}`) into it before returning the new id.
   """
-  @spec register(String.t(), Path.t()) :: id()
+  @spec register(String.t(), Path.t()) :: id() | {:error, String.t()}
   def register(path, root \\ @default_root) do
     case find(path, root) do
       nil ->
         target = Path.expand(path)
         id = next_id(root)
         dir = Path.join(root, "#{id}_#{Path.basename(target)}")
-        File.mkdir_p!(dir)
-        File.write!(Path.join(dir, "project.json"), JSON.encode!(%{"path" => target}) <> "\n")
-        id
+        file = Path.join(dir, "project.json")
 
-      existing_id ->
-        existing_id
+        with :ok <- File.mkdir_p(dir),
+             :ok <- File.write(file, JSON.encode!(%{"path" => target}) <> "\n") do
+          id
+        else
+          {:error, why} -> {:error, "#{file} could not be written: #{:file.format_error(why)}"}
+        end
+
+      found ->
+        found
     end
   end
 
   @doc "The reverse of `find/2`: `{dir, path}` for a registered `id` (`dir` being its `tables/project/<id>_<name>/` directory, `path` the target project's own absolute path from `project.json`), or `nil` if no such id is registered."
-  @spec lookup(id(), Path.t()) :: {Path.t(), String.t()} | nil
+  @spec lookup(id(), Path.t()) :: {Path.t(), String.t()} | nil | {:error, String.t()}
   def lookup(id, root \\ @default_root) do
     root
     |> entries()
     |> Enum.find_value(fn {entry_id, dir} ->
-      if entry_id == id, do: {dir, read_path(dir)}
+      if entry_id == id do
+        case read_path(dir) do
+          {:ok, path} -> {dir, path}
+          :none -> {dir, nil}
+          {:error, _} -> {:error, unreadable([dir])}
+        end
+      end
     end)
+  end
+
+  defp unreadable(dirs) do
+    files = Enum.map_join(dirs, ", ", &Path.join(&1, "project.json"))
+    "#{files} is not readable JSON (a hand edit?) -- fix it by hand: it holds {\"path\": \"<the project's directory>\"}"
   end
 
   # `{id, dir}` for every `tables/project/<id>_<name>/` entry whose name
@@ -99,10 +126,18 @@ defmodule XipeTotec.ProjectRegistry do
     end
   end
 
+  # -> {:ok, path} | :none (no project.json, or no "path" in it) | {:error, :unreadable}
   defp read_path(dir) do
     case File.read(Path.join(dir, "project.json")) do
-      {:ok, content} -> Map.get(JSON.decode!(content), "path")
-      {:error, _} -> nil
+      {:ok, content} ->
+        case JSON.decode(content) do
+          {:ok, %{"path" => path}} when is_binary(path) -> {:ok, path}
+          {:ok, %{}} -> :none
+          _ -> {:error, :unreadable}
+        end
+
+      {:error, _} ->
+        :none
     end
   end
 end

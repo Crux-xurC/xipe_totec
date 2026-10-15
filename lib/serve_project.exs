@@ -270,17 +270,14 @@ defmodule XipeTotec.Serve.Project do
 
     case result do
       {:ok, new_book, result} ->
-        {new_book, state} = persist(state, new_book, [
-          :sheets,
-          :nodes,
-          :calls,
-          :links,
-          :runs,
-          :providers
-        ])
+        case persist(state, new_book, @all_tables) do
+          {:ok, new_book, state} ->
+            broadcast_changes(state.book, new_book, state.sessions)
+            {:reply, {:ok, result}, %{state | book: new_book}}
 
-        broadcast_changes(state.book, new_book, state.sessions)
-        {:reply, {:ok, result}, %{state | book: new_book}}
+          {:error, why} ->
+            {:reply, {:error, not_written(why, "nothing was changed")}, state}
+        end
 
       {:error, _book, error} ->
         {:reply, {:error, error}, state}
@@ -330,17 +327,17 @@ defmodule XipeTotec.Serve.Project do
         state.programs
       )
 
-    {new_book, state} = persist(state, new_book, [
-      :sheets,
-      :nodes,
-      :calls,
-      :links,
-      :runs,
-      :providers
-    ])
+    case persist(state, new_book, @all_tables) do
+      {:ok, new_book, state} ->
+        broadcast_changes(state.book, new_book, state.sessions)
+        {:reply, {new_dialogue, outcome}, %{state | book: new_book}}
 
-    broadcast_changes(state.book, new_book, state.sessions)
-    {:reply, {new_dialogue, outcome}, %{state | book: new_book}}
+      # as a request that raised: the dialogue stays where it was, so its
+      # last answer can be given again
+      {:error, why} ->
+        error = not_written(why, "nothing was changed")
+        {:reply, {dialogue, %{hold: dialogue != nil, via_repl: false, text: nil, ok?: false, result: nil, error: error}}, state}
+    end
   end
 
   @impl true
@@ -358,16 +355,26 @@ defmodule XipeTotec.Serve.Project do
       if outcome.ok? do
         results = Enum.filter(outcome.result["results"], &Map.has_key?(state.book.calls, &1.call_id))
         new_book = Core.apply_results(state.book, ctx, results)
-        {new_book, state} = persist(state, new_book, [:calls])
-        broadcast_changes(state.book, new_book, state.sessions)
 
-        push(state.sessions, "notify/passCompleted", %{
-          "pass_id" => pass_id,
-          "ok" => true,
-          "result" => Protocol.wire_result(%{outcome.result | "results" => results})
-        })
+        case persist(state, new_book, [:calls]) do
+          {:ok, new_book, state} ->
+            broadcast_changes(state.book, new_book, state.sessions)
 
-        tell_watcher(%{state | book: new_book}, pass_id, %{outcome | result: %{outcome.result | "results" => results}})
+            push(state.sessions, "notify/passCompleted", %{
+              "pass_id" => pass_id,
+              "ok" => true,
+              "result" => Protocol.wire_result(%{outcome.result | "results" => results})
+            })
+
+            tell_watcher(%{state | book: new_book}, pass_id, %{outcome | result: %{outcome.result | "results" => results}})
+
+          # the pass ran, but its results could not be written: not kept here
+          # either (the book stays the file's), and said as an ended pass is
+          {:error, why} ->
+            error = not_written(why, "the results of this pass were not recorded (evaluate again)")
+            push(state.sessions, "notify/passCompleted", %{"pass_id" => pass_id, "ok" => false, "error" => error})
+            tell_watcher(state, pass_id, %{method: outcome.method, ok?: false, result: nil, error: error})
+        end
       else
         push(state.sessions, "notify/passCompleted", %{"pass_id" => pass_id, "ok" => false, "error" => outcome.error})
         tell_watcher(state, pass_id, outcome)
@@ -382,11 +389,16 @@ defmodule XipeTotec.Serve.Project do
     state =
       case result do
         {:ok, scanned, reply} ->
-          new_book = fold_scan(state.book, scanned)
-          {new_book, state} = persist(state, new_book, @all_tables)
-          broadcast_changes(state.book, new_book, state.sessions)
-          reply_scan(waiters, {:ok, reply})
-          %{state | book: new_book}
+          case persist(state, fold_scan(state.book, scanned), @all_tables) do
+            {:ok, new_book, state} ->
+              broadcast_changes(state.book, new_book, state.sessions)
+              reply_scan(waiters, {:ok, reply})
+              %{state | book: new_book}
+
+            {:error, why} ->
+              reply_scan(waiters, {:error, not_written(why, "the scan was not recorded")})
+              state
+          end
 
         {:error, _book, error} ->
           reply_scan(waiters, {:error, error})
@@ -438,29 +450,36 @@ defmodule XipeTotec.Serve.Project do
 
     case prepared do
       {:ok, new_book, result, eval_params} ->
-        {new_book, state} =
+        written =
           if new_book != state.book do
-            {written, st} = persist(state, new_book, @all_tables)
-            broadcast_changes(state.book, written, state.sessions)
-            {written, st}
+            case persist(state, new_book, @all_tables) do
+              {:ok, written, st} ->
+                broadcast_changes(state.book, written, st.sessions)
+                {:ok, %{st | book: written}}
+
+              {:error, _} = e ->
+                e
+            end
           else
-            {new_book, state}
+            {:ok, state}
           end
 
-        state = %{state | book: new_book}
-
-        case eval_params do
-          nil ->
-            {:ok, result, state}
-
-          eval_params ->
-            {reply, state} = enqueue_pass(eval_params, watcher, state)
-            {:ok, Map.merge(result, reply), state}
+        case written do
+          {:ok, state} -> run_eval_stage(eval_params, result, watcher, state)
+          {:error, why} -> {:error, not_written(why, "nothing was changed, and nothing was evaluated"), state}
         end
 
       {:error, _book, error} ->
         {:error, error, state}
     end
+  end
+
+  # the "eval" stage (or a plain "eval") to the pass queue; none: the stages before it were all
+  defp run_eval_stage(nil, result, _watcher, state), do: {:ok, result, state}
+
+  defp run_eval_stage(eval_params, result, watcher, state) do
+    {reply, state} = enqueue_pass(eval_params, watcher, state)
+    {:ok, Map.merge(result, reply), state}
   end
 
   defp enqueue_pass(params, watcher, state) do
@@ -521,8 +540,10 @@ defmodule XipeTotec.Serve.Project do
       # the running one: asked here, without waiting for its record (which
       # is written only once its REPL is prepared)
       state.running != nil and state.project_dir != nil and id in [nil, state.running.pass_id] ->
-        XipeTotec.Passes.request_cancel(state.project_dir, state.running.pass_id)
-        {{:ok, %{"pass_id" => state.running.pass_id, "status" => "cancelling"}}, state}
+        case XipeTotec.Passes.request_cancel(state.project_dir, state.running.pass_id) do
+          :ok -> {{:ok, %{"pass_id" => state.running.pass_id, "status" => "cancelling"}}, state}
+          {:error, message} -> {{:error, %{"code" => "not_cancelled", "message" => message}}, state}
+        end
 
       true ->
         case Dispatch.handle(state.book, "eval/cancel", params, %{root: state.root, project_dir: state.project_dir}) do
@@ -588,9 +609,17 @@ defmodule XipeTotec.Serve.Project do
   # others -- the CLI -- appended since this server last read is folded in
   # first, so the book kept here and broadcast is the file's.
   # -> {the book to keep and broadcast, state with the new store_pos}
+  # -> {:ok, book, state} | {:error, Store.reason()} (nothing written; the caller keeps its book)
   defp persist(state, new_book, tables) do
-    {book, pos} = Store.persist_diff_since(state.store_file, state.store_pos, state.book, new_book, tables)
-    {book, %{state | store_pos: pos}}
+    case Store.persist_diff_since(state.store_file, state.store_pos, state.book, new_book, tables) do
+      {:ok, book, pos} -> {:ok, book, %{state | store_pos: pos}}
+      {:error, _} = e -> e
+    end
+  end
+
+  # a change the book could not take: who holds it, or why it cannot be written
+  defp not_written(why, what) do
+    %{"code" => "book_not_written", "message" => Store.describe(why) <> " -- " <> what}
   end
 
   defp broadcast_changes(old_book, new_book, sessions) do

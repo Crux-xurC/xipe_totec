@@ -59,11 +59,12 @@ defmodule XipeTotec.Workspace do
     end
   end
 
-  @doc "The full `project` map for a registered `id`, or `nil`."
-  @spec project(String.t(), roots()) :: project() | nil
+  @doc "The full `project` map for a registered `id`, `nil`, or `{:error, message}` (its `project.json` is not readable)."
+  @spec project(String.t(), roots()) :: project() | nil | {:error, String.t()}
   def project(id, roots \\ default_roots()) do
     case ProjectRegistry.lookup(id, roots.registry) do
       nil -> nil
+      {:error, _} = e -> e
       {dir, path} -> %{id: id, path: path, dir: dir, store_file: Path.join(dir, "book.jsonl"), table_file: Path.join(dir, "table")}
     end
   end
@@ -74,14 +75,26 @@ defmodule XipeTotec.Workspace do
   table from scratch (no incremental tracking),
   reusing the previous table's row ids by path, and saves it.
   """
-  @spec generate_table(String.t(), roots()) :: {project(), SurfaceTable.t()}
+  @spec generate_table(String.t(), roots()) :: {project(), SurfaceTable.t()} | {:error, String.t()}
   def generate_table(path, roots \\ default_roots()) do
-    unless File.dir?(path), do: raise(ArgumentError, "#{path} is not a directory")
-    id = ProjectRegistry.register(path, roots.registry)
-    project = project(id, roots)
-    rows = SurfaceTable.generate(project.path, SurfaceTable.load(project.table_file))
-    SurfaceTable.save(rows, project.table_file)
-    {project, rows}
+    with true <- File.dir?(path) || {:error, "#{path} is not a directory"},
+         id when is_binary(id) <- ProjectRegistry.register(path, roots.registry),
+         %{} = project <- project(id, roots) do
+      # the previous table only lends its ids by path: one that is not
+      # readable (a hand edit) is made again from nothing
+      old =
+        case SurfaceTable.read(project.table_file) do
+          {:ok, rows} -> rows
+          _ -> []
+        end
+
+      rows = SurfaceTable.generate(project.path, old)
+
+      case SurfaceTable.save(rows, project.table_file) do
+        :ok -> {project, rows}
+        {:error, _} = e -> e
+      end
+    end
   end
 
   @doc """
@@ -91,22 +104,27 @@ defmodule XipeTotec.Workspace do
   project with a table keeps its table as is. Returns `{project, :new |
   :existing}`.
   """
-  @spec choose(String.t(), roots()) :: {project(), :new | :existing}
+  @spec choose(String.t(), roots()) :: {project(), :new | :existing} | {:error, String.t()}
   def choose(path, roots \\ default_roots()) do
-    {project, status} =
+    chosen =
       case ProjectRegistry.find(path, roots.registry) do
         nil ->
-          {project, _rows} = generate_table(path, roots)
-          {project, :new}
+          with {%{} = project, _rows} <- generate_table(path, roots), do: {project, :new}
+
+        {:error, _} = e ->
+          e
 
         id ->
-          project = project(id, roots)
-          unless File.exists?(project.table_file), do: generate_table(path, roots)
-          {project, :existing}
+          with %{} = project <- project(id, roots),
+               {%{}, _rows} <- (if File.exists?(project.table_file), do: {project, nil}, else: generate_table(path, roots)) do
+            {project, :existing}
+          end
       end
 
-    write_selection(roots, project.id)
-    {project, status}
+    with {%{} = project, status} <- chosen,
+         :ok <- write_selection(roots, project.id) do
+      {project, status}
+    end
   end
 
   @doc "Where the selected project's id is kept: `selection.json` beside the registry directory."
@@ -126,8 +144,13 @@ defmodule XipeTotec.Workspace do
 
   defp write_selection(roots, id) do
     path = selection_path(roots)
-    File.mkdir_p!(Path.dirname(path))
-    File.write!(path, JSON.encode!(%{"project" => id}) <> "\n")
+
+    with :ok <- File.mkdir_p(Path.dirname(path)),
+         :ok <- File.write(path, JSON.encode!(%{"project" => id}) <> "\n") do
+      :ok
+    else
+      {:error, why} -> {:error, "#{path} could not be written: #{:file.format_error(why)}"}
+    end
   end
 
   @doc """
@@ -142,6 +165,7 @@ defmodule XipeTotec.Workspace do
       {:ok, %{"project" => id}} ->
         case project(id, roots) do
           nil -> {:error, "the running session's project #{id} is not registered under #{roots.registry}"}
+          {:error, _} = e -> e
           project -> {:ok, project}
         end
 
@@ -153,7 +177,13 @@ defmodule XipeTotec.Workspace do
   def resolve(dir, roots) do
     case ProjectRegistry.find(dir, roots.registry) do
       nil -> {:error, "#{Path.expand(dir)} is not a registered project -- run `xipe choice project #{dir}` first"}
-      id -> {:ok, project(id, roots)}
+      {:error, _} = e -> e
+      id ->
+        case project(id, roots) do
+          %{} = project -> {:ok, project}
+          {:error, _} = e -> e
+          nil -> {:error, "#{Path.expand(dir)} is not a registered project -- run `xipe choice project #{dir}` first"}
+        end
     end
   end
 
@@ -165,6 +195,7 @@ defmodule XipeTotec.Workspace do
       id ->
         case project(id, roots) do
           nil -> {:error, "selected project #{id} is not registered under #{roots.registry} -- run `xipe choice project <path>` again"}
+          {:error, _} = e -> e
           project -> {:ok, project}
         end
     end

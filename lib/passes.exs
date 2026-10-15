@@ -47,8 +47,11 @@ defmodule XipeTotec.Passes do
   @type handle :: Path.t() | nil
 
   @doc "Records a pass group as running; the handle for `progress/3` and `finish/1`."
-  @spec start(Path.t() | nil, String.t(), String.t(), [String.t()]) :: handle()
-  def start(nil, _pass_id, _language, _call_ids), do: nil
+  # -> {:ok, handle} | {:error, message}: a group whose record cannot be
+  # written does not run (the record is also what keeps its rows from being
+  # changed while it runs -- row_in_pass)
+  @spec start(Path.t() | nil, String.t(), String.t(), [String.t()]) :: {:ok, handle()} | {:error, String.t()}
+  def start(nil, _pass_id, _language, _call_ids), do: {:ok, nil}
 
   def start(project_dir, pass_id, language, call_ids) do
     path = Path.join(dir(project_dir), "#{pass_id}-#{safe(language)}.json")
@@ -63,8 +66,10 @@ defmodule XipeTotec.Passes do
         "current" => nil
       })
 
-    write(path, record)
-    path
+    case write(path, record) do
+      :ok -> {:ok, path}
+      {:error, _} = e -> e
+    end
   end
 
   @doc "The row the group is on now, and its phase (`\"calling\"` / `\"classifying\"`)."
@@ -73,7 +78,8 @@ defmodule XipeTotec.Passes do
 
   def progress(path, call_id, phase) do
     case read(path) do
-      {:ok, record} -> write(path, Map.put(record, "current", %{"call_id" => call_id, "phase" => phase, "since" => now()}))
+      # what it is doing now is shown on a best-effort basis: the record itself stays
+      {:ok, record} -> with({:error, _} <- write(path, Map.put(record, "current", %{"call_id" => call_id, "phase" => phase, "since" => now()})), do: :ok)
       :error -> :ok
     end
   end
@@ -101,13 +107,18 @@ defmodule XipeTotec.Passes do
   end
 
   @doc "Asks the pass `pass_id` to stop (see moduledoc). The pass ends itself, a moment later."
-  @spec request_cancel(Path.t() | nil, String.t()) :: :ok
+  @spec request_cancel(Path.t() | nil, String.t()) :: :ok | {:error, String.t()}
   def request_cancel(nil, _pass_id), do: :ok
 
   def request_cancel(project_dir, pass_id) do
-    File.mkdir_p!(dir(project_dir))
-    File.write!(cancel_file(project_dir, pass_id), "")
-    :ok
+    file = cancel_file(project_dir, pass_id)
+
+    with :ok <- File.mkdir_p(dir(project_dir)),
+         :ok <- File.write(file, "") do
+      :ok
+    else
+      {:error, why} -> {:error, "#{file} could not be written: #{:file.format_error(why)} -- the pass was not asked to stop"}
+    end
   end
 
   @doc "Whether `pass_id` was asked to stop."
@@ -193,10 +204,16 @@ defmodule XipeTotec.Passes do
 
   # a whole file or none: a reader never sees half a record
   defp write(path, record) do
-    File.mkdir_p!(Path.dirname(path))
     tmp = path <> ".tmp"
-    File.write!(tmp, JSON.encode!(record) <> "\n")
-    File.rename!(tmp, path)
-    :ok
+
+    with :ok <- File.mkdir_p(Path.dirname(path)),
+         :ok <- File.write(tmp, JSON.encode!(record) <> "\n"),
+         :ok <- File.rename(tmp, path) do
+      :ok
+    else
+      {:error, why} ->
+        File.rm(tmp)
+        {:error, "#{path} could not be written: #{:file.format_error(why)}"}
+    end
   end
 end

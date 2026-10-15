@@ -120,18 +120,47 @@ defmodule XipeTotec.SurfaceTable do
     end
   end
 
-  @doc "Loads `path`'s rows (`[]` if the file doesn't exist yet -- no `surface_table` has ever been generated for this project)."
-  @spec load(Path.t()) :: t()
-  def load(path) do
+  @doc """
+  `path`'s rows: `{:ok, rows}` (`[]` if the file doesn't exist yet -- no
+  `surface_table` has ever been generated for this project), or
+  `{:error, message}` when it is not readable as a table (a hand edit) or
+  cannot be read. The CLI checks it before a command (`xipe table generate`
+  makes it again), so `load/1` past that point reads a sound file.
+  """
+  @spec read(Path.t()) :: {:ok, t()} | {:error, String.t()}
+  def read(path) do
     case File.read(path) do
-      {:ok, content} -> JSON.decode!(content)
-      {:error, :enoent} -> []
+      {:ok, content} ->
+        case JSON.decode(content) do
+          {:ok, rows} when is_list(rows) -> if Enum.all?(rows, &is_map/1), do: {:ok, rows}, else: {:error, unreadable(path)}
+          _ -> {:error, unreadable(path)}
+        end
+
+      {:error, :enoent} ->
+        {:ok, []}
+
+      {:error, why} ->
+        {:error, "#{path} cannot be read: #{:file.format_error(why)}"}
     end
   end
 
-  @doc "Writes `rows` to `path` as a full JSON array -- see moduledoc, this always replaces the whole file."
-  @spec save(t(), Path.t()) :: :ok
+  defp unreadable(path), do: "#{path} is not readable as a surface table (a hand edit?) -- `xipe table generate` makes it again"
+
+  @doc "`read/1`'s rows; one changed under a running command (after the CLI's check) is an error inside xipe."
+  @spec load(Path.t()) :: t()
+  def load(path) do
+    case read(path) do
+      {:ok, rows} -> rows
+      {:error, message} -> raise ArgumentError, message
+    end
+  end
+
+  @doc "Writes `rows` to `path` as a full JSON array -- see moduledoc, this always replaces the whole file. -> :ok | {:error, message}"
+  @spec save(t(), Path.t()) :: :ok | {:error, String.t()}
   def save(rows, path) when is_list(rows) do
-    File.write!(path, JSON.encode!(rows) <> "\n")
+    case File.write(path, JSON.encode!(rows) <> "\n") do
+      :ok -> :ok
+      {:error, why} -> {:error, "#{path} could not be written: #{:file.format_error(why)}"}
+    end
   end
 end

@@ -31,13 +31,22 @@ Code.require_file("lib/log_buffer.exs", __DIR__)
 defmodule XipeTotec.CLI do
   @moduledoc false
 
-  alias XipeTotec.{Book, CommandLine, Core, GitCtx, Help, Info, InOut, Methods, OutcomeText, ProjectConfig, ProjectEnv, Runner, Session, Show, Store, Workspace}
+  alias XipeTotec.{Book, CommandLine, Core, GitCtx, Help, Info, InOut, Methods, OutcomeText, ProjectConfig, ProjectEnv, Runner, Session, Show, Store, SurfaceTable, Workspace}
   alias XipeTotec.Serve.Project, as: ServeProject
 
   @default_serve_port 4200
   @all_tables [:sheets, :nodes, :calls, :links, :runs, :providers]
 
   def main(args) do
+    # info.json is read all through a command: one that is not readable is
+    # said here, once, before anything runs (refresh makes it again)
+    unless match?([], args) or match?([c | _] when c in ["help", "version", "refresh"], args) do
+      case Info.read() do
+        {:ok, _} -> :ok
+        {:error, message} -> usage_error("xipe: " <> message)
+      end
+    end
+
     case args do
       [] -> help()
       ["help"] -> help()
@@ -78,7 +87,7 @@ defmodule XipeTotec.CLI do
 
   defp choice_project(path) do
     unless File.dir?(path), do: usage_error("xipe choice project: #{path} is not a directory")
-    {project, status} = Workspace.choose(path)
+    {project, status} = ok_or_halt(Workspace.choose(path), "xipe choice project")
     IO.puts("xipe choice project: #{project.id}  #{project.path}  (#{status})")
     if status == :new, do: resolve_env(project)
   end
@@ -141,12 +150,13 @@ defmodule XipeTotec.CLI do
     path =
       case args do
         [p] -> p
-        [] -> project!(nil).path
+        # the selected project's own, even when its table is the one to make again
+        [] -> ok_or_halt(Workspace.resolve(nil), "xipe table generate") |> elem(1) |> Map.fetch!(:path)
         _ -> usage_error("xipe table generate: usage: xipe table generate [<path>]")
       end
 
     unless File.dir?(path), do: usage_error("xipe table generate: #{path} is not a directory")
-    {project, rows} = Workspace.generate_table(path)
+    {project, rows} = ok_or_halt(Workspace.generate_table(path), "xipe table generate")
     counts = rows |> Enum.frequencies_by(&(&1["language"] || "-")) |> Enum.sort() |> Enum.map_join("  ", fn {l, n} -> "#{l}=#{n}" end)
     IO.puts("xipe table generate: #{project.id}  #{project.path}  #{length(rows)} files  #{counts}")
 
@@ -169,10 +179,22 @@ defmodule XipeTotec.CLI do
   # with the resolver's own message otherwise.
   defp project!(dir) do
     case Workspace.resolve(dir) do
-      {:ok, project} -> project
-      {:error, message} -> usage_error("xipe: #{message}")
+      {:ok, project} ->
+        # its surface table is read all through a command: one that is not
+        # readable is said here (`xipe table generate` makes it again)
+        case SurfaceTable.read(project.table_file) do
+          {:ok, _} -> project
+          {:error, message} -> usage_error("xipe: #{message}")
+        end
+
+      {:error, message} ->
+        usage_error("xipe: #{message}")
     end
   end
+
+  # a Workspace answer: what it gives, or its message and exit 1
+  defp ok_or_halt({:error, message}, who), do: usage_error("#{who}: #{message}")
+  defp ok_or_halt(result, _who), do: result
 
   defp start(args) do
     {opts, positional, _invalid} =
@@ -201,13 +223,18 @@ defmodule XipeTotec.CLI do
 
         [dir | _] ->
           unless File.dir?(dir), do: usage_error("xipe start: #{dir} is not a directory")
-          {project, _rows} = Workspace.generate_table(dir)
+          {project, _rows} = ok_or_halt(Workspace.generate_table(dir), "xipe start")
           project
       end
 
     root = project.path
     store_file = project.store_file
-    port = opts[:port] || String.to_integer(System.get_env("XIPE_TOTEC_PORT") || Integer.to_string(@default_serve_port))
+    port =
+      opts[:port] ||
+        case Integer.parse(System.get_env("XIPE_TOTEC_PORT") || Integer.to_string(@default_serve_port)) do
+          {n, ""} when n in 1..65_535 -> n
+          _ -> usage_error("xipe start: XIPE_TOTEC_PORT=#{System.get_env("XIPE_TOTEC_PORT")} is not a port number (1-65535)")
+        end
 
     # tezcatl passes --lsp/--fs-root itself (its XipeConfig.spawn_args/3);
     # otherwise they come from the environment (TEZCATL_RELAY_PORT/
@@ -242,7 +269,10 @@ defmodule XipeTotec.CLI do
         # normal shutdown (SIGTERM -- how tezcatl stops it). A kill -9 or
         # Ctrl-C leaves the file behind, which Session.read/1 then ignores
         # because the pid is gone.
-        Session.write(%{"port" => port, "project" => project.id, "root" => root, "lsp" => lsp, "fs_root" => fs_root})
+        # the server works without it; only the other xipe commands do not see this session
+        with {:error, message} <- Session.write(%{"port" => port, "project" => project.id, "root" => root, "lsp" => lsp, "fs_root" => fs_root}) do
+          IO.puts(:stderr, "xipe start: #{message} -- other xipe commands will not know this session runs")
+        end
         System.trap_signal(:sigterm, fn -> Session.clear() end)
 
         IO.puts("xipe start: ws://127.0.0.1:#{port}/  root=#{root}  store=#{store_file}")
@@ -346,12 +376,12 @@ defmodule XipeTotec.CLI do
       {new_book, outcome} =
         InOut.run_to_completion(old_book, dir, first, [ctx: GitCtx.read(dir), project_dir: project.dir], programs, next_answer, &IO.puts/1)
 
-      Store.persist_diff(project.store_file, old_book, new_book, @all_tables)
-
       case outcome.result do
         %{"outcomes" => outcomes} -> print_outcomes(outcomes)
         _ -> :ok
       end
+
+      record(project, old_book, new_book, "the results above were not recorded")
 
       unless outcome.ok?, do: System.halt(1)
     end
@@ -423,7 +453,7 @@ defmodule XipeTotec.CLI do
         nil -> book
       end
 
-    Store.persist_diff(project.store_file, old_book, book, @all_tables)
+    record(project, old_book, book, "what this dialogue changed was not recorded")
 
     with {mod, _state} <- dialogue,
          line when is_binary(line) <- IO.gets(prompt) do
@@ -477,10 +507,21 @@ defmodule XipeTotec.CLI do
       usage_error("xipe refresh: usage: xipe refresh -l|--languages | -r|--repls | -a|--all (at least one)")
     end
 
-    info = Info.load()
+    # what is refreshed is made again from lib/: an info.json that is not
+    # readable is started over from the empty one (said)
+    info =
+      case Info.read() do
+        {:ok, info} ->
+          info
+
+        {:error, message} ->
+          IO.puts(:stderr, "xipe refresh: #{message} -- starting from an empty one")
+          %{"languages" => [], "extensions" => %{}, "repls" => []}
+      end
+
     info = if do_languages, do: Info.refresh_languages(info), else: info
     info = if do_repls, do: Info.refresh_repls(info), else: info
-    Info.save(info)
+    ok_or_halt(Info.save(info), "xipe refresh")
 
     if do_languages, do: IO.puts("xipe refresh: languages = #{inspect(info["languages"])}  extensions = #{inspect(info["extensions"])}")
 
@@ -509,9 +550,23 @@ defmodule XipeTotec.CLI do
     # run its tools in its own environment (ProjectEnv)
     evaluator_opts = Keyword.put(evaluator_opts, :project_dir, project.dir)
     {new_book, outcomes} = Runner.run(old_book, project.path, commands, evaluator_opts)
-    Store.persist_diff(project.store_file, old_book, new_book, @all_tables)
     print_outcomes(outcomes)
+    record(project, old_book, new_book, "the results above were not recorded")
     unless Enum.all?(outcomes, & &1.ok?), do: System.halt(1)
+  end
+
+  # what a command changed, into the project's book.jsonl -- or, when it
+  # cannot be written (another process keeps it locked, the disk refuses),
+  # one line saying so, and exit 1
+  defp record(project, old_book, new_book, what) do
+    case Store.persist_diff(project.store_file, old_book, new_book, @all_tables) do
+      :ok ->
+        :ok
+
+      {:error, why} ->
+        IO.puts(:stderr, "xipe: " <> Store.describe(why) <> " -- " <> what)
+        System.halt(1)
+    end
   end
 
   # the same lines the dialogue window's input answers with (OutcomeText)

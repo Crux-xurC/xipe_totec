@@ -341,39 +341,51 @@ defmodule XipeTotec.Runner do
       {:ok, repl_opts, cleanup, env_status} ->
         # recorded as running for as long as the group's REPL works on `ids`
         project_dir = Keyword.get(opts, :project_dir)
-        handle = Passes.start(project_dir, pass_id, language, ids)
-        progress = fn call_id, phase -> Passes.progress(handle, call_id, phase) end
-        # eval/cancel leaves a request the group's REPL wait looks for
-        cancelled? = fn -> Passes.cancel_requested?(project_dir, pass_id) end
 
-        # the project's time limits (eval.timeout, eval.boot_timeout), read
-        # as the pass starts: a change applies from the next pass
-        limits = ProjectConfig.load(project_dir)["eval"]
+        case Passes.start(project_dir, pass_id, language, ids) do
+          {:ok, handle} ->
+            run_recorded(book, root, ids, include_writes, pass_id, repl_opts, cleanup, env_status, project_dir, handle)
 
-        eval_opts =
-          repl_opts
-          |> Keyword.merge(cwd: root, call_ids: ids, include_writes: include_writes, progress: progress)
-          |> Keyword.put_new(:cancelled?, cancelled?)
-          |> Keyword.put_new(:timeout_ms, limits["timeout"])
-          |> Keyword.put_new(:boot_timeout_ms, limits["boot_timeout"])
-
-        result =
-          try do
-            Evaluator.run_pass(book, pass_id, eval_opts)
-          after
-            Passes.finish(handle)
-          end
-
-        cleanup.()
-
-        case result do
-          {:ok, _book, results} -> {:ok, results, env_status}
-          {:error, :cancelled} -> {:error, Passes.cancelled_error()}
-          {:error, reason} -> {:error, %{"code" => "eval_failed", "message" => failure_message(reason)}}
+          {:error, message} ->
+            cleanup.()
+            {:error, %{"code" => "eval_failed", "message" => message <> " -- nothing was evaluated"}}
         end
 
-      {:error, error} ->
-        {:error, error}
+      other ->
+        other
+    end
+  end
+
+  # the group's REPL over `ids`, its record (`handle`) written
+  defp run_recorded(book, root, ids, include_writes, pass_id, repl_opts, cleanup, env_status, project_dir, handle) do
+    progress = fn call_id, phase -> Passes.progress(handle, call_id, phase) end
+    # eval/cancel leaves a request the group's REPL wait looks for
+    cancelled? = fn -> Passes.cancel_requested?(project_dir, pass_id) end
+
+    # the project's time limits (eval.timeout, eval.boot_timeout), read
+    # as the pass starts: a change applies from the next pass
+    limits = ProjectConfig.load(project_dir)["eval"]
+
+    eval_opts =
+      repl_opts
+      |> Keyword.merge(cwd: root, call_ids: ids, include_writes: include_writes, progress: progress)
+      |> Keyword.put_new(:cancelled?, cancelled?)
+      |> Keyword.put_new(:timeout_ms, limits["timeout"])
+      |> Keyword.put_new(:boot_timeout_ms, limits["boot_timeout"])
+
+    result =
+      try do
+        Evaluator.run_pass(book, pass_id, eval_opts)
+      after
+        Passes.finish(handle)
+      end
+
+    cleanup.()
+
+    case result do
+      {:ok, _book, results} -> {:ok, results, env_status}
+      {:error, :cancelled} -> {:error, Passes.cancelled_error()}
+      {:error, reason} -> {:error, %{"code" => "eval_failed", "message" => failure_message(reason)}}
     end
   end
 

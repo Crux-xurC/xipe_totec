@@ -78,4 +78,24 @@ defmodule ProjectRegistryTest do
     assert ProjectRegistry.next_id(root) == "001"
     assert ProjectRegistry.find("/abs/path/foo", root) == nil
   end
+
+  # a project.json that is not readable JSON (2026-10-16, crux): named, never
+  # a crash, and the path is not registered again under a new id
+  test "a project.json that is not readable is named by find/2, lookup/2 and register/2", %{root: root} do
+    id = ProjectRegistry.register("/abs/one", root)
+    other = ProjectRegistry.register("/abs/two", root)
+    broken = Path.join([root, "#{id}_one", "project.json"])
+    File.write!(broken, ~s({"path": ))
+
+    # the path asked for is another registered one: found all the same
+    assert ProjectRegistry.find("/abs/two", root) == other
+    # not found, and one entry can't be read: it might be that one
+    assert {:error, message} = ProjectRegistry.find("/abs/three", root)
+    assert message =~ broken and message =~ "fix it by hand"
+    assert {:error, ^message} = ProjectRegistry.register("/abs/three", root)
+    assert {:error, _} = ProjectRegistry.lookup(id, root)
+    assert {_dir, "/abs/two"} = ProjectRegistry.lookup(other, root)
+    # nothing new was registered
+    assert length(File.ls!(root)) == 2
+  end
 end
