@@ -1,332 +1,319 @@
 # Xipe Totec
 
-関数型言語のプロジェクトに、表計算ソフトの構造 ── 住所を持つセル、住所への参照、
-参照を順にたどって評価し直せる仕組み ── を持ち込む、独立したローカルサーバー
-兼 CLI。
+A standalone local server and CLI that brings the structure of a spreadsheet to a functional-language project: cells with
+addresses, references to addresses, and a way to evaluate again by following the references in order.
 
-名称は、ソースという本体から関数ごとに皮（カード）を剥いでいく像に由来する。
-再スキャンのたびに皮は新しくなる。
+The name comes from the image of peeling a skin (a card) off the body of the source, one function at a time. Every rescan gives
+new skins.
 
-Elixir 実装。アプリ名 `:xipe_totec`、モジュール名 `XipeTotec`、CLI コマンド
-`xipe`。ブラウザ側の開発環境 [tezcatl](../tezcatl) とは別リポジトリの姉妹プロジェクト
-（下記「tezcatl 連携」参照）。
+Written in Elixir. Application `:xipe_totec`, module `XipeTotec`, CLI command `xipe`. A sister project of
+[tezcatl](../tezcatl), the browser-side development environment, in a separate repository (see "With tezcatl" below).
 
 ---
 
-## 何のために作ったか
+## What it is for
 
-出発点は、REPL で関数を試すときの手間である。入力値を毎回手で打つ、ファイル
-パスを指定する、といった操作を、**計算行**として保存し再利用できるようにする。
-計算行の引数には、別の計算行の出力への参照（`⟦id⟧`）を置ける ── 参照でつないだ
-計算行を並べて評価すれば、上流の変化が下流にどう伝わるかを見られる。評価するのは
-指定した計算行だけで、指定していない行を裏で評価して記録に加えることはしない
-（Book は時系列の記録、`work_history/Old.md` §36）。
+It started from the chore of trying functions in a REPL: typing the input values by hand every time, naming file paths, and so
+on. Xipe Totec keeps them as **calc rows** to be saved and used again. A calc row's argument may be a reference (`⟦id⟧`) to the
+output of another calc row — lay out calc rows joined by references and evaluate them, and you see how a change upstream reaches
+downstream. Only the calc rows named are evaluated; rows not named are never evaluated behind your back and added to the record
+(the Book is a record in time, [D-named-rows-only](document/verification/lib-core.exs.md#d-named-rows-only)).
 
-評価は、人が REPL の端末で行う操作をそのまま自動化する形で行う。対象プロジェクト
-自身の REPL（Elixir なら `iex`）を起動し、標準入力へ呼び出し式を書き込み、
-標準出力に印字された結果を読む。
+Evaluation automates what a person does at a REPL's terminal. It starts the target project's own REPL (`iex` for Elixir), writes
+the call expression to its standard input, and reads the result printed on its standard output.
 
-もう一つの柱は**参照一覧**である。スキャンで得た静的な呼び出し関係（`:links`）から、
-ある関数を誰が呼んでいるかを引ける。当初は、カード上の名前変更をソースへ書き戻す
-**連動修正**（`edit/propose`/`edit/apply`）を柱にしていたが、2026-09-22 に撤回した。
-実際の書き換えはエディタ側（LSP の rename など）に任せ、Xipe Totec は参照一覧を
-出すところまでを受け持つ（`work_history/Old.md` §21）。
+The other pillar is the **list of references**: from the static call relations a scan finds (`:links`), who calls a given function.
+At first, **linked editing** — writing a rename on a card back to the source (`edit/propose`/`edit/apply`) — was a pillar too; it
+was withdrawn on 2026-09-22. Actual rewriting is left to the editor (an LSP rename and the like), and Xipe Totec goes as far as
+giving the list of references ([D-references-list](document/verification/lib-graph_query.exs.md#d-references-list)).
 
-加えて、実行中のプログラムの関数呼び出しを動作順に1つの表として記録し
-（**trace 表**）、計算行の入力候補として使えるようにする構想がある（凍結中）。
+There is also a plan (frozen) to record the function calls of a running program in their order as one table (the **trace
+table**), to be used as candidates for calc rows' inputs.
 
-### 何ではないか
+### What it is not
 
-- IDE やエディタの置き換え。表の表示・セル移動・ハイライト・補完候補の表示は
-  クライアント（[tezcatl](../tezcatl) など）の責務
-- ソースの書き換えツール。リネーム等はエディタ／LSP に任せる
-- LLM 向けのコード索引（読み取り専用の文脈供給）。既存の tree-sitter 系 MCP
-  サーバー群の領域であり、Xipe Totec は「値」に独自性を置く
-- 汎用の実行時ロガー・プロファイラ。実行時の記録は関数の入出力と呼び出し順に限る
-- 判定式など、コードの中身そのものの編集
-- マクロ・パイプ・複数文を計算行の評価対象にすること（計算行は常に
-  `Module.function(args...)` の1呼び出し。多段処理は計算行を `⟦id⟧` で繋ぐ）
-- 評価のサンドボックス化（副作用の判定を誤れば、書き込みは実際に起こる）
+- A replacement for an IDE or editor. Showing tables, moving between cells, highlighting and showing completion candidates are the
+  client's job ([tezcatl](../tezcatl) and the like)
+- A source rewriting tool. Renames and the like are left to the editor / LSP
+- A code index for LLMs (read-only context). That is the field of the existing tree-sitter MCP servers; Xipe Totec's own value is
+  in *values*
+- A general runtime logger or profiler. What it records at run time is limited to functions' inputs, outputs and call order
+- Editing the code itself, such as conditions
+- Evaluating macros, pipes or several statements as a calc row (a calc row is always one call `Module.function(args...)`; several
+  steps are calc rows joined by `⟦id⟧`)
+- Sandboxed evaluation (if a side effect is misclassified, the write really happens)
 
-### 設計原則
+### Design principles
 
-| # | 原則 |
+| # | Principle |
 |---|---|
-| P1 | 参照透明性を前提とする。副作用を持つ関数は明示的に区別する |
-| P2 | 再現性を最優先する。内容ハッシュ・git コミット・提供元を記録する |
-| P3 | ID と名前を分離する。ID は代理キー、名前は自然キー |
-| P4 | 非対称な信頼。LLM・ヒューリスティクス・外部提供元は「提案」のみ、受け入れ検査を通ったものだけ採用 |
-| P5 | 差分は追加部分に閉じ込める。基本構造は言語非依存、言語ごとの差は REPL アダプタに |
-| P6 | 書き込みは必ず diff → apply の二段階 |
-| P7 | 入力体験はクライアントの責務。サーバーは口だけ提供する |
-| P8 | 単体で完結し、外部の提供（言語サーバー等）は上乗せとする |
-| P9 | 判定しきれないものは表に出す。推定値と状態を列として示し、利用者の確認に委ねる |
-| P10 | 対象プロジェクトの環境で動かす。評価・trace・構文解析は対象プロジェクトの REPL の中で行う |
+| P1 | Referential transparency is assumed. Functions with side effects are told apart explicitly |
+| P2 | Reproducibility comes first. Content hashes, git commits and providers are recorded |
+| P3 | IDs and names are separate. The ID is a surrogate key, the name a natural key |
+| P4 | Asymmetric trust. LLMs, heuristics and outside providers only *propose*; only what passes an acceptance check is taken |
+| P5 | Differences are kept to the added parts. The basic structure is language-neutral; what differs per language is in the REPL adapter |
+| P6 | Writing always goes in two steps: diff → apply |
+| P7 | The input experience is the client's job. The server only provides the openings |
+| P8 | It is complete on its own; outside providers (language servers …) are added on top |
+| P9 | What cannot be decided is shown in the table. Estimates and states are shown as columns, for the user to confirm |
+| P10 | It runs in the target project's environment. Evaluation, tracing and parsing happen inside the target project's REPL |
 
-P1 の具体形: 副作用の分類（`pure`/`reads`/`writes`）は利用者が `effect/set` で
-明示したものだけを信用し、未分類の関数は評価しない。`writes` は
-`--include-writes` を付けたときだけ評価する。
+P1 in concrete form: side-effect classes (`pure`/`reads`/`writes`) are trusted only when the user set them with `effect/set`, and
+unclassified functions are not evaluated. `writes` are evaluated only with `--include-writes`.
 
-### 動く場所の前提
+### Where it runs
 
-§16.1: 「いずれもローカルホストのみで待ち受け、認証は設けず、外部ネットワークには
-接続しない」。`xipe serve` は `127.0.0.1` にバインドするだけで、認証・権限分離は
-一切ない。
+Spec v0.4 §16.1: "each listens on localhost only, has no authentication, and does not connect to an outside network". `xipe serve` only binds
+to `127.0.0.1`; there is no authentication or separation of privileges of any kind.
 
 ---
 
-## 構成
+## Structure
 
 ```
-対象プロジェクトのソース
-        │ scan（AST 抽出 + コンパイラトレーサーによる link 抽出）
-   SurfaceTable（ファイル→言語/REPL/ビルドツール）→ Project / Scanner ── Identity
+the target project's source
+        │ scan (AST extraction + links extracted by a compiler tracer)
+   SurfaceTable (file → language/REPL/build tool) → Project / Scanner ── Identity
         │
-       Core（純粋関数。参照グラフ・再計算計画 plan_recalc・結果の反映 apply_results）
+       Core (pure functions: the reference graph, the recalculation plan plan_recalc, applying results apply_results)
         │
-       Book（id => 最新行、6テーブル）⇄ Store（追記のみの JSON Lines = プロジェクトごとの book.jsonl）
+       Book (id => latest row, 6 tables) ⇄ Store (append-only JSON Lines = book.jsonl per project)
         │
-   コマンド列  Runner ─┬─ Dispatch（Book だけで完結する method の表引き）
-                       ├─ Pipeline（REPL を挟む method。pipelines.json に登録）
-                       └─ "eval" → Repl.Evaluator
-                                     Launch → Sender.Direct(erlexec) → Session
-                                     → EvalTemplate → iex → Eval.Parser → Core.apply_results
-   対話        InOut / Dialogue（複数ターンの対話。例: Dialogue.Depends）
+   command lists  Runner ─┬─ Dispatch (the table of methods complete with the Book alone)
+                          ├─ Pipeline (methods with a REPL in between; registered in pipelines.json)
+                          └─ "eval" → Repl.Evaluator
+                                        Launch → Sender.Direct(erlexec) → Session
+                                        → EvalTemplate → iex → Eval.Parser → Core.apply_results
+   dialogues     InOut / Dialogue (dialogues over several turns, e.g. Dialogue.Depends)
         │
-   入口        CLI（main.exs）／ Serve.Project（GenServer）+ Serve.Socket（WebSocket）
-        │ WebSocket（localhost）
-   tezcatl の `/xipe`（中継・対話窓 `input`・表 `row/list`/`card/get` まで実装済み。「tezcatl 連携」）
+   entrances     CLI (main.exs) / Serve.Project (GenServer) + Serve.Socket (WebSocket)
+        │ WebSocket (localhost)
+   tezcatl's `/xipe` (the relay, the dialogue window's `input`, the tables `row/list`/`card/get` are implemented; "With tezcatl")
 ```
 
-スキャンと評価は言語で選ばれる。surface table が示す言語（`info.json` に登録済みの
-もの）の `Repl.Language` モジュールが、ファイルを読む Scanner（`scanner/0`、
-`XipeTotec.Scanner` の実装）、`Repl.Evaluator` に渡す4モジュール（`launch`/
-`eval_template`/`Eval.Scan`/`field_drip`）、REPL の起動方法（`launch_opts/2`）を申告し、
-`Project`（スキャン）と `Runner`（評価）がそれを使う。REPL は言語ごとに1つに決め打ち
-（Elixir なら `iex`）で、ビルドツールは起動方法だけを変える。申告があるのは Elixir と
-OCaml（2026-09-27、素の `ocaml` トップレベル＋`embody.ml`、`Old.md` §42）と Haskell（同日、GHCi＋`embody.hs`、§46）。
-`embody` は別リポジトリ（`~/my_app/embody`、git@github.com:Crux-xurC/embody.git）。Elixir の Scanner は elixir-ls（`Scanner.Lsp.Elixir`）を優先する。言語サーバーへは
-tezcatl の `/lsp` を先に試し、つながらなければ elixir-ls を自分で起動する（CLI 単体でも
-使える）。どちらも駄目なら自前の `Scanner.Elixir` を使う（仕様 §11.3）。どれで読んだか
-（`via` が `relay`/`stdio`）は `scan/run` の結果の `scanners` に出る。カードは disk のファイル
-（評価で REPL が読むもの）に合わせる。言語サーバーがエディタの未保存の内容を持っていて位置が
-disk とずれるファイルは、そのファイルだけ次の Scanner（Elixir なら `Scanner.Elixir`）で読み直し、
-`scanners.<言語>.fallbacks` に出す。カードになるのは関数だけ（Elixir なら `def`/`defp`/
-`defdelegate`）で、マクロ・ガードは入らない。`XIPE_TOTEC_LSP=off` で言語サーバー経由を止められる
-（テストはこれで走る）。`Scanner`（ソースから定義を抽出）と `Eval.Scan`
-（REPL 出力からマーカーを検出）は名前が似ているが別物。
+Scanning and evaluation are chosen by language. For a language the surface table names (one registered in `info.json`), its
+`Repl.Language` module declares the Scanner that reads its files (`scanner/0`, an implementation of `XipeTotec.Scanner`), the four
+modules given to `Repl.Evaluator` (`launch`/`eval_template`/`Eval.Scan`/`field_drip`) and how its REPL starts (`launch_opts/2`);
+`Project` (scanning) and `Runner` (evaluation) use them. There is one REPL per language (`iex` for Elixir), and the build tool only
+changes how it starts. Elixir, OCaml (2026-09-27: the plain `ocaml` toplevel + `embody.ml`, [D-ocaml-adapter](document/verification/lib-repl-language-ocaml.exs.md#d-ocaml-adapter)) and Haskell (the same day:
+GHCi + `embody.hs`, [D-haskell-adapter](document/verification/lib-repl-language-haskell.exs.md#d-haskell-adapter)) are declared. `embody` is a separate repository (`~/my_app/embody`, git@github.com:Crux-xurC/embody.git).
 
-| 層 | モジュール | 役割 |
+Elixir's Scanner prefers elixir-ls (`Scanner.Lsp.Elixir`). It tries tezcatl's `/lsp` first for the language server, and starts
+elixir-ls itself when that does not connect (so the CLI works alone too). When neither works it uses its own `Scanner.Elixir`
+(spec §11.3). Which one read a file (`via`: `relay`/`stdio`) is in `scanners` of `scan/run`'s result. Cards follow the files on disk
+(what the REPL reads when evaluating). A file whose positions differ from the disk because the language server holds unsaved
+contents from an editor is read again by the next Scanner (`Scanner.Elixir` for Elixir), and listed in
+`scanners.<language>.fallbacks`. Only functions become cards (`def`/`defp`/`defdelegate` for Elixir); macros and guards do not.
+`XIPE_TOTEC_LSP=off` turns the language server path off (the tests run with it). `Scanner` (extracting definitions from source) and
+`Eval.Scan` (finding markers in REPL output) have similar names but are different things.
+
+| Layer | Modules | Role |
 |---|---|---|
-| 土台 | `Book` / `Store` / `Core` / `Id` / `Identity` | 現在状態・追記型永続化・純粋な参照グラフと再計算計画・再スキャン時の ID 継続 |
-| スキャン | `Scanner`（behaviour）/ `Scanner.Lsp`（+ `Scanner.Lsp.Elixir`）/ `Scanner.Elixir` / `Lsp.Transport`（+ `.Relay`・`.Stdio`）/ `Project` / `SurfaceTable` | ファイルからカードと link を作る口と共通の帳簿付け、言語サーバー経由の実装（`documentSymbol`・`callHierarchy`、言語ごとの差は薄い dialect）、Elixir の自前の実装（AST 抽出、`defmodule` のみコンパイル。言語サーバーが無いときの予備）、言語サーバーへのつなぎ方（tezcatl の `/lsp`、無ければ自分で起動）、ディレクトリ横断の2パス走査（言語ごとに Scanner を優先順に試し、どれを使ったかを記録）、ファイルごとの言語判定 |
-| コマンド | `Runner` / `Dispatch` / `Pipeline` / `Address` / `GraphQuery` | コマンド列の実行（`$<n>.<path>` で前の結果を参照）、method の表、住所の解決、呼び出しグラフの BFS と書き出し |
-| 評価 | `Repl.Evaluator` / `Launch` / `Sender(.Direct)` / `Session` / `EvalTemplate` / `SourceSanitize` / `Eval.{Scan,FieldDrip,Parser,Result}` | REPL の起動・完了待ち・式の送信・マーカー受信・ハング時の SIGINT→SIGKILL |
-| 対話 | `InOut` / `Dialogue` / `Dialogue.Depends` / `Dialogue.Search` / `Dialogue.Do` / `Dialogue.Rewrite` / `Dialogue.Update` / `LogBuffer` / `Tables` / `EvalTable` | 複数ターンの構造化対話（一覧は `InOut.programs/0`、CLI とサーバーで共通）、依存チェーン交渉、引数を尋ねて method を1つ実行する対話（`dialogue do`。尋ねる内容は `Methods` の `params`）、検索と、表の値を1つ手で書き換える対話（`dialogue rewrite`。列ごとの method は `Tables` の `writes`、値を尋ねるところからは `Dialogue.Do`）、設定を1つ変える対話（`dialogue update`。ファイルは `LogBuffer` ＝ 出した行の記録 `tables/logging_buffer.txt` から選ぶ。書くのは `config/set`）、検索が引ける表の宣言（`Tables`。名前・印・列・行の読み方・書き換えられる列。`roster` も同じ一覧を返す）、その `-e` が引く `eval_table`（計算行に関数と path を横付けした読み取り用の表） |
-| 人向けの入出力 | `Input` / `Help` / `OutcomeText` / `Show` / `Serve.Input` | 1行の読み方（CLI と同じ書き方）、`help` の表、結果・`show` の行（CLI と対話窓で共通）、`input` method |
-| サーバー | `Protocol` / `Serve.Project` / `Serve.Socket` | §16.3 の wire 形、1プロジェクト1GenServer、WebSocket の入口 |
-| プロジェクト | `Workspace` / `ProjectRegistry` / `ProjectConfig` / `ProjectEnv` / `Info` / `Repl.Language` | どのプロジェクトを対象にするかの解決、3桁 ID の登録、プロジェクトごとの設定（`project.json`、`xipe config`）、対象のツールを走らせる環境（`project_env.json` の宣言で得る。tezcatl と同じ書き方。flake・direnv・mise など）、xipe_totec 自身の `info.json`（言語と拡張子、アダプタ一覧）と、このマシンで選択中のプロジェクト（`tables/selection.json`）、言語ごとの自己申告 |
-| 評価の周り | `Passes` / `GitCtx` / `CommandLine` | いま評価中のパス（`passes/` のファイル。`eval/status`、評価中の行を変えさせない、§51。止める依頼 `eval/cancel` もここのファイル）、評価した行に記録する git の出どころ、`xipe do` の引数をコマンド列に読む |
+| Base | `Book` / `Store` / `Core` / `Id` / `Identity` | the current state, append-only persistence, the pure reference graph and recalculation plan, keeping IDs across rescans |
+| Scanning | `Scanner` (behaviour) / `Scanner.Lsp` (+ `Scanner.Lsp.Elixir`) / `Scanner.Elixir` / `Lsp.Transport` (+ `.Relay`, `.Stdio`) / `Project` / `SurfaceTable` | the opening that makes cards and links from files and the shared bookkeeping; the implementation through a language server (`documentSymbol`, `callHierarchy`; what differs per language is a thin dialect); Elixir's own implementation (AST extraction, compiling only `defmodule`; the fallback without a language server); how to reach a language server (tezcatl's `/lsp`, else started by itself); the two-pass walk over directories (trying each language's Scanners in order of preference and recording which was used); deciding the language of each file |
+| Commands | `Runner` / `Dispatch` / `Pipeline` / `Address` / `GraphQuery` | running command lists (`$<n>.<path>` refers to an earlier result), the table of methods, resolving addresses, BFS over the call graph and export |
+| Evaluation | `Repl.Evaluator` / `Launch` / `Sender(.Direct)` / `Session` / `EvalTemplate` / `SourceSanitize` / `Eval.{Scan,FieldDrip,Parser,Result}` | starting the REPL, waiting for it, sending expressions, receiving markers, SIGINT → SIGKILL on a hang |
+| Dialogues | `InOut` / `Dialogue` / `Dialogue.Depends` / `Dialogue.Search` / `Dialogue.Do` / `Dialogue.Rewrite` / `Dialogue.Update` / `LogBuffer` / `Tables` / `EvalTable` | structured dialogues over several turns (listed by `InOut.programs/0`, shared by the CLI and the server); negotiating dependency chains; a dialogue that asks for arguments and runs one method (`dialogue do`; what it asks comes from `params` in `Methods`); searching, and a dialogue that rewrites one value of a table by hand (`dialogue rewrite`; the method per column is `writes` in `Tables`, and from asking the value on it is `Dialogue.Do`); a dialogue that changes one setting (`dialogue update`; the file is chosen from `LogBuffer` = the record of lines said, `tables/logging_buffer.txt`; it writes with `config/set`); the declaration of the tables search can look up (`Tables`: name, mark, columns, how rows are read, rewritable columns; `roster` returns the same list); `eval_table`, which its `-e` looks up (calc rows with their function and path beside them, for reading) |
+| Input and output for people | `Input` / `Help` / `OutcomeText` / `Show` / `Serve.Input` | reading one line (written as on the CLI), the `help` table, lines of results and of `show` (shared by the CLI and the dialogue window), the `input` method |
+| Server | `Protocol` / `Serve.Project` / `Serve.Socket` | the wire shape of §16.3, one GenServer per project, the WebSocket entrance |
+| Projects | `Workspace` / `ProjectRegistry` / `ProjectConfig` / `ProjectEnv` / `Info` / `Repl.Language` | resolving which project is the target, registering it with a 3-digit ID, per-project settings (`project.json`, `xipe config`), the environment the target's tools run in (got by the declaration in `project_env.json`, written as tezcatl's is: a flake, direnv, mise …), xipe_totec's own `info.json` (languages and extensions, the adapter list) and the project chosen on this machine (`tables/selection.json`), each language's own declaration |
+| Around evaluation | `Passes` / `GitCtx` / `CommandLine` | the pass being evaluated now (files under `passes/`; `eval/status`, rows being evaluated cannot be changed, [D-passes](document/verification/lib-passes.exs.md#d-passes); a request to stop, `eval/cancel`, is a file here too), the git provenance recorded with evaluated rows, reading `xipe do`'s arguments as a command list |
 
 ---
 
-## いまどこまで動くか
+## How far it works now
 
-2026-10-13 時点。`./test/run.sh` の全50ファイル・555件がすべて通る。これとは別に、
-実機の REPL を起動するテスト（`test/live/`、`iex` 12件・`ocaml` 6件・`ghci` 7件。OCaml・Haskell 版は
-PATH に処理系が無ければ飛ばす）がある。
+As of 2026-10-19, all 50 files and 568 cases of `./test/run.sh` pass. Apart from them there are tests that start real REPLs
+(`test/live/`: `iex` 12, `ocaml` 6, `ghci` 7; the OCaml and Haskell ones are skipped when their system is not on PATH).
 
-**CLI からは、Elixir プロジェクトに対してスキャン → 計算行の作成 → 実評価 → 結果の
-永続化まで、一通り動く。** OCaml（`.ml`）も同じ流れで動く（`Old.md` §42）。dune のプロジェクトでは依存するライブラリを
-`dune ocaml top` から読み込む（§43）。Haskell（`.hs`）も同じ（§46）。cabal・stack のプロジェクトでは GHCi を `cabal exec`・`stack exec` の下で
-起動して依存パッケージを見えるようにする（§47）。 mix 構成（`iex -S mix`）とスクリプト構成の両方に対応している。
-スクリプト構成では、各ファイルの `defmodule` 部分だけを、元のファイルのパスと行番号の
-ままコンパイルする（`Repl.SourceSanitize` の読み込み用スクリプト。トップレベルの副作用は
-走らせない。エラーの位置と `__DIR__` は元のファイルを指す）。
+**From the CLI, scan → making calc rows → real evaluation → persisting the results works end to end for Elixir projects.** OCaml
+(`.ml`) works the same way; for dune projects the libraries depended on are loaded from `dune ocaml top`
+([D-ocaml-adapter](document/verification/lib-repl-language-ocaml.exs.md#d-ocaml-adapter)). So does Haskell (`.hs`); for cabal and stack projects GHCi is started under
+`cabal exec` / `stack exec` so dependency packages are visible ([D-haskell-adapter](document/verification/lib-repl-language-haskell.exs.md#d-haskell-adapter)). Both the mix layout (`iex -S mix`) and the script layout are supported. In the script layout only the `defmodule`
+parts of each file are compiled, with the original file's path and line numbers (the loading script of `Repl.SourceSanitize`;
+top-level side effects are not run; error positions and `__DIR__` point at the original file).
 
-- 評価結果は `repr`（`exact`/`binary`/`unsupported`）、表示用文字列、前回値との
-  `compare`（浮動小数点は許容誤差込み）を持つ
-- 1件ごとに timeout と max_heap の安全装置を付けて評価する。セッションが固まれば
-  SIGINT、効かなければプロセスグループごと SIGKILL で落とし、残りは `aborted` にする
-- 構文として閉じていない引数は REPL へ送らずにエラーにする。参照を解決できない
-  計算行は評価せず `skipped` にする
-- `xipe dialogue depends` で、上流の依存チェーンの深い段から順に「ここに値を手で
-  入れて、そこから上を評価するか」を対話で決められる
-- `xipe search` で、surface table と `eval_table` を対話のターンを重ねて絞り込める
-  （`Old.md` §41）。どちらの対話も tezcatl の対話窓から使える
-- `xipe dialogue do <method>` で、足りない引数を1つずつ尋ねてもらって実行できる。答えは行のまま渡るので、
-  1行では書けない値（カンマを含むリスト、引用符を含む文字列）が通る。関数は名前（`Calc.add/2`）でも答えられる
-- `xipe dialogue rewrite` で、表の値を1つ、評価せずに書き換えられる（引数・値・期待値・関数の分類）
-- 計算行の時間の上限と REPL の起動を待つ時間は、プロジェクトごとに変えられる（`eval.timeout`・`eval.boot_timeout`。
-  `xipe dialogue update` か `xipe config`）。評価の出力に、そのパスの上限と値の出どころのファイルが出る
-- 走っているパスは `eval/cancel` で止められる（REPL をプロセスグループごと止め、何も記録しない）
+- An evaluation result has `repr` (`exact`/`binary`/`unsupported`), a display string, and `compare` against the previous value
+  (floating point with a tolerance)
+- Each row is evaluated with a timeout and a max_heap guard. A stuck session gets SIGINT, then, if that does not work, SIGKILL for
+  its whole process group, and the rest become `aborted`
+- Arguments that are not syntactically closed are not sent to the REPL but made an error. A calc row whose references cannot be
+  resolved is not evaluated and becomes `skipped`
+- `xipe dialogue depends` decides by dialogue, from the deepest step of the upstream dependency chain, "put a value here by hand and
+  evaluate from there up?"
+- `xipe search` narrows the surface table and `eval_table` over turns of a dialogue ([D-search](document/verification/lib-dialogue-search.exs.md#d-search)). Both dialogues can be used from
+  tezcatl's dialogue window
+- `xipe dialogue do <method>` asks for the missing arguments one by one and runs it. Answers pass as the lines typed, so values that
+  cannot be written on one line (lists containing commas, strings containing quotes) get through. A function can be answered by name
+  (`Calc.add/2`)
+- `xipe dialogue rewrite` rewrites one value of a table without evaluating (arguments, value, expected value, a function's class)
+- A calc row's time limit and the time to wait for the REPL to start can be changed per project (`eval.timeout`, `eval.boot_timeout`;
+  `xipe dialogue update` or `xipe config`). The evaluation output shows that pass's limit and the file its value came from
+- A running pass can be stopped with `eval/cancel` (the REPL is stopped with its whole process group; nothing is recorded)
 
-`xipe serve`（WebSocket）経由でも評価できる。`eval`／`eval/run`／`row/update` はすぐに `pass_id` を
-返し、評価は別プロセスで走る（評価中もほかの要求に応答する）。終わると
-`notify/rowChanged` と `notify/passCompleted`（独自追加）が届く。評価回は1プロジェクトに
-つき1つずつ、来た順に実行する。
+Evaluation also works through `xipe serve` (WebSocket). `eval` / `eval/run` / `row/update` return a `pass_id` at once, and the
+evaluation runs in another process (other requests are answered meanwhile). When it ends, `notify/rowChanged` and
+`notify/passCompleted` (our own addition) arrive. Passes run one at a time per project, in the order they came.
 
-§16.3 の method の状態:
+The state of the methods of spec v0.4 §16.3:
 
-| 区分 | method | 状態 |
+| Group | Methods | State |
 |---|---|---|
-| Tier 1 | `scan/run`・`row/add`・`row/remove`・`effect/set`・`card/get`・`card/search`・`graph/neighbors`・`graph/export`・`cell/resolve` | 実装済み |
-| 独自追加 | `row/depends`（上流依存チェーン）・`row/set-result`（値の手入力）・`row/list`（計算行の一覧）・`row/check`（条件に当たる行があれば失敗）・`node/resolve`（住所から node の id）・`notify/passCompleted`（評価回の完了通知） | 実装済み（仕様 v0.4 には無い） |
-| 独自追加 | `input`（1行をそのまま受け、CLI と同じ書き方で読む。tezcatl の対話窓用） | 実装済み（2026-09-27、`Old.md` §40） |
-| 独自追加 | `eval/status`（いま評価中のパス。評価中の行は変えられない） | 実装済み（2026-10-06、`Old.md` §51） |
-| 独自追加 | `eval/cancel`（走っているパスを止める・順番待ちを外す。何も記録しない）、`roster`（`search` が引ける表と列） | 実装済み（2026-10-12） |
-| 独自追加 | `card/list`（関数の一覧を丸ごと返す。ファイル・行・分類・計算行の数つき）、`row/list` の列 `path`・`line`（その行の関数の定義の場所） | 実装済み（2026-10-13） |
-| 独自追加 | `row/set-prev`（期待値を手で置く）、`row/set-args`（引数だけを変える。評価しない）、`config/set`（プロジェクトの設定を1つ変える） | 実装済み（2026-10-13） |
-| 独自追加 | `arity/set`（引数の既定値で呼べる引数の数を人が決める。`row/add` と link に使う） | 実装済み（2026-10-08、`Old.md` §53） |
-| 評価 | `eval`・`eval/run` | 実装済み。CLI（`xipe eval`／`xipe do ... eval`）は同期実行、`xipe serve` では非同期（`pass_id` を返す）。`eval/run` は `Pipeline`（`["eval"]`）経由 |
-| Pipeline 経由 | `row/update` | 実装済み。`["edit", "eval"]`：引数を変えてその行だけを評価する（Old.md §37） |
-| Tier 3 | `cell/complete` | 未実装 |
-| — | `edit/propose`・`edit/apply` | 撤回（参照一覧＋エディタ委譲へ方針転換）。`row/update` の `"edit"` 段とは別物 |
-| Tier 4〜5 | `provider/recheck`・`trace/*` | 未実装（trace は凍結） |
+| Tier 1 | `scan/run`, `row/add`, `row/remove`, `effect/set`, `card/get`, `card/search`, `graph/neighbors`, `graph/export`, `cell/resolve` | implemented |
+| Our own | `row/depends` (the upstream dependency chain), `row/set-result` (a value by hand), `row/list` (the list of calc rows), `row/check` (fails when a row meets a condition), `node/resolve` (a node's id from an address), `notify/passCompleted` (a pass's completion) | implemented (not in spec v0.4) |
+| Our own | `input` (takes one line as it is and reads it as the CLI would; for tezcatl's dialogue window) | implemented (2026-09-27, [D-input-line](document/verification/lib-serve_input.exs.md#d-input-line)) |
+| Our own | `eval/status` (the pass being evaluated now; rows in it cannot be changed) | implemented (2026-10-06, [D-passes](document/verification/lib-passes.exs.md#d-passes)) |
+| Our own | `eval/cancel` (stop the running pass, take a waiting one out of the queue; records nothing), `roster` (the tables and columns `search` can look up) | implemented (2026-10-12) |
+| Our own | `card/list` (the whole list of functions, with file, line, class and the number of calc rows), the columns `path` and `line` of `row/list` (where the row's function is defined) | implemented (2026-10-13) |
+| Our own | `row/set-prev` (set the expected value by hand), `row/set-args` (change only the arguments, without evaluating), `config/set` (change one of the project's settings) | implemented (2026-10-13) |
+| Our own | `arity/set` (a person decides how many arguments a function with default arguments is called with; used by `row/add` and links) | implemented (2026-10-08, [D-arity-set](document/verification/lib-core.exs.md#d-arity-set)) |
+| Evaluation | `eval`, `eval/run` | implemented. On the CLI (`xipe eval` / `xipe do ... eval`) synchronous, under `xipe serve` asynchronous (returns a `pass_id`). `eval/run` goes through `Pipeline` (`["eval"]`) |
+| Through Pipeline | `row/update` | implemented. `["edit", "eval"]`: change the arguments and evaluate that row alone ([D-pipeline](document/verification/lib-pipeline.exs.md#d-pipeline)) |
+| Tier 3 | `cell/complete` | not implemented |
+| — | `edit/propose`, `edit/apply` | withdrawn (changed course to the list of references + leaving it to the editor). Not the `"edit"` step of `row/update` |
+| Tier 4–5 | `provider/recheck`, `trace/*` | not implemented (trace is frozen) |
 
-未実装の method は例外を投げず、`not_implemented` エラーを返す。
+A method not implemented raises nothing; it returns a `not_implemented` error.
 
-複数のプロジェクトを扱える。`xipe choice project` で対象を選ぶと、以降のコマンドは
-そのプロジェクトの Book（`tables/project/<id>_<name>/book.jsonl`）を読み書きする。
+Several projects can be handled. Once `xipe choice project` chooses the target, later commands read and write that project's Book
+(`tables/project/<id>_<name>/book.jsonl`).
 
-**進行中なのは多言語対応。** 言語・REPL・ビルドツールの判定テーブル
-（`SurfaceTable`）はできていて、Elixir（＋mix）・OCaml（＋dune）・Haskell（＋stack・cabal）が入っている。残りは
-[`work_history/課題.md`](work_history/課題.md) を見ること。
+**What is in progress is more languages.** The table that decides language, REPL and build tool (`SurfaceTable`) is in place, with
+Elixir (+ mix), OCaml (+ dune) and Haskell (+ stack, cabal). For the rest see [`work_history/課題.md`](work_history/課題.md) (Japanese)
+and [`document/範囲.md`](document/範囲.md) (Japanese).
 
 ---
 
-## 動かし方
+## Running it
 
 ```
 nix develop
 
-xipe choice project <path> # 対象プロジェクトを登録（初回）して選ぶ。以降の <dir> 省略時の対象になる
+xipe choice project <path> # register (the first time) and choose the target project; the target when <dir> is left out
 xipe table generate [<path>]
-                           # ファイル→言語/REPL/ビルドツールの表を作り直して保存
-xipe scan [<dir>]          # .ex/.exs を走査し、Book を更新
-xipe show [<dir>]          # Book の要約を表示（ノード id もここで分かる）
+                           # make the file → language/REPL/build tool table again and save it
+xipe scan [<dir>]          # walk the .ex/.exs files and update the Book
+xipe show [<dir>]          # a summary of the Book (node ids are found here)
 xipe eval [<dir>] [id...] [--mix] [--include-writes]
-                           # 計算行を実評価（id 省略時は全件）
+                           # evaluate calc rows for real (all when no id is given)
 xipe do [--dir <dir>] <method> [key=value...] [-- <method> ...]
-                           # method を並べたコマンド列を実行。後ろのコマンドは
-                           # "$<番号>.<path>" で前の結果を参照できる。例:
+                           # run a command list of methods. A later command can refer
+                           # to an earlier result with "$<number>.<path>". For example:
                            #   xipe do row/add node=n1 args=1,2 \
                            #        -- effect/set id=n1 effect=pure \
                            #        -- eval call_ids=$0.id
 xipe dialogue depends [<dir>] <call_id>
-                           # 依存チェーン交渉（"y <値>" か "n" で答える）
-xipe dialogue do <method> [key=value...]   # 足りない引数を尋ねてもらって実行する（値は打ったとおりに渡る）
-xipe dialogue rewrite [<table> [<row> [<column>]]]   # 表の値を1つ、評価せずに手で書き換える（値は尋ねられる）
-xipe dialogue update [<file> [<key>]]   # 設定を1つ変える（時間の上限など。ファイル・キー・値を尋ねられる）
-xipe search [<turn>]       # 表（surface table / eval_table）を対話で絞り込む（-h で使い方）
+                           # negotiate a dependency chain (answer "y <value>" or "n")
+xipe dialogue do <method> [key=value...]   # asks for the missing arguments, then runs it (values pass as typed)
+xipe dialogue rewrite [<table> [<row> [<column>]]]   # rewrite one value of a table by hand, without evaluating (the value is asked)
+xipe dialogue update [<file> [<key>]]   # change one setting (time limits …; the file, key and value are asked)
+xipe search [<turn>]       # narrow a table (surface table / eval_table) by dialogue (-h for how)
 xipe start [<dir>] [--port N] [--lsp <url>] [--fs-root <dir>]
-                           # §16.1 WebSocket の入口として常駐し、セッションとして記録する
-                           # （既定ポート 4200、$XIPE_TOTEC_PORT でも可）。xipe serve は別名
-                           # 未登録の <dir> は登録する（選択中のプロジェクトは変えない）
-                           # --lsp/--fs-root は tezcatl の /lsp 中継とファイルルート。省略時は
-                           # tezcatl から引き継いだ TEZCATL_RELAY_PORT/TEZCATL_FS_ROOT から決める
-                           # tezcatl は <dir> を渡さずに起動する（対象は選択中のプロジェクト。
-                           # 決めるのは xipe_totec で、tezcatl は窓）。--port・--lsp・--fs-root は渡す
-xipe refresh -l|-r|-a      # xipe_totec 自身の info.json（言語と拡張子・REPL アダプタ一覧）を更新
-xipe help [<command>]      # 1行1コマンド（`コマンド: 説明  引数`）の一覧。<command> でその説明
+                           # stay up as the WebSocket entrance of §16.1, recorded as a session
+                           # (default port 4200, or $XIPE_TOTEC_PORT). xipe serve is another name.
+                           # An unregistered <dir> is registered (the chosen project does not change).
+                           # --lsp/--fs-root are tezcatl's /lsp relay and file root; left out, they come
+                           # from TEZCATL_RELAY_PORT/TEZCATL_FS_ROOT inherited from tezcatl.
+                           # tezcatl starts it without <dir> (the target is the chosen project:
+                           # xipe_totec decides, tezcatl is the window); it passes --port, --lsp, --fs-root
+xipe refresh -l|-r|-a      # update xipe_totec's own info.json (languages and extensions, the REPL adapter list)
+xipe help [<command>]      # one command a line (`command: description  arguments`); <command> for its description
 
-./test/run.sh                         # ExUnit 全件（何も起動せず単体で走る）
-elixir test/live/repl_iex_test.exs    # 実機 iex を使うテスト
+./test/run.sh                         # every ExUnit test (starts nothing, runs alone)
+elixir test/live/repl_iex_test.exs    # tests with a real iex
 ```
 
-`<dir>` を省略すると、`xipe start` のセッションが動いていればそのプロジェクト、動いて
-いなければ選択中のプロジェクトが対象になる（明示した `<dir>` ＞ セッション ＞ 選択中）。
-セッションの記録は `tables/session.json` で、正常終了（SIGTERM）で消える。プロセスが
-いなくなった記録は無視する。セッション中にそのプロジェクトを CLI で書き換えると、
-サーバーの Book とずれるので警告が出る（CLI の書き込みをサーバー経由にするのは未実装）。`<dir>` を渡す場合も、
-そのディレクトリは `xipe choice project` で登録済みである必要がある（暗黙には登録しない）。
+When `<dir>` is left out, the target is the project of the running `xipe start` session if there is one, else the chosen project
+(an explicit `<dir>` > the session > the chosen one). The session is recorded in `tables/session.json` and removed on a normal stop
+(SIGTERM); a record whose process is gone is ignored. A CLI command that changes the project a session is serving writes
+`book.jsonl` directly and says so; the server takes the CLI's writes in on its next request (routing CLI writes through the server is
+not implemented). A `<dir>` passed must also be registered with `xipe choice project` (nothing is registered implicitly).
 
-基本の使い方:
+Basic use:
 
 ```
-xipe choice project ~/work/calc      # 1. プロジェクトを決める（表も作られる）
-xipe scan                            # 2. 関数をカードにする
-xipe show                            # 3. ノード id を確かめる
+xipe choice project ~/work/calc      # 1. decide the project (its table is made too)
+xipe scan                            # 2. make the functions cards
+xipe show                            # 3. look up the node id
 xipe do row/add node=<id> args=[2,3] -- effect/set id=<id> effect=pure -- eval call_ids=[$0.id]
-                                     # 4. 計算行を作り、副作用を分類し、REPL で評価する
+                                     # 4. make a calc row, classify its side effects, evaluate it in the REPL
 xipe do card/get module=Calc name=add arity=2
-                                     # 5. カードを取り出す
+                                     # 5. take out the card
 ```
 
-Mix プロジェクトではない（`mix.exs` なし）。tezcatl と同じ規約で、`main.exs` が
-`Code.require_file` で `lib/*.exs` を読み込む素の `elixir` スクリプト。外部の Hex
-パッケージ（cowboy・erlexec など）は `nix/relay-packages.nix` から入れる。
+It is not a Mix project (no `mix.exs`). By the same convention as tezcatl, `main.exs` is a plain `elixir` script that loads
+`lib/*.exs` with `Code.require_file`. Outside Hex packages (cowboy, erlexec …) come from `nix/relay-packages.nix`.
 
-プロジェクトごとのデータは `tables/project/<id>_<name>/` に置かれる（`project.json`・
-`table`・`book.jsonl`）。対象プロジェクトのディレクトリには何も書かない。`tables/` は
-マシンごとのデータなので git 管理外。
+Per-project data lives in `tables/project/<id>_<name>/` (`project.json`, `table`, `book.jsonl`, `env.json`). Nothing is written into
+the target project's directory. `tables/` is per-machine data and not in git.
 
-`xipe do` の値は、`[...]` で囲むと常にリストになる（`[]` は空、`[10]` は1要素、
-`[1,2]` は2要素）。囲まずにカンマを含む値（`args=1,2`）もリストになり、それ以外は
-文字列のまま渡る。`row/add` は、ノードが存在し、引数の数がノードの arity（`anykey` が整数のとき）と合うときだけ
-行を作る。
+In `xipe do`, a value in `[...]` is always a list (`[]` empty, `[10]` one element, `[1,2]` two). A value with commas but no brackets
+(`args=1,2`) is a list too; anything else passes as a string. `row/add` makes a row only when the node exists and the number of
+arguments matches the node's arity (when `anykey` is an integer).
 
 ---
 
-## 用語
+## Terms
 
-| 用語 | 定義 |
+| Term | Definition |
 |---|---|
-| ブック（Book） | 対象プロジェクト全体。テーブル群（`sheets`/`nodes`/`calls`/`links`/`runs`/`providers`）の集合 |
-| シート | 対象プロジェクトのファイル1つ |
-| カード | 1関数分の行のまとまり。スキャンで自動的に作られ、関数がソースにある限り存在する |
-| 行 | カードを構成する単位。計算行とリンク行の2種 |
-| 計算行 | 関数への1回の呼び出し。引数・結果・前回などの列を持つ |
-| リンク行 | 関数の接続関係を表す行。受信元・判定式・送信先のセルを持つ |
-| 参照 | セル内に `⟦ ⟧` で書かれる、他の計算行の結果への参照 |
-| 住所 | 対象を指定する列の組（区切り文字を使わない部分一致フィルタ） |
-| pass | 1回の再計算。1つの REPL セッションを起動し、計画された計算行を順に評価して閉じる |
-| マーカー | REPL の出力から結果を切り出すための固定文字列（`XT_BEGIN_<id>`/`XT_END_<id>`/`XT_ERROR_<id>`/`XT_EXIT`） |
-| trace 表 | 実行時の関数呼び出しを動作順に記録した表 |
-| run | trace 表への1回の記録単位 |
-| REPL アダプタ | 対象プロジェクトの環境にある REPL を Xipe Totec の共通操作に合わせる、言語ごとの部品（4モジュール） |
-| 境界規則 | 言語の境界をまたぐ関数の対応を扱う部品（例: Elixir と Rust をつなぐ Rustler） |
-| 提供元 | 構文解析・名前解決の結果を供給するもの（言語サーバー／基本動作） |
-| セッション | REPL アダプタが起動した REPL の1回の実行。世代番号を持つ |
-| 墓標 | 消失した対象を即削除せず保持する状態 |
-| anykey | ノードの照合キー（モジュール・関数名・anykey）の3つ目。同じモジュールの同名の関数を区別するために、言語の Scanner が入れる値。Elixir では arity（`add/2` と `add/3` は別の関数）。名前だけで一意な言語では空でよい。整数なら引数の数としても使われる（`row/add` の確認、`Calc.add/2` の表示）。住所では `arity` も別名として使える |
-| visibility | ノードの列。`public` は REPL から呼べる関数、`private` は呼べない関数（Elixir の `defp`）。`private` のノードも参照一覧には出るが、`row/add` で計算行は作れない |
-| surface_table | 対象プロジェクトのファイルツリーを、パス・深さ・言語・REPL・ビルドツールの行にした表 |
-| エラー値 | 評価できなかったセルが持つ値。参照を通じて下流に伝わる |
+| Book | the whole target project: the set of tables (`sheets`/`nodes`/`calls`/`links`/`runs`/`providers`) |
+| sheet | one file of the target project |
+| card | the rows of one function. Made by scanning, and there as long as the function is in the source |
+| row | the unit a card is made of. Two kinds: calc rows and link rows |
+| calc row | one call of a function. Has columns such as arguments, result and previous |
+| link row | a row for a function's connections: the cells it receives from, the condition, and the cells it sends to |
+| reference | a reference to another calc row's result, written in a cell as `⟦ ⟧` |
+| address | a set of columns naming a target (a partial-match filter without separators) |
+| pass | one recalculation. Starts one REPL session, evaluates the planned calc rows in order, and closes it |
+| marker | a fixed string to cut results out of REPL output (`XT_BEGIN_<id>`/`XT_END_<id>`/`XT_ERROR_<id>`/`XT_EXIT`) |
+| trace table | a table of the function calls made at run time, in their order |
+| run | one unit recorded in the trace table |
+| REPL adapter | the per-language part (four modules) that fits a REPL in the target project's environment to Xipe Totec's shared operations |
+| boundary rule | the part that handles matching functions across a language boundary (e.g. Rustler between Elixir and Rust) |
+| provider | what supplies the results of parsing and name resolution (a language server / the basic behaviour) |
+| session | one run of a REPL a REPL adapter started. Has a generation number |
+| tombstone | the state in which a target that disappeared is kept instead of deleted at once |
+| anykey | the third of a node's match keys (module, function name, anykey). A value the language's Scanner puts in to tell apart functions of the same name in the same module: the arity for Elixir (`add/2` and `add/3` are different functions); may be empty in languages where the name alone is unique. As an integer it is also used as the number of arguments (`row/add`'s check, showing `Calc.add/2`). In addresses `arity` works as another name for it |
+| visibility | a node's column. `public` is a function the REPL can call, `private` one it cannot (Elixir's `defp`). `private` nodes are in the list of references too, but `row/add` cannot make calc rows for them |
+| surface_table | the target project's file tree as rows of path, depth, language, REPL and build tool |
+| error value | the value a cell that could not be evaluated holds. It travels downstream through references |
 
 ---
 
-## tezcatl 連携
+## With tezcatl
 
-[tezcatl](../tezcatl) の relay の `/xipe` が、ブラウザ側のパネル（`panels/matrix.html` など）と
-Xipe Totec のサーバーをつなぐ。対象プロジェクトを決めるのは Xipe Totec（`xipe choice project`）で、
-tezcatl はその窓に過ぎない。基本は `xipe start` を `<dir>` なしで :4200 に別に起動し（tezcatl の `t` は
-起動しない。Poca の box の行か手で、Emacs と同じく）、中継はそこへ WebSocket でつなぐだけ（`xipe.json` の
-`mode: "connect"`、2026-09-28）。窓を閉じても止まらない。中継に起動させる `mode: "spawn"` もある
-（最後の窓が離れて45秒で止まる）。`xipe.json` のキー（`"."` など）はつなぐ先の名前で、パスではない。
-どのプロジェクトが開いているかは `initialize` の結果の `project`（`id`・`root`）で分かる。
-§16.2 の「中継は状態を持たない」規定に従い、`/xipe` は `/lsp` のような id 書き換え型の
-多重化はせず、状態を持たないブロードキャスト中継にしている（tezcatl 側 `lib/relay/xipe_*.exs`）。
+The `/xipe` route of [tezcatl](../tezcatl)'s relay connects the panels on the browser side (`panels/matrix.html` …) with the Xipe
+Totec server. Which project is the target is decided by Xipe Totec (`xipe choice project`); tezcatl is only its window. Normally
+`xipe start` is started on its own on :4200 without `<dir>` (tezcatl's `t` does not start it: Poca's box row or a person does, as
+with Emacs), and the relay only connects to it by WebSocket (`mode: "connect"` in `xipe.json`, 2026-09-28). Closing the window does
+not stop it. There is also `mode: "spawn"`, in which the relay starts it (it stops 45 seconds after the last window leaves). The keys
+of `xipe.json` (`"."` …) are names of where to connect, not paths. Which project is open is in `project` (`id`, `root`) of
+`initialize`'s result. Following §16.2's rule that "the relay holds no state", `/xipe` does not multiplex by rewriting ids as `/lsp`
+does; it is a stateless broadcast relay (tezcatl's `lib/relay/xipe_*.exs`).
 
-WebSocket の応答には、JSON-RPC の通常の `result`/`error` に加えて `from`（予約、
-常に `null`）と `dialogue`（`hold`/`via_repl`/`text`）が付く（`Old.md` §17.2）。
+Besides JSON-RPC's usual `result`/`error`, WebSocket answers carry `from` (reserved, always `null`) and `dialogue`
+(`hold`/`via_repl`/`text`) ([D-envelope](document/verification/lib-protocol.exs.md#d-envelope)).
 
-tezcatl の対話窓（`panels/skins/xipe.html`）は、打った1行を解釈せずに `input` `{"text": "<行>"}` で
-送る。行の意味は Xipe Totec が決め（書き方は CLI と同じ、`XipeTotec.Input`）、返事の
-`dialogue.text` に CLI と同じ行を入れる（`Serve.Input`、`Old.md` §40）。`help` は1行1コマンドの
-「`コマンド: 説明`」で、tezcatl の利用者はこれをヤンクして辞書に登録し、補完に使う。
+tezcatl's dialogue window (`panels/skins/xipe.html`) sends each line typed, uninterpreted, as `input` `{"text": "<line>"}`. Xipe
+Totec decides what the line means (written as on the CLI, `XipeTotec.Input`), and puts the same lines as the CLI's in the answer's
+`dialogue.text` (`Serve.Input`, [D-input-line](document/verification/lib-serve_input.exs.md#d-input-line)). `help` is one "`command: description`" a line; tezcatl's users yank it into the
+dictionary and use it for completion.
 
 ---
 
-## 文書
+## Documents
 
-| 文書 | 答える問い |
+The documents other than this README are in Japanese for now.
+
+| Document | The question it answers |
 |---|---|
-| この README | 何のために作られ、何ではなく、いまどこまで動くか |
-| [`document/How_to_use.md`](document/How_to_use.md) | いまのコードで、実際にどう使うか |
-| [`document/動作原理.md`](document/動作原理.md) | 使う場面ごとに、何がどの順で呼ばれ、どのプログラムが担っているか |
-| [`document/拡張の手引き.md`](document/拡張の手引き.md) | 言語やコマンドを足したい人（と、その人の AI）は、何を参考に、どういう動作を満たすように作ればよいか |
-| [`document/repl-adapter-guide.md`](document/repl-adapter-guide.md) | 新しい言語・REPL のアダプタをどう書くか（Elixir 実装時点の詳しい参照資料。入口は拡張の手引き） |
-| [`work_history/課題.md`](work_history/課題.md) | いま何が未解決で、次に何をするか |
-| [`work_history/Old.md`](work_history/Old.md) | いまの設計が、いつ・なぜそうなったか（決定歴。旧 `XipeTotec_prebuild.md` と旧 `課題.mkd`）。コード中の「Old.md §N」はここの節 |
-| `work_history/xipe_totec_spec_v0.4.html` | 仕様のたたき台（v0.4）。実装との差分がいくつも残っている（`課題.md` の「文書」節）。食い違うときは `Old.md` の決定を優先すること |
+| this README | what it was made for, what it is not, how far it works now |
+| [`document/How_to_use.md`](document/How_to_use.md) | how to actually use it with the code as it is |
+| [`document/動作原理.md`](document/動作原理.md) | for each use, what is called in what order, and which program does it |
+| [`document/拡張の手引き.md`](document/拡張の手引き.md) | for someone adding a language or a command (and their AI): what to start from and what behaviour to meet |
+| [`document/repl-adapter-guide.md`](document/repl-adapter-guide.md) | how to write an adapter for a new language or REPL (the detailed reference from when Elixir was written; the entrance is the extension guide) |
+| [`document/範囲.md`](document/範囲.md) | what is promised to work, what happens outside it, and what a person does there |
+| [`work_history/課題.md`](work_history/課題.md) | what is unsolved now, and what comes next (to 2026-10-10) |
+| [`document/verification/`](document/verification/README.md) | every decision in force (`decisions.md`), every file (`index.md`), and a record per file: what it does, why, the decisions homed in it, what was not chosen. The decisions were taken out of the old history of decisions (`Old.md`, now kept only locally) |
+| `work_history/xipe_totec_spec_v0.4.html` | the draft spec (v0.4). Many differences from the implementation remain (the "documents" section of `課題.md`). Where they disagree, the records of `document/verification/` win |

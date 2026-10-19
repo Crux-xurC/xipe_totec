@@ -7,23 +7,27 @@
 
 1. `README.md` ── 何のためのものか、何ではないか、設計原則 P1〜P10、いまどこまで動くか
 2. `document/範囲.md` ── **動くと約束している範囲・その外で起きること・これから範囲に入れるもの（予定）**。
-   いま未解決のこと・次にやることもここ（tezcatl の分は `../tezcatl/document/範囲.md`）
-3. 言語やコマンドを足すとき: `document/拡張の手引き.md`（何を参考に、どういう動作を満たすか。壊してはいけない約束）
-4. 必要なときだけ: `document/動作原理.md`（どの順で何が呼ばれるか）、`document/How_to_use.md`（使い方）
+   いま未解決のこと・次にやることもここ（tezcatl の分は `../tezcatl/docs/scope.md`）
+3. `document/verification/` ── **決定の置き場所**（英語）。`decisions.md` が生きている決定（`D-…`）と撤回した案の一覧、
+   `index.md` が全ファイルの1行、`<パスの / を - にしたもの>.md` がファイルごとの記録（何をするか・なぜ・その決定・選ばなかったもの）。
+   決定を足す・変えるときはその主なファイルの記録に書き、`decisions.md` に1行足す
+4. 言語やコマンドを足すとき: `document/拡張の手引き.md`（何を参考に、どういう動作を満たすか。壊してはいけない約束）
+5. 必要なときだけ: `document/動作原理.md`（どの順で何が呼ばれるか）、`document/How_to_use.md`（使い方）
 
 **`work_history/` は 2026-10-10 までの記録**（crux、2026-10-10 に移した）: `課題.md`（未解決の一覧と全体レビューの扱い）、
-`Old.md`（決定の経緯。**コード中の「Old.md §N」はここ**）、`next_step.md`（次の段階の案と crux のコメント）、
-`xipe_totec_spec_v0.4.html`（仕様書の叩き台。`Old.md` の決定と食い違うときは `Old.md` を優先）。
-**ふだんは読まない。書き足さない。** `範囲.md` の「根拠」から辿るとき、ある判断の経緯を知りたいときだけ開く。
-ほかの文書にある `課題.md`・`Old.md`・`next_step.md` の名前は、`work_history/` の同名のファイルを指す。
-これからの経緯は git のコミットメッセージに、決めた範囲は `範囲.md` に書く。
+`next_step.md`（次の段階の案と crux のコメント）、`xipe_totec_spec_v0.4.html`（仕様書の叩き台。`document/verification/` の決定と
+食い違うときは決定を優先）。**ふだんは読まない。書き足さない。**
+決定の経緯だった `Old.md` は、決定を `document/verification/` へ移したうえで **`work_history/旧Old.md`** として手元にだけ残してある
+（2026-10-19、git の管理外。中身を移し終えて要らなくなったものは、同じく `旧<名前>` として残し `.gitignore` で外す）。
+ほかの文書にある「`Old.md` §N」はこの旧Old.md の節で、どの決定に当たるかは `decisions.md` の「Earlier」の列で引ける。
+ほかの文書にある `課題.md`・`next_step.md` の名前は、`work_history/` の同名のファイルを指す。
+これからの経緯は git のコミットメッセージに、決めたことは `document/verification/` に、範囲は `範囲.md` に書く。
 
-**レビュー・検証をするとき**は、先に `document/範囲.md`（と `../tezcatl/document/範囲.md`）を読む。範囲の外で
+**レビュー・検証をするとき**は、先に `document/範囲.md`（と `../tezcatl/docs/scope.md`）を読む。範囲の外で
 書いてあるとおりに起きることは、不具合として挙げない（挙げてよい場合は同文書の「読み方」）。過去の指摘と
 その扱いは `work_history/課題.md` §6「全体レビュー（2026-10-02〜03）」。
 
-`../tezcatl/document/Poca — 開発開始のための文書.md`（poca ── tezcatl を開く側のブラウザ、最後の方で作る別のプロジェクト）は、
-xipe_totec の実装作業では読まなくてよい（crux、2026-10-08）。
+Poca（tezcatl を開く側のブラウザ）は別のプロジェクト（`~/my_app_no_nix/poca/`）で、xipe_totec の作業では読まなくてよい。
 
 ## テスト
 
@@ -61,6 +65,6 @@ xipe_totec はこのディレクトリが独立した git リポジトリ（2026
 ## tezcatl との関係
 
 - tezcatl（`../tezcatl`）は窓。どのプロジェクトを開くかを決めるのは xipe_totec（`xipe choice project`）
-- tezcatl は xipe_totec の人向けの文字列を解釈しない（Old.md §17.2「I/Oは解析対象ではない」）
+- tezcatl は xipe_totec の人向けの文字列を解釈しない（`document/verification/lib-protocol.exs.md` の D-envelope「I/Oは解析対象ではない」）
 - tezcatl の対話窓は `input` `{"text": "<打った行>"}` だけを送る。行の意味は xipe_totec が決める。
   未実装の受け口は `document/範囲.md` の「予定」

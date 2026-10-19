@@ -1,2 +1,5 @@
 # Per-machine project registry and books (absolute paths, user data) -- see lib/workspace.exs
 /tables/
+
+# Old documents whose content moved elsewhere (kept locally only): work_history/旧<name>
+/work_history/旧*
