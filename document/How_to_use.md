@@ -730,15 +730,20 @@ tezcatl の対話窓はすべての行をこの形で送り、中身を解釈し
 
 ### 6.3 tezcatl から使う
 
-基本は tezcatl の開発シェルの `t` が、Emacs と同じく `xipe start` を `<dir>` なしで :4200 に
-別のプロセスとして起動する（ログは `/tmp/tezcatl-xipe.log`）。`t` は前面で動き、Ctrl+C で
-Xipe Totec も止める（:4200 が使用中なら何も起動せずに断る）。`t -d` は :4200 が空いているときだけ
-背景で起動して戻り、止めるときは `tables/session.json` の pid に SIGTERM を送る。
-tezcatl の中継はそこへつなぐだけなので、窓を閉じても止まらない。対象は選択中のプロジェクトで、選ばれていなければ
+基本は `xipe start` を `<dir>` なしで :4200 に、tezcatl とは別のプロセスとして起動する。tezcatl の `t` は
+起動しない（2026-10-19 から。`t` は tezcatl のページと中継だけ）。Poca の box の行から起動すれば、Poca を閉じたときに
+止まる。手で起動するなら、たとえば
+
+```
+nix develop ~/my_app/xipe_totec --command elixir main.exs start --port 4200 \
+  --lsp ws://127.0.0.1:4100/lsp --fs-root ~/my_app
+```
+
+tezcatl の中継はそこへつなぐだけなので、tezcatl の窓を閉じても止まらない。対象は選択中のプロジェクトで、選ばれていなければ
 すぐ終わる（ログに出る）。対象を決めるのは Xipe Totec 側で、tezcatl は窓にすぎない。先に
 `xipe choice project` で選んでおくこと。
 
-`t` や tezcatl の中継（`xipe.json` が `mode: "spawn"` のとき）が起動するときは `--port`・`--lsp`（tezcatl の `/lsp` 中継の URL）・`--fs-root`
+tezcatl とつなぐときは（上の例・Poca の box の行・`xipe.json` が `mode: "spawn"` のときの中継） `--port`・`--lsp`（tezcatl の `/lsp` 中継の URL）・`--fs-root`
 （tezcatl のファイルのルート）を渡す。これでスキャンは tezcatl の言語サーバーを共用する。
 手で起動するときに同じことをしたければ、これらを自分で渡すか、環境変数で指定する（§10）。
 tezcatl がいなくても、elixir-ls を自分で起動して読むので動作は変わらない。

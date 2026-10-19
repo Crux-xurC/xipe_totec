@@ -300,8 +300,8 @@ Mix プロジェクトではない（`mix.exs` なし）。tezcatl と同じ規�
 
 [tezcatl](../tezcatl) の relay の `/xipe` が、ブラウザ側のパネル（`panels/matrix.html` など）と
 Xipe Totec のサーバーをつなぐ。対象プロジェクトを決めるのは Xipe Totec（`xipe choice project`）で、
-tezcatl はその窓に過ぎない。基本は tezcatl の `t` が Emacs と同じく `xipe start` を `<dir>` なしで
-:4200 に別のプロセスとして起動し（`t -d` なら背景で）、中継はそこへ WebSocket でつなぐだけ（`xipe.json` の
+tezcatl はその窓に過ぎない。基本は `xipe start` を `<dir>` なしで :4200 に別に起動し（tezcatl の `t` は
+起動しない。Poca の box の行か手で、Emacs と同じく）、中継はそこへ WebSocket でつなぐだけ（`xipe.json` の
 `mode: "connect"`、2026-09-28）。窓を閉じても止まらない。中継に起動させる `mode: "spawn"` もある
 （最後の窓が離れて45秒で止まる）。`xipe.json` のキー（`"."` など）はつなぐ先の名前で、パスではない。
 どのプロジェクトが開いているかは `initialize` の結果の `project`（`id`・`root`）で分かる。
