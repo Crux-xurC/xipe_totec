@@ -42,7 +42,7 @@ One or two sentences: what it does.
 ## Notes
 
 - Pitfalls: what only reading the code reveals
-- Difference from the documents: where `README.md`, `How_to_use.md`, `動作原理.md` or `scope.md` say otherwise; "none" if none
+- Difference from the documents: where `README.md`, `how-to-use.md`, `internals.md` or `scope.md` say otherwise; "none" if none
 - Verified: date and commit, or "not yet verified cold"
 ```
 
@@ -56,5 +56,5 @@ One or two sentences: what it does.
 
 1. `decisions.md` — the map (done)
 2. the records, layer by layer, and `index.md` (done, 2026-10-19; not yet verified cold)
-3. then the documents that cite `Old.md §N` (`scope.md`, `課題.md`, `動作原理.md`, `How_to_use.md`, `拡張の手引き.md`,
-   `repl-adapter-guide.md`) are pointed at the records and put into English
+3. the documents that cited `Old.md §N` pointed at the records and put into English: `scope.md`, `how-to-use.md`, `internals.md`,
+   `extending.md`, `repl-adapter-guide.md`, `CLAUDE.md` (done, 2026-10-19; `work_history/` stays as it was)

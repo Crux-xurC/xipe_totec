@@ -1,225 +1,265 @@
-# REPLアダプタ追加ガイド（新しい言語/REPLを足すとき用）
+# REPL adapter guide (adding a language or REPL)
 
-> **2026-09-27 追記: 入口は `document/拡張の手引き.md`。** このガイドは Elixir を実装した時点（2026-09-18〜09-26）の
-> 詳しい参照資料として残している。その後 OCaml（`Old.md` §42〜§43）と Haskell（§45〜§47）を実装し、対象の REPL に読み込む
-> 固定のモジュール **embody**（別リポジトリ `~/my_app/embody`）という第3の部品が加わった。下の「候補言語ごとの
-> チェックリスト回答」の OCaml / utop・Haskell / GHCi の節は実装前の下書きで、実際の形（utop ではなく素の `ocaml`、
-> GHCi には `let` で束縛して送る、など）は `Old.md` の各節と `拡張の手引き.md` を見ること
+> **The entrance is `document/extending.md`.** This guide is the detailed reference written while Elixir was implemented (2026-09-18 to
+> 09-26). OCaml and Haskell came later ([D-ocaml-adapter](verification/lib-repl-language-ocaml.exs.md#d-ocaml-adapter),
+> [D-haskell-adapter](verification/lib-repl-language-haskell.exs.md#d-haskell-adapter)) and added a third part, **embody**, a fixed module
+> loaded into the target's REPL (a separate repository, `~/my_app/embody`). The candidate checklists at the end were drafted before any of
+> them was implemented; for OCaml and Haskell the real forms (the plain `ocaml` toplevel, not `utop`; GHCi entries bound with `let` …) are
+> in those records.
 
-対象読者: Elixir以外の言語（spec §12.6の候補: Haskell/GHCi、OCaml/utop、Clojure、Racketなど）のREPLアダプタを新しく書く人（人間・AIのどちらも想定。このセッションの会話内容を知らない前提で書いてある）。
+Readers: whoever writes a REPL adapter for a language other than Elixir (spec §12.6's candidates: Haskell/GHCi, OCaml, Clojure, Racket …),
+person or AI, without knowing the conversations that led here.
 
-**2026-09-18時点でElixir向けの実装は完成し、実機の`iex`で全パイプライン(起動→完了検知→評価→compare判定→パース→離脱)を確認済み。** このガイドの各項目は、もう「設計だけ」ではなく`lib/repl/`配下に動くコード例がある。新しい言語を足すときは、まずそのコードを読むこと。`compare`判定・`Core.plan_recalc`/`Core.apply_results`との配線(`Repl.Evaluator`)・`xipe eval`/`xipe do`のCLIまで含めて動く(`Old.md` §11〜14)。
+Elixir's adapter is complete and checked end to end on a real `iex` (start → readiness → evaluation → compare → parsing → leaving). Every
+item below has working code under `lib/repl/`; read it first when adding a language.
 
-## 前提となる設計（変更しないこと）
+## The design this rests on (do not change)
 
-Xipe Totecは対象プロジェクトのREPLへ人間が手で式を打ち込んで確認するのと同じ操作を自動化する（`Old.md` §10）。全体は「**言語/REPLごとの算出プログラム**（JSONデータやコード片を作るだけ、純粋関数）」と「**汎用の実行層**（それを読んで実行するだけ、言語知識ゼロ）」に分かれている。**新しい言語を足すときは、算出プログラム側（と、必要なら対象の REPL に読み込む embody）だけを書けばよい。汎用の実行層(`lib/repl/sender.exs`/`lib/repl/sender_direct.exs`/`lib/repl/session.exs`/`lib/repl/eval/scan.exs`/`lib/repl/eval/field_drip.exs`/`lib/repl/eval/parser.exs`/`lib/repl/eval/result.exs`/`lib/repl/evaluator.exs`)には一切手を入れない。**
+Xipe Totec automates what a person does by typing expressions into the target's REPL ([D-text-repl](verification/lib-repl-sender.exs.md#d-text-repl)).
+The whole is split into **per-language computing modules** (pure: they only build JSON data and code text) and **a generic execution layer**
+(it only reads and runs them, knowing no language). **To add a language, write only the computing side (and, if needed, an embody loaded into
+the REPL). The generic layer — `lib/repl/sender.exs`, `sender_direct.exs`, `session.exs`, `eval/scan.exs`, `eval/field_drip.exs`,
+`eval/parser.exs`, `eval/result.exs`, `evaluator.exs` — is not touched.**
 
-`XipeTotec.Repl.Evaluator`(`lib/repl/evaluator.exs`)は`Core.plan_recalc/3`のPlanを1セッションに流し込み`Core.apply_results/3`まで畳み込む、この汎用実行層の一番外側のオーケストレータ(2026-09-18)。`:launch_module`/`:eval_template_module`/`:scan_module`/`:field_drip_module`の4オプションで算出プログラム側の4モジュールを受け取る(既定はElixir実装)──「呼び出し元が具体的なモジュールを渡す、内部で言語判定しない」という`Parser.step/5`と同じ流儀。新しい言語を足しても`Evaluator`自体は無改造で、この4つを差し替えて渡すだけでよい(まだ「どのノードがどの言語のプロジェクトに属するか見て自動選択する」機構は無い ── 今のところ言語アダプタが1つしか無いため)。
+`XipeTotec.Repl.Evaluator` (`lib/repl/evaluator.exs`) is the outermost part of that layer: it drives a `Core.plan_recalc/3` plan through one
+session and folds it with `Core.apply_results/3`. It takes the four computing modules as options (`:launch_module`, `:eval_template_module`,
+`:scan_module`, `:field_drip_module`), defaulting to Elixir's — the caller passes concrete modules and nothing inside decides a language. The
+caller is `Runner`, which picks them from the language the surface table names
+([D-language-adapter](verification/lib-repl-language.exs.md#d-language-adapter)).
 
-## 多言語判定層（`tables/`/`info.json`）との関係（2026-09-24、実装途中）
+## The layer deciding languages (`tables/`, `info.json`)
 
-このガイド本体（算出プログラムの書き方）とは別レイヤーで、**対象プロジェクトがどの言語/ビルドツールを使っているかを判定する層**が、`~/my_app/tezcatl`セッションでのco-designにより作られ始めている（`Old.md` §24〜§26）。新しい言語を足す作業は、最終的にこの層とも接続することになるので、現状を知っておくこと:
+Apart from writing the computing modules, there is a layer deciding which language and build tool a project uses
+([D-surface-table](verification/lib-surface_table.exs.md#d-surface-table)). A new language connects to it:
 
-- **`XipeTotec.Repl.Language`（`lib/repl/language.exs`、2026-09-24、`Old.md` §34）**: 言語ごとの自己申告。`lib/repl/language/<name>.exs`に1言語1モジュールを置き、ファイル名が言語名になる（`elixir.exs`→`"elixir"`）。申告するのは`extensions/0`（拡張子の一覧）・`repl/0`（REPL の名前、surface table の`repl`列）・`build_tools/0`（ビルドツールの優先順位表 `[%{"name", "markers"}]`、2026-09-26）・`scanner/0`・`adapter/0`・`launch_opts/3`（`build_tool`の名前と、その言語のファイル一覧を受け取る）。**新しい言語を足すときは、4つの算出プログラムに加えてこのファイルも書く**
-- **`XipeTotec.Info`（`lib/info.exs`）**: xipe_totec自身の`info.json`（対象プロジェクト側ではない）を読み書きする。`xipe refresh -l`が`lib/repl/language/*.exs`を読み込んで`extensions/0`・`repl/0`・`build_tools/0`を呼び、`languages`（言語名）・`extensions`（拡張子→申告した言語のリスト）・`language_repls`・`build_tools`を書く。**ファイルを置いただけでは効かず、`xipe refresh -l`を叩いて初めて登録される**（P4）
-- **`XipeTotec.SurfaceTable`（`lib/surface_table.exs`）**: 対象プロジェクトのファイルツリーを走査し、`language`/`repl`/`build_tool`を判定するテーブル。`language`は`info.json`の`extensions`から引く。1言語だけが申告した拡張子はその言語、どの言語も申告していないか**2つ以上の言語が申告した拡張子は`nil`**（P9、判定できないものは判定できないと示す）。`repl`/`build_tool`は各言語の`Repl.Language`の申告（`repl/0`・`build_tools/0`）から決まる（Elixir＋`mix`、OCaml＋`dune`）
-- **embody（2026-09-27 実装）**: callback にはせず、各言語の launch が初期化の中で読み込む（OCaml は `-init` のファイル、
-  Haskell は `-ghci-script`）。置き場所は `lib/repl/embody.exs`（`XIPE_TOTEC_EMBODY_DIR`、無ければ隣の `embody/`）。
-  **まだ申告に無いもの（計画のみ）**:Nix の環境は言語ではなくプロジェクト単位の層（`ProjectEnv`）なので、申告には含めない。あわせて、起動完了の検出を固定の`XT_READY`マーカーへ移す計画もある（§25.3。`Launch`相当のモジュールの`ready_pattern`に関わる）。最新の実装状況は`README.md`の「いまどこまで動くか」、残作業は`課題.md`の「多言語対応」節を確認すること
+- **`XipeTotec.Repl.Language`** (`lib/repl/language.exs`): each language's self-declaration, one module per language in
+  `lib/repl/language/<name>.exs`, the file name being the language's name (`elixir.exs` → `"elixir"`). It declares `extensions/0`, `repl/0`
+  (the surface table's `repl` column), `build_tools/0` (by priority, `[%{"name", "markers"}]`), `scanner/0`, `adapter/0`, `launch_opts/3`.
+  **A new language writes this file besides the four computing modules**
+- **`XipeTotec.Info`** (`lib/info.exs`): Xipe Totec's own `info.json`. `xipe refresh -l` loads `lib/repl/language/*.exs`, calls the
+  declarations and writes `languages`, `extensions` (extension → the languages declaring it), `language_repls`, `build_tools`. **A file put
+  there does nothing until `xipe refresh -l` registers it** (P4)
+- **`XipeTotec.SurfaceTable`** (`lib/surface_table.exs`): the project's file tree with `language`, `repl`, `build_tool`. An extension one
+  language declares is that language; none, or **two or more, is `nil`** (P9)
+- **embody** is not a callback: each language's launch loads it in its init (OCaml's `-init` file, Haskell's `-ghci-script`), found by
+  `lib/repl/embody.exs` (`XIPE_TOTEC_EMBODY_DIR`, else the `embody/` beside). A project's environment (Nix …) is a project layer, not a
+  language: `project_env.json` ([D-project-env](verification/lib-project_env.exs.md#d-project-env))
 
-## ディレクトリ構成
+## Layout
 
 ```
 lib/repl/
-  launch.exs             (XipeTotec.Repl.Launch)              -- 算出: 起動系JSON
-  sender.exs              (XipeTotec.Repl.Sender)               -- 汎用: 送信behaviour
-  sender_direct.exs        (XipeTotec.Repl.Sender.Direct)        -- 実行: plain pipe実装
-  session.exs              (XipeTotec.Repl.Session)              -- 汎用: 起動完了待ち・離脱
-  language.exs             (XipeTotec.Repl.Language)             -- behaviour定義のみ（言語ごとの自己申告）
-  language/
-    elixir.exs               (XipeTotec.Repl.Language.Elixir)      -- 算出: Elixirの拡張子
-  eval_template.exs        (XipeTotec.Repl.EvalTemplate)         -- 算出: Elixir用の呼び出し式組み立て
-                                                                     + 安全装置 + repr/compare判定
-                                                                     + マーカー印字(丸ごと)
-  evaluator.exs             (XipeTotec.Repl.Evaluator)             -- 汎用: Plan全体を1セッションに
-                                                                     流し込むオーケストレータ
-  source_sanitize.exs        (XipeTotec.Repl.SourceSanitize)        -- Elixir固有(注参照): scripts-mode
-                                                                     の`files`をdefmodule抽出のみの一時
-                                                                     コピーに差し替える
+  launch.exs              (XipeTotec.Repl.Launch)              -- computing: the start message (Elixir)
+  sender.exs              (XipeTotec.Repl.Sender)              -- generic: the delivery behaviour
+  sender_direct.exs       (XipeTotec.Repl.Sender.Direct)       -- execution: over a plain pipe
+  session.exs             (XipeTotec.Repl.Session)             -- generic: readiness, leaving
+  language.exs            (XipeTotec.Repl.Language)            -- the behaviour of a declaration
+  language/{elixir,ocaml,haskell}.exs                          -- computing: each language's declaration
+  eval_template.exs       (XipeTotec.Repl.EvalTemplate)        -- computing: Elixir's call + safety wrapper
+                                                                  + repr/compare + markers, all in one
+  ocaml/{launch,eval_template}.exs, haskell/{launch,eval_template}.exs
+  embody.exs              (XipeTotec.Repl.Embody)              -- where embody is
+  evaluator.exs           (XipeTotec.Repl.Evaluator)           -- generic: one plan through one session
+  source_sanitize.exs     (XipeTotec.Repl.SourceSanitize)      -- Elixir only (see the note): defmodule-only
+                                                                  loaders for scripts-mode
   eval/
-    scan.exs                (XipeTotec.Repl.Eval.Scan)            -- 汎用: マーカー検出
-    field_drip.exs           (XipeTotec.Repl.Eval.FieldDrip)       -- behaviour定義のみ
-    result.exs                (XipeTotec.Repl.Eval.Result)          -- 汎用: Evaluator.Result変換
-    parser.exs                 (XipeTotec.Repl.Eval.Parser)          -- 汎用: 上記を1回で回す
-    scan/
-      direct/
-        iex.exs                  (XipeTotec.Repl.Eval.Scan.Direct.Iex) -- 算出: iex+plain pipe用の前処理
-      pty/
-        (空。PTY対応Senderができたときの置き場所)
-    field_drip/
-      elixir.exs               (XipeTotec.Repl.Eval.FieldDrip.Elixir) -- 算出: Elixir用の本文パース
+    scan.exs              (XipeTotec.Repl.Eval.Scan)           -- generic: finding markers
+    field_drip.exs        (XipeTotec.Repl.Eval.FieldDrip)      -- the behaviour
+    result.exs            (XipeTotec.Repl.Eval.Result)         -- generic: to an Evaluator result
+    parser.exs            (XipeTotec.Repl.Eval.Parser)         -- generic: the above in one step
+    scan/direct/{iex,ocaml,ghci}.exs                           -- computing: per REPL over a plain pipe
+    scan/pty/             (empty: for a PTY Sender, when there is one)
+    field_drip/{elixir,ocaml,haskell}.exs                      -- computing: reading the body
 ```
 
-**`source_sanitize.exs`についての注**: これは4つの算出プログラム(`Launch`/`EvalTemplate`/`Scan`/`FieldDrip`)とは別枠 ── `Runner`(`lib/runner.exs`)がscripts-modeの`files`を自動推測するときだけ使う、CLI都合のElixir固有ヘルパー。`Code.string_to_quoted!`でASTを見てdefmodule部分だけの一時コピーを作る(`Scanner`のFix Fと同じ発想、2026-09-18の実バグ修正 ── 元のファイルをそのまま`-r`すると、そのファイルのトップレベルの副作用ごと実行されてしまう)。新しい言語を足すとき、この「scripts-modeでどのファイルを安全にロードするか」という問題は言語ごとに事情が違いうる(そもそもAST走査で安全にフィルタできるとは限らない)。素朴には「呼び出し元(将来のtezcatl連携等)が`:launch_opts`を明示的に渡し、`Runner`の自動推測を経由しない」道を使うのが安全。
+**A note on `source_sanitize.exs`**: outside the four computing modules — an Elixir-only helper used by Elixir's `launch_opts/3` for
+scripts-mode. It reads the AST and loads only the `defmodule` parts, so the files' top-level side effects do not run
+([D-source-sanitize](verification/lib-repl-source_sanitize.exs.md#d-source-sanitize)). Which files can be loaded safely, and how, differs by
+language (an AST filter is not always possible): OCaml blanks top-level effects in copies (embody's `load_all`), GHCi runs nothing on `:load`.
 
-新しい言語/REPLを足すときに書くのは、この構成でいう**「算出」**とマークされたファイルの、その言語版だけ。「汎用」「実行」とマークされたものは触らない。
+To add a language or REPL, write only that language's version of the files marked **computing**. Do not touch **generic** or **execution**.
 
-**`Scan`が2軸(トランスポート×REPL)なのに対し、`Launch`/`EvalTemplate`/`FieldDrip`は言語軸だけな理由**: `Scan`が取り除く雑音(PTYのエコーバック・ANSI)は経験的にはトランスポート(PTY/plain pipe)の性質だが、将来的に特定REPL固有の出力の癖が見つかる可能性もあるため、両軸を明示的にディレクトリで持たせてある(`Old.md` §10.9)。他の3つは言語/REPLだけに依存する値なので1軸のままでよい。
+**Why `Scan` has two axes (transport × REPL) while the others have one**: the noise `Scan` removes (a PTY's echo, ANSI) is mostly a transport
+property, but a REPL may have quirks of its own, so both axes are directories. The other three depend on the language or REPL only.
 
-## 変えてはいけないもの（全言語共通の固定ルール）
+## What does not change (the same in every language)
 
-- **マーカー規約**: `XT_BEGIN_<call_id>`（評価成功時、この直後に本文）、`XT_END_<call_id>`（成功の終端）、`XT_ERROR_<call_id> crash <reason>` / `XT_ERROR_<call_id> timeout` / `XT_ERROR_<call_id> max_heap`（失敗、成功の代わりに使う。`max_heap`はメモリ上限超過による強制終了で、通常のcrashと区別する ── Elixir版の判定方法は`Old.md` §11.3）、`XT_EXIT <status>`（プロセス終了、`Sender`実装が合成する。算出プログラム側は関与しない）。これらの文字列そのものは変更しない。`XT_HEARTBEAT`は2026-09-22（Old.md §23）にハートビート機構ごと撤去済み ── 生存確認は`Sender.interrupt/1`＋固定デッドラインに一本化された
-- **本文のkey=valueフォーマット**: `XT_BEGIN`〜`XT_END`の間は`repr=<exact|binary|unsupported>`/`type=<型名>`/`compare=<none|skipped|changed|same>`/`display=<表示文字列>`/(`bin_base64=<base64>`、`repr=binary`のときのみ)を改行区切りで並べる。`FieldDrip.Elixir`(`lib/repl/eval/field_drip/elixir.exs`)を参照。**`display=`の値は必ず1行に収めること**（Elixirでは`inspect(..., width: :infinity)`で対応。対象言語の同等機構で改行を防ぐこと。これを怠ると行ベースのパーサーが壊れる ── `eval_template`実装時に見つかった実際のバグ、`Old.md` §10.5参照）
-- **`XT_BEGIN`〜`XT_END`の本文は1回の書き込みで出すこと**（Elixir版は複数行を`Enum.join(..., "\n")`で1本の文字列に組み立ててから`IO.puts/1`を1回だけ呼ぶ ── 個別の`IO.puts`を本文の行ごとに複数回呼ぶと、その間に別プロセス(利用者コードが起こした非同期出力等)の印字が挟まり本文を壊しうる、2026-09-18の実バグ修正。この種の割り込みは対象言語側の「複数回に分けて印字しない」という規律でしか防げない）
-- **JSON安全性**: 算出プログラムが`Repl.Launch`経由で返す値は文字列・数値・真偽値・null・それらのmap/listのみ。atomやtupleを混ぜない（`Repl.Launch`のmoduledocにある「B2のルール」と同じ）
-- **push専用・単一メッセージ型**: 受信は常に`{handle, {:data, binary()}}`のみ（`lib/repl/sender.exs`のcontract参照）。算出プログラム側がこれに関与することは無い
-- **`Repl.Sender`のbehaviour**（`send/1`/`write/2`/`kill/1`/`interrupt/1`）は言語非依存。新しい言語のために新しいcallbackを増やす必要が生じたら、それはこのガイドの前提が崩れているということなので、増やす前に立ち止まって検討すること（`interrupt/1`自体は2026-09-22にこの理由で追加済み ── プロセスグループへのSIGINT送信という、どの言語からも共通に必要になる汎用機能だったため）
-- **評価は常に対象セッション自身の中で完結させる**: repr/compare判定は対象プロジェクト固有の型を含みうる値を扱うため、xipe_totec自身のプロセスではなく評価対象のREPLセッション自身の中で判定・印字まで完結させる（`EvalTemplate`参照）
+- **The markers** ([D-markers](verification/lib-repl-eval-scan.exs.md#d-markers)): `XT_BEGIN_<call_id>` (success, the body follows),
+  `XT_END_<call_id>` (its end), `XT_ERROR_<call_id> crash <reason>` / `timeout` / `max_heap` (a failure instead; `max_heap` is a kill for the
+  memory limit, told apart from a crash), `XT_CALLED_<call_id>` (optional: the call returned, judging starts), `XT_READY` (the answer to the
+  ready probe), `XT_EXIT <status>` (the process ended; made by the Sender, not by the computing side). These strings never change
+- **The body's `key=value` format**: between `XT_BEGIN` and `XT_END`, one per line: `repr=<exact|binary|unsupported>`, `type=<type>`,
+  `compare=<none|skipped|changed|same>`, `display=<text>`, and `bin_base64=<base64>` for `repr=binary` (`FieldDrip.Elixir`). **`display=`
+  must be one line** (Elixir: `inspect(…, width: :infinity)` and newlines written as `\n`); otherwise the line parser breaks
+- **The body in one write** (Elixir joins the lines and calls `IO.puts/1` once): printing line by line lets another process's output land in
+  between. Only the target side's discipline prevents this
+- **JSON-safe values**: what a launch module returns is strings, numbers, booleans, null and maps/lists of them — no atoms, no tuples
+- **Push only, one message shape**: always `{handle, {:data, binary()}}` (`lib/repl/sender.exs`); the computing side has no part in it
+- **The `Repl.Sender` behaviour** (`send/1`, `write/2`, `kill/1`, `interrupt/1`) knows no language. If a new language seems to need a new
+  callback, the premise of this guide is broken: stop and think first (`interrupt/1` was added for that reason — a SIGINT to the process
+  group is something every language needs)
+- **Judging happens inside the target's session**: `repr` and `compare` handle values that may be the target's own types, so they are judged
+  and printed in the REPL under evaluation, not in Xipe Totec's process
 
-## 算出プログラムが用意すべきJSON（フィールド一覧）
+## The launch message (fields)
 
-`Repl.Launch.build/1`（Elixir版、`lib/repl/launch.exs`）と同じ形の`%{String.t() => term()}`を返す関数を書く。フィールド:
+A function returning a `%{String.t() => term()}` shaped like Elixir's `Repl.Launch.build/1` (`lib/repl/launch.exs`):
 
-| フィールド | 型 | 説明 | Elixirでの既定値 |
+| Field | Type | Meaning | Elixir's default |
 |---|---|---|---|
-| `kind` | string | 常に`"repl/launch"` | `"repl/launch"` |
-| `argv` | [string] | REPL起動コマンド（シェル文字列ではなくリスト） | `["iex", "-S", "mix"]` |
-| `env` | map | 追加の環境変数 | `%{}` |
-| `cwd` | string | 対象プロジェクトのルート | (呼び出し元が指定) |
-| `files` | [string] | 個別にロードすべきソースファイル（下記「files使い分け」参照） | `[]` |
-| `ready_pattern` | string \| null | 起動完了を示すバナーの部分文字列（バージョン非依存に）。バナーを出さないREPLは`null` | `"Interactive Elixir"` |
-| `ready_probe` | string \| null | バナーの後にstdinへ送り、`XT_READY`を印字させる式（Old.md §35）。マーカーは式の中で分割して書く（入力をそのまま返す端末で誤検出しないため） | `"IO.puts(\"XT_\" <> \"READY\")\n"` |
-| `exit_input` | string | 正常終了のためにstdinへ送るテキスト | `"System.halt()\n"` |
-| `interruptible` | boolean | `Sender.interrupt/1`（プロセスグループへのSIGINT）がこのREPLで実際に効くか(下記「対象言語がSIGINTを扱えるか」参照) | `true`（実機確認済み、下記参照） |
+| `kind` | string | always `"repl/launch"` | `"repl/launch"` |
+| `argv` | [string] | the REPL's command (a list, not a shell string) | `["iex", "-S", "mix"]` |
+| `env` | map | variables to add (the project's environment is merged in by the Runner) | `%{}` |
+| `cwd` | string | the target project's root | (the caller's) |
+| `files` | [string] | sources to load one by one (see below) | `[]` |
+| `ready_pattern` | string \| null | a substring of the banner marking the start (version-free); `null` for a REPL without one | `"Interactive Elixir"` |
+| `ready_probe` | string \| null | sent after the banner; makes the REPL print `XT_READY`. Split the marker in the source, so a REPL echoing input is not mistaken for the answer | `"IO.puts(\"XT_\" <> \"READY\")\n"` |
+| `exit_input` | string | text to send for a normal end | `"System.halt()\n"` |
+| `interruptible` | boolean | whether `Sender.interrupt/1` (SIGINT to the process group) really reaches a handler in this REPL (see below) | `true` (checked) |
 
-`eval_template`は`Launch`の外、`XipeTotec.Repl.EvalTemplate`(`lib/repl/eval_template.exs`)が`Plan.Entry`(呼び出し対象のcall_id/module/name/args)から動的に生成するので、`Launch`が返すJSONには含まれない。新しい言語ではこれに相当する別モジュールを作ることになる(下記参照)。
+The eval_template is not in the launch message: `XipeTotec.Repl.EvalTemplate` builds it per entry from the plan; a new language writes its own
+module for it (below). How long the REPL may take to be ready is the project's `eval.boot_timeout` (default 15 s).
 
-### `files`の使い分け
+### Using `files`
 
-対象言語に「プロジェクト全体を自動でロードして起動する」手段（Elixirの`-S mix`に相当）があるなら、それを`argv`の既定値に使い、`files`は空でよい。そういう手段が無い構成（Elixirで言う`project_kind: scripts`、crux自身の実プロジェクトが該当）では、`files`に対象ファイル一覧を積み、`Sender`実装側（`Sender.Direct.with_files/2`は`-r <file>`を挿入する）がそれを実際の起動引数へどう反映するかを決める。**算出プログラム側は「反映のされ方」を知らなくてよい** ── `files`はただのデータとして渡すだけ。
+If the language has a way to load a whole project at start (Elixir's `-S mix`), use it as `argv`'s default and leave `files` empty. Without
+one (Elixir's scripts-mode), put the files in `files`; the Sender decides how they reach the start (`Sender.Direct.with_files/2` inserts
+`-r <file>` for iex — so OCaml and Haskell put their files in their init script instead). **The computing side does not need to know how** —
+`files` is plain data.
 
-## `eval_template`（相当のモジュール）を書くために必要な知識
+## What an eval_template needs
 
-`lib/repl/eval_template.exs`(`XipeTotec.Repl.EvalTemplate`)がElixirの実例。`build/1`が`Plan.Entry`から、対象言語のREPLセッション自身の中で実行されるコードをテキストとして組み立てる。必要な要素（実装済みのElixir版を参照しながら書くこと）:
+`lib/repl/eval_template.exs` is Elixir's: `build/1` turns a plan entry into code text run inside the target's session
+([D-repr](verification/lib-repl-eval_template.exs.md#d-repr), [D-compare-basis](verification/lib-repl-eval_template.exs.md#d-compare-basis),
+[D-closed-args](verification/lib-repl-eval_template.exs.md#d-closed-args)). What it needs:
 
-1. **呼び出し式の組み立て方**: 完全修飾された関数名（module/name相当）と、既に文字列化された引数の並びから、その言語の呼び出し構文を作る方法（`EvalTemplate.call_expression/1`）
-2. **標準出力への印字方法**: マーカー文字列を印字する関数（Elixirなら`IO.puts/1`）
-3. **例外処理の構文**: 評価中に例外が起きても**必ず`XT_ERROR_<call_id> crash <reason>`まで印字してから終わる**ようにする。Elixir版は`spawn_monitor`+`receive`で、例外による`:DOWN`メッセージを捕捉する形（対象言語にプロセス分離/例外捕捉の機構が無ければ、素直なtry/catch相当で代替）。これが無いと、タイムアウトと評価失敗の区別がつかなくなる
-4. **タイムアウト・メモリ上限の安全装置**: Elixir版は`spawn_monitor`+`Process.flag(:max_heap_size, ...)`+`receive...after`。対象言語の並行処理機構に合わせて作り直すこと
-5. **repr判定の戦略**: Elixirでの方針は a) pid/port/reference/fun相当の値を再帰的に検出したら`unsupported` b) それ以外は`inspect`相当の文字列化→再パース→元の値と比較する往復検査で一致すれば`exact` c) それ以外はその言語のシリアライズ機構で`binary`(`bin_base64=`に載せる)。**対象言語に同種の機構（値→文字列表現→文字列から値への再構築）が無い場合、この3分類そのものを見直す必要がある** ── 単純にElixirの分類をコピーしない
-6. **`type=`の判定**: 値の型名を文字列で返す判定カスケード（Elixir版は`is_integer`等の連鎖、structなら`inspect(v.__struct__)`）
-7. **compare判定**: 実装済み(2026-09-18、`Old.md` §11.2)。`Core.plan_recalc/3`が`entry.basis`として渡す`{:exact, 前回テキスト} | {:binary, 前回base64} | :none`を、**対象セッション自身の中で**再構築して今回の値と比較する(`:none`なら比較せず`compare=none`)。Elixir版の方針: `:exact`は`Code.eval_string/1`で、`:binary`は`Base.decode64!/1`+その言語の逆シリアライズで前回値を復元し、map/list/tuple/struct(structはただのmap)を再帰的に辿って比較、floatだけ相対/絶対誤差を許容(Elixir版は固定値`1.0e-9`、設定機構が無いため)。新しい今回の値自体が`unsupported`なら無条件で`compare=skipped`(片側でもunsupportedなら比較しない、仕様の規則)。**値は`none`/`skipped`/`changed`/`same`のいずれかの文字列**(atomではない ── Coreの他の箇所と同じ文字列規約、2026-09-18に実際に踏んだ不整合バグの教訓)。
-8. **常にセッション変数へ束縛する**: 評価したcallの結果を、常に対象言語のトップレベル変数(Elixirなら`xt_<call_id>`)へ束縛すること。セッションは1回の評価の間だけなので、束縛もその評価の中だけで使われる（Old.md §35）。`in_plan`参照(同一pass内で後続callが先行callの結果を参照する)がこれを前提にしているため構造的に必要（詳細と、ここで実際に踏んだバグは`Old.md` §10.5参照 ── 束縛用の変数とrepr判定・マーカー印字を同じトップレベル文の中で完結させないと、対象言語の変数スコープ次第で束縛が正しく残らないことがある）
-9. **対象セッション側で実行する理由**: 判定対象の値は対象プロジェクト固有の型を含みうるので、xipe_totec自身のプロセスではなく**評価対象のREPLセッション自身の中で**判定・印字まで完結させること
-10. **呼び出し式を送る前に、その場で構文検査する**: 閉じていない引数(例: `[1, 2`)をそのままREPLへ送ると、多くのREPLは「入力の続き待ち」状態になり、それ以降に送った文字列(この呼び出し自身の残り・次のentry全体)まで同じ壊れた式に吸い込まれ、マーカーが二度と出てこなくなる(2026-09-18の実バグ ── `Evaluator`側の絶対タイムアウトでしか最終的には検出できない)。Elixir版は`build/1`の入口で`Code.string_to_quoted/1`相当の構文検査を行い、失敗したら**呼び出し式を一切対象言語へ埋め込まず**、xipe_totec自身の側で組み立てた診断文字列だけを印字する最小限のテンプレート(`build_syntax_error/3`)を代わりに返す。対象言語に同様の「文字列が構文として完結しているか」を判定できる機構(パーサーAPI等)があれば同じ手を使うこと。無ければ最低限、呼び出し式の壊れた断片をテンプレートの他の部分に一切混ぜないという規律だけは守ること(壊れた断片を別の場所に埋め込んでも、その埋め込み先ごと壊れるだけで問題は解決しない)。
+1. **Building the call**: from the qualified name (module/name) and the arguments, already text, the language's call syntax (wrap each
+   argument in parentheses so an embedded value does not change binding)
+2. **Printing to stdout** (Elixir: `IO.puts/1`)
+3. **Catching exceptions**: an evaluation that raises must **always print `XT_ERROR_<call_id> crash <reason>` before ending**. Elixir runs the
+   call in a `spawn_monitor` child and catches its `:DOWN`; without a process mechanism, a plain try/catch. Without it a failure cannot be told
+   from a timeout
+4. **Time and memory limits**: Elixir uses `spawn_monitor` + `Process.flag(:max_heap_size, …)` + `receive … after`. Rebuild with the language's
+   own means; a language without a memory limit may go without (a stuck REPL is killed)
+5. **The `repr` strategy**: Elixir's is (a) a pid/port/reference/fun anywhere inside → `unsupported`; (b) otherwise `inspect` → evaluate back
+   → equal → `exact`; (c) otherwise the language's serialisation → `binary` (`bin_base64=`). **Without a value → text → value mechanism, do not
+   copy these three steps — rethink them** (that is what embody is for)
+6. **`type=`**: the value's type as a string
+7. **`compare`**: the plan passes `entry.basis` (`{:exact, previous text}` | `{:binary, previous base64}` | `:none`). Rebuild the previous value
+   **inside the session** and compare; `:none` gives `compare=none`. Elixir compares terms recursively (maps, lists, tuples, structs as maps),
+   floats within `1.0e-9` relative or absolute. A new value that is `unsupported` gives `compare=skipped`. **The words are strings**: `none`,
+   `skipped`, `changed`, `same`
+8. **Always bind the result to a session variable** (`xt_<call_id>`), whatever its `repr`: a later entry of the same pass refers to it
+   (`:in_plan`). The session lasts one pass, so the binding does too. Keep the binding, the judging and the printing in one top-level statement
+   where the language's scoping needs it (Elixir's first attempt lost the binding inside a `case`)
+9. **Why inside the target**: the values may be the target's own types, so judging and printing finish in the session under evaluation
+10. **Check the call before sending it**: an unclosed argument (`[1, 2`) makes most REPLs wait for more input and swallow everything sent
+    after it — this entry's rest, the next entries — and no marker ever comes (only the Evaluator's deadline ends it). Elixir parses the call
+    with `Code.string_to_quoted/1` first and, if it fails, sends only a one-line diagnostic built on Xipe Totec's side (`build_syntax_error/3`),
+    never the broken fragment. Elixir also passes the call as a string compiled inside the child, so a compile error in the arguments is an
+    ordinary `crash`. If the language has a parser API, do the same; if not, at least never mix the broken fragment into the rest of the
+    template, or OCaml's way: pass the call as a string the toplevel evaluates
 
-## `interruptible`（`message["interruptible"]`）を決めるために必要な知識
+## Deciding `interruptible`
 
-2026-09-22（Old.md §23）、ハートビート機構は撤去された。生存確認は「`Sender.interrupt/1`でこのREPLのプロセスグループ全体へSIGINTを送り、短い猶予の後で`XT_EXIT`が出なければ`Sender.kill/1`（SIGKILL、同じくグループ全体へ）で強制終了する」という、**対象言語側に一切コードを書かせない**汎用実行層だけの仕組みに一本化された（`Evaluator`の`end_hung_session/4`）。算出プログラム側がここで決めるべきことは1つだけ ── **SIGINTがこのREPLに実際に届いたとき、評価だけ中断してプロンプトへ戻れるか、それとも(ハンドラが無く)ただちに終了するだけか**。前者なら`interruptible: true`、後者（または不明）なら`false`。`false`にしても壊れることはない ── `Evaluator`は`interrupt/1`を試さず直接`kill/1`するだけで、ハング検知自体は変わらず機能する。単に「対象プロセスへもう少し丁寧に終了する機会を与えられない」というだけの差。
+There is no heartbeat (removed 2026-09-22). Liveness is generic: past the deadline, `Sender.interrupt/1` sends SIGINT to the REPL's process
+group, and after a short grace without `XT_EXIT`, `Sender.kill/1` sends SIGKILL to the group
+([D-hang-handling](verification/lib-repl-evaluator.exs.md#d-hang-handling)). **The target writes no code for this.** The computing side
+decides one thing: **when SIGINT reaches this REPL, does it stop the evaluation and return to its prompt, or (no handler) just exit?** The first
+is `interruptible: true`; the second, or unknown, `false`. `false` breaks nothing — the Evaluator skips the interrupt and kills directly; it
+only loses a gentler chance to end.
 
-Elixir版は`interruptible: true`が既定（`lib/repl/launch.exs`の`@default_interruptible`）。**実機確認済み**(2026-09-22): `erlexec`で`{group, 0}`付きで起動した`iex`（plain pipe、PTY無し）に対し`:exec.kill(ospid, 2)`（SIGINT、正のospidを渡すとerlexec自身がグループ全体へ配送する）を送ったところ、BEAM自身のSIGINTハンドラが反応し、実際の端末でCtrl-Cを押したときと同じ`"BREAK: (a)bort (A)bort with dump (c)ontinue ..."`メニューが出力に現れた。PTYは不要。
+Elixir is `true` (`@default_interruptible`), checked 2026-09-22: SIGINT to an `iex` started by erlexec with `{group, 0}` over a plain pipe
+(`:exec.kill(ospid, 2)` with the positive ospid; erlexec delivers to the group) brought up BEAM's `BREAK: (a)bort (A)bort with dump
+(c)ontinue …` menu, as Ctrl-C in a terminal does. No PTY needed. OCaml and GHCi are `true` too (`Interrupted.`).
 
-## `field_drip`（相当のモジュール）を書くために必要な知識
+## What a field_drip needs
 
-`lib/repl/eval/field_drip/elixir.exs`(`XipeTotec.Repl.Eval.FieldDrip.Elixir`)がElixirの実例。`XipeTotec.Repl.Eval.FieldDrip`のbehaviour(`parse(body) :: map()`)を実装する。本文フォーマット(`repr=`/`type=`/`compare=`/`display=`/`bin_base64=`)自体はxipe_totec全体で固定の規約なので、実装は「改行分割→`=`で最初の1回だけ分割」という単純なものになるはず(Elixir版が実際そうなっている)。対象言語の`eval_template`がこのフォーマット通りに印字する限り、field_dripを言語ごとに変える必要はほぼ無いはず。言語判定はfield_drip自身が行わない（呼び出し元が`Repl.Eval.Parser.step/5`に具体的なモジュールを渡す）。
+`lib/repl/eval/field_drip/elixir.exs` implements the `FieldDrip` behaviour (`parse(body) :: map()`). The body format is fixed for all of Xipe
+Totec, so the implementation is "split into lines, split each at the first `=`". As long as the eval_template prints that format, a field_drip
+need not change by language (OCaml's and Haskell's delegate to Elixir's). It decides no language: the caller passes the module to
+`Repl.Eval.Parser.step/5`.
 
-## `scan`（相当のモジュール）を書くために必要な知識
+## What a scan module needs
 
-`lib/repl/eval/scan/direct/iex.exs`(`XipeTotec.Repl.Eval.Scan.Direct.Iex`)がElixir+plain pipeの実例。**トランスポート(PTY/plain pipe)とREPL(iex/ghci/...)の2軸で、`lib/repl/eval/scan/<transport>/<repl>.exs`という配置になる。** 新しいREPLをplain pipe経由で足すだけなら`lib/repl/eval/scan/direct/<repl>.exs`を追加、新しいトランスポート(PTY等)を足すなら対応する`Sender`実装と対にして`lib/repl/eval/scan/<transport>/`配下に追加する。今のところ`Direct`(plain pipe)は実機検証済みの通りエコーバック・ANSIノイズが一切無いため、`clean/1`は`XT_EXIT`の検出・除去のみで足りている。PTY対応を追加するときは、ここにエコーバック除去・ANSI除去の実装が要る。
+`lib/repl/eval/scan/direct/iex.exs` is Elixir over a plain pipe. **Two axes: `lib/repl/eval/scan/<transport>/<repl>.exs`.** A new REPL over a
+plain pipe adds `lib/repl/eval/scan/direct/<repl>.exs`; a new transport (a PTY) adds a Sender and `lib/repl/eval/scan/<transport>/`. A plain
+pipe has no echo or ANSI (checked), so `clean/1` only finds and removes `XT_EXIT`. A PTY would need echo and ANSI removal here.
 
-## 新しい言語を足すときのチェックリスト
+## Checklist for a new language
 
-算出プログラムを書く前に、対象言語のREPLについて以下を調べて（またはAIに調べさせて）から着手する:
+Before writing the computing modules, find out (or have an AI find out — then check it on the real REPL, `extending.md` §2.2):
 
-1. デフォルトの起動コマンドは何か。プロジェクト全体を自動ロードする起動モードはあるか
-2. 個別ファイルをコマンドラインからロードする方法はあるか（`mix`が無い構成向け）
-3. 起動完了時に印字される、バージョンに依存しない安定した文字列は何か
-   （注: 2026-09-26から、バナー待ちの後に`ready_probe`で`XT_READY`を印字させて確かめる2段になった〈Old.md §35〉。バナーが不安定・無いREPLは`ready_pattern`を`null`にしてよく、その場合この項目は「`XT_READY`を印字させる式は何か」に置き換わる）
-4. そのREPL自身の正規の終了コマンドは何か
-5. 関数呼び出しの構文（完全修飾名＋引数列から式を組み立てる方法）
-6. 標準出力への印字関数
-7. 例外を捕捉して握りつぶさず「終端マーカーまでは必ず印字する」ための構文
-8. 値→文字列表現→再構築という往復検査に相当する機構があるか。無ければrepr判定の設計をどう作り直すか
-9. 浮動小数点比較の許容誤差をどう扱うか
-10. SIGINTを受けたとき、評価だけ中断してプロンプトへ戻れるか、それともプロセスごと終了するか（`interruptible`の値を決める。分からなければ`false`にしておけば安全）
-11. プレーンなpipe接続（PTY無し）でそのREPLが正常に動作するか、それとも本物のtty必須か（後者ならPTY対応が前提になる。`Old.md` §10.1のエコーバック課題も合わせて考慮）
+1. The default start command; a mode that loads the whole project
+2. How to load single files from the command line (for projects without a build tool)
+3. A version-free string printed when it is ready — or, since the two-step readiness ([D-ready-probe](verification/lib-repl-session.exs.md#d-ready-probe)),
+   an expression that prints `XT_READY` (a REPL without a stable banner sets `ready_pattern` to `null`)
+4. The REPL's own command to quit
+5. The call syntax (from a qualified name and arguments)
+6. The function that prints to stdout
+7. The syntax to catch an exception and still always print the end marker
+8. Whether there is a round trip value → text → value; if not, how `repr` is judged instead (embody)
+9. How float tolerance is handled
+10. Whether SIGINT stops the evaluation and returns to the prompt, or ends the process (`interruptible`; `false` if unknown is safe)
+11. Whether the REPL works over a plain pipe (no PTY), or needs a real tty (then a PTY transport first)
 
-これらの答えが`argv`/`ready_pattern`/`exit_input`/`interruptible`（`Launch`相当のモジュール）と、`eval_template`相当のモジュール・`field_drip`相当のモジュール・（PTYなら）`scan`相当のモジュールになる。答えられない項目があれば、それは「対象言語では今のXipe Totecの設計がそのまま使えない箇所」なので、実装を進める前にcruxへ相談すること。
+The answers become the launch module (`argv`, `ready_pattern`, `ready_probe`, `exit_input`, `interruptible`), the eval_template module, the
+field_drip, and (for a PTY) the scan module. An item that cannot be answered is a place where Xipe Totec's design does not fit the language as
+it is: talk to crux before implementing.
 
-## 候補言語ごとのチェックリスト回答（下書き、2026-09-22、未検証）
+## Drafts for candidate languages (2026-09-22, from knowledge, not checked)
 
-`~/my_app/tezcatl`セッションでの`crux`とのco-design。上記「新しい言語を足すときのチェックリスト」を、冒頭で候補として挙げている4言語（OCaml/utop、Haskell/GHCi、Clojure、Racket）について知識ベースで埋めた下書き。**この環境にはいずれの処理系も無く（`ocaml`/`utop`/`ghci`/`clojure`/`racket`いずれも未インストール）、実機での検証は一切していない。** 「答えられない項目があれば実装前にcruxへ相談」というこのガイド自身のルール通り、着手前に実機で裏取りすること。
-
-### OCaml / utop
-
-1. **デフォルト起動コマンド**: `utop`（プロジェクト全体の自動ロードは`dune utop <dir>` ── dune管理下なら`.ml`/`.mli`一式をライブラリとしてロード済みの状態で起動できる。Elixirの`-S mix`に相当）
-2. **個別ファイルのロード**: `utop`起動後に`#use "file.ml";;`または起動時`-init <file>`。dune無しの構成では`ocamlfind`/`#require`でライブラリを読み、`#use`でファイルを読む形になりそう
-3. **起動完了の安定文字列**: 標準の`utop`バナーはバージョン文字列を含むため不安定。プロンプト文字列`utop #`は比較的安定だが、`ready_pattern`としては微妙（要検証）
-4. **正規の終了コマンド**: `#quit;;`（またはEOF/Ctrl-D）
-5. **呼び出し構文**: OCamlは`f x y`（空白区切り、括弧はデフォルトの評価順を変えるときのみ）。完全修飾は`Module.f x y`
-6. **標準出力への印字**: `print_string`/`Printf.printf`
-7. **例外捕捉**: `try ... with e -> ...`
-8. **往復検査（値↔文字列）**: OCaml標準に汎用`inspect`相当は無い。`Format`モジュールの`%a`/`Printexc`はあるが、任意の値を汎用的に文字列化→再パースする機構は無い（型ごとに`to_string`/`of_string`がバラバラ）── ここが一番、Elixir版の設計をそのまま持ち込めない箇所
-9. **浮動小数点誤差**: `abs_float (a -. b) < epsilon`相当を自前で書く必要あり
-10. **SIGINTで中断・復帰できるか（`interruptible`）**: OCamlには`Sys.catch_break`（有効化するとCtrl-Cが`Sys.Break`例外として捕捉可能になる）があるが、`utop`がこれを既定で有効にしているかは未確認。要検証（不明なら`false`にしておくのが安全）
-11. **plain pipe対応**: `utop`はreadline的な行編集をするため、素のpipe接続でも動作するかは要検証（`ocaml`本体の素のトップレベルならpipeで安定するはずだが、`utop`固有の機能が絡むと未知数）
-
-**設計見直しが要りそうな箇所**: 8（往復検査の機構が無い）。10（`interruptible`）は不明なら`false`にすればよいだけなので、他言語ほどのブロッカーではない（新設計ではSIGINT対応は`kill/1`への単なる上乗せで、必須要件ではない）。
-
-### Haskell / GHCi
-
-1. **デフォルト起動コマンド**: `ghci`。プロジェクト全体の自動ロードは`cabal repl`または`stack ghci`（cabal/stack管理下ならモジュール一式をロード済みの状態で起動）。Elixirの`-S mix`に相当
-2. **個別ファイルのロード**: 起動後`:load file.hs`（`:l`）、または起動時`ghci file.hs`で直接指定。複数ファイルは`ghci file1.hs file2.hs`
-3. **起動完了の安定文字列**: デフォルトプロンプトはGHC/設定次第で`ghci>`/`Prelude>`/ロードしたモジュール名を反映したプロンプト（`*Main>`等）と変化するため不安定。`:set prompt "..."`（`.ghci`設定ファイルや`-ghci-script`で起動時に注入可能）で固定文字列に上書きするのが確実
-4. **正規の終了コマンド**: `:quit`（`:q`）
-5. **呼び出し構文**: `f x y`（空白区切り、カリー化前提）。完全修飾は`import qualified Module as M`しておいて`M.f x y`
-6. **標準出力への印字**: `putStrLn`/`print`
-7. **例外捕捉**: `Control.Exception`の`catch`/`try`。**注意**: Haskellは遅延評価のため、例外が実際に飛ぶタイミングは値の評価タイミングに依存する。`evaluate`でWHNFまで強制してから捕捉しないと、単純な`try`だけでは意図したタイミングで例外を拾えない可能性がある
-8. **往復検査**: `deriving (Show, Read)`があれば`show`/`read`で型ごとに文字列化・再構築ができるが、これは各型が明示的に`Read`インスタンスを持つ場合限定（関数や多くの抽象データ型は`Read`を持たない）。OCamlと同様、汎用的な往復検査機構としては使えない
-9. **浮動小数点誤差**: 自前で`abs (a - b) < epsilon`相当が必要
-10. **SIGINTで中断・復帰できるか（`interruptible`）**: GHCiはCtrl-Cで現在の評価だけ中断してプロンプトへ戻る、というのが広く知られた対話的挙動（`System.Posix.Signals`経由でGHC自身がSIGINTハンドラを持つ）。4言語の中では最もElixirに近い挙動が期待できるが、実機未確認
-11. **plain pipe対応**: 素のstdin/stdoutパイプでも動作するはず（対話シェルとしての行編集はreadline系ライブラリ依存だが、パイプ接続時は影響しないはず、要検証）
-
-**設計見直しが要りそうな箇所**: 8（`Read`を持たない型は往復検査できない）。7（遅延評価と例外タイミングの相性）は実装時に特に注意。
+Drafted before any of these was installed here. **For OCaml and Haskell the implemented forms differ** — see their records: the plain `ocaml`
+toplevel through its own `Toploop` (not `utop`), embody for `repr`; GHCi with `-v0`, every stage bound with `let` under
+`-fdefer-type-errors`, embody for `repr`; both `interruptible: true`. What follows keeps the two Lisps, still unimplemented. Check each item on
+the real REPL before starting.
 
 ### Clojure
 
-1. **デフォルト起動コマンド**: `clojure`（`clj`）または`lein repl`（Leiningen管理下）。`deps.edn`/`project.clj`経由でクラスパス一式ロード済みの状態で起動可能
-2. **個別ファイルのロード**: 起動後`(load-file "file.clj")`または`(require 'namespace :reload)`
-3. **起動完了の安定文字列**: `user=>`がデフォルトプロンプト（名前空間により変化しうるが初期プロンプトとしては比較的安定）。JVM起動時のログ出力が先行するため、それらと混同しない安定部分文字列の選定が要る
-4. **正規の終了コマンド**: `(System/exit 0)`またはEOF/Ctrl-D
-5. **呼び出し構文**: 前置記法`(f x y)`（Lisp系）。完全修飾は`(namespace/f x y)`
-6. **標準出力への印字**: `println`/`print`
-7. **例外捕捉**: `(try ... (catch Exception e ...))`
-8. **往復検査**: `pr-str`/`read-string`（EDN形式）── Clojureのデータ構造（コレクション・リテラル値）は標準で文字列化・再構築でき、Elixirの`inspect`/`Code.eval_string`に近い往復検査が可能。ただしレコード以外の任意のJavaオブジェクトはEDN化できない点はElixir同様`unsupported`扱いが必要
-9. **浮動小数点誤差**: 自前で許容誤差比較が必要
-10. **SIGINTで中断・復帰できるか（`interruptible`）**: JVMへの素のSIGINTは既定でシャットダウンフック経由のプロセス終了を招くのが一般的で、「現在の評価だけ中断してREPLへ戻る」挙動をClojure REPL自身が持つかは未確認。4言語の中では最も`false`寄りの可能性がある。要検証
-11. **plain pipe対応**: 素のstdin/stdoutで動作するはず。JVM起動が重く起動待ち時間（`ready_pattern`検出までの時間）が他言語より長くなる点に注意
+1. **Start**: `clojure` (`clj`) or `lein repl`; `deps.edn` / `project.clj` give the classpath
+2. **Loading files**: `(load-file "file.clj")` or `(require 'namespace :reload)` after the start
+3. **Ready**: the prompt `user=>` (may change with the namespace); JVM logs come first, so pick a substring that cannot be confused — or use the
+   `XT_READY` probe
+4. **Quit**: `(System/exit 0)` or EOF
+5. **Call**: prefix `(f x y)`; qualified `(namespace/f x y)`
+6. **Print**: `println`, `print`
+7. **Catch**: `(try … (catch Exception e …))`
+8. **Round trip**: `pr-str` / `read-string` (EDN) — Clojure's data structures read back as written, close to Elixir's `inspect` /
+   `Code.eval_string`. Arbitrary Java objects are not EDN: `unsupported`
+9. **Floats**: a tolerance written by hand
+10. **SIGINT**: a raw SIGINT to the JVM usually ends it through its shutdown hooks; whether the REPL can stop only the evaluation is unknown —
+    likely `false`
+11. **Plain pipe**: should work; the JVM start is slow (a longer `eval.boot_timeout`)
 
-**設計見直しが要りそうな箇所**: 4言語の中では最もElixir版に近い（8の往復検査機構が標準で存在する）。10（`interruptible`）はJVMの既定挙動次第で`false`になりそう。
+**Where the design needs thought**: the closest to Elixir (8 exists in the standard library); 10 probably `false`.
 
 ### Racket
 
-1. **デフォルト起動コマンド**: `racket -i`（対話モード）。プロジェクト全体の自動ロードに相当する標準的な仕組みは薄い（`raco`はビルド/パッケージ管理寄り）
-2. **個別ファイルのロード**: `racket -i -t file.rkt`（起動時ロード）、または起動後`(enter! (file "file.rkt"))`（`racket/enter`使用時）
-3. **起動完了の安定文字列**: デフォルトプロンプトは`>`のみで非常に短く、他の出力との衝突リスクが高い（要検証・調整。バナー抑制`-q`や独自プロンプト設定を検討すべき）
-4. **正規の終了コマンド**: `(exit)`またはEOF/Ctrl-D
-5. **呼び出し構文**: 前置記法`(f x y)`（Lisp系）。完全修飾はモジュールの`require`ベースで、Clojureの`ns/name`のような単純な文字列結合とは形が異なる点に注意
-6. **標準出力への印字**: `display`/`printf`
-7. **例外捕捉**: `(with-handlers ([exn:fail? (lambda (e) ...)]) ...)`
-8. **往復検査**: `~s`（write形式）での文字列化と`read`での再構築が標準サポートされており、Clojureに近い形で往復検査が可能（S式ベースのデータ構造なら比較的素直）
-9. **浮動小数点誤差**: 自前実装が必要
-10. **SIGINTで中断・復帰できるか（`interruptible`）**: Racketは`break-enabled?`/`exn:break`という、SIGINT相当を捕捉可能な例外に変換する仕組みを標準で持つ。理論上はGHCiに近い挙動が期待できるが、`racket -i`が既定でbreakを有効にしているかは未確認
-11. **plain pipe対応**: 要検証。`racket -i`は対話向けだが、パイプ経由でも基本動作するはず（readline的な行編集は既定では付いていないことが多く、むしろpipeとの相性は良い可能性がある）
+1. **Start**: `racket -i`; little standard support for loading a whole project (`raco` is for building and packages)
+2. **Loading files**: `racket -i -t file.rkt`, or `(enter! (file "file.rkt"))` after the start (`racket/enter`)
+3. **Ready**: the prompt is just `>` — easily confused; suppress the banner (`-q`) and use the `XT_READY` probe
+4. **Quit**: `(exit)` or EOF
+5. **Call**: prefix `(f x y)`; qualification goes through `require`, not a plain `ns/name` join
+6. **Print**: `display`, `printf`
+7. **Catch**: `(with-handlers ([exn:fail? (lambda (e) …)]) …)`
+8. **Round trip**: `~s` (write) and `read` are standard: close to Clojure (S-expressions read back)
+9. **Floats**: by hand
+10. **SIGINT**: `break-enabled?` / `exn:break` turn it into a catchable exception; whether `racket -i` enables break by default is unknown
+11. **Plain pipe**: to be checked; `racket -i` has no line editing by default, which may suit a pipe
 
-**設計見直しが要りそうな箇所**: 3（プロンプトが`>`だけで衝突しやすい）。それ以外はClojureに近く、4言語の中では実装コストが低そうに見える。
+**Where the design needs thought**: 3 (the prompt `>`). Otherwise close to Clojure; it looks the cheapest of the candidates.
 
-### 4言語を通して見える傾向
+### Across the candidates
 
-- **8（往復検査）はOCaml/Haskellで構造的な壁、Clojure/Racketでは標準機構がある** ── S式系（Lisp系）データ構造は元々「書いたものがそのまま読み戻せる」設計なので、Elixirの`inspect`→`Code.eval_string`往復検査パターンと相性が良い。ML系（OCaml/Haskell）は型ごとにバラバラな`to_string`しか無く、ここが一番の設計変更ポイントになる
-- **10（`interruptible`）はもうブロッカーではない**（2026-09-22の設計変更後）: ハートビート機構が撤去され生存確認が汎用実行層側（`Sender.interrupt/1`＋固定デッドライン＋`kill/1`）に一本化されたため、対象言語がSIGINTを扱えるかどうかは「より丁寧に終了できるかどうか」の差でしかない。`false`にしておけば安全に動く。4言語ともElixir版と違って**軽量並行機構の有無を気にする必要が無くなった**
-- 全項目、**この環境で実機検証していない下書きの域を出ない**（`interruptible`の値を除く ── こちらはElixir分のみ2026-09-22に実機確認済み）。実装に進む前に対象処理系が使える環境（対象プロジェクト自身の`nix develop`等、crux環境）で1項目ずつ裏取りすること
+- **8 (the round trip)** was the structural wall for OCaml and Haskell, solved by embody; Clojure and Racket have it in their standard
+  libraries (data written as S-expressions reads back)
+- **10 (`interruptible`) is no blocker**: liveness is the generic layer's (signal + fixed deadline + kill); a SIGINT handler only makes the end
+  gentler. No language needs a lightweight concurrency mechanism any more
+- All of it is a draft from knowledge; check one item at a time where the language's system is available (the target's own `nix develop` …)
 
-## 実装の参考にする実機テスト
+## The live tests to model on
 
-`test/live/repl_iex_test.exs`（`test/run.sh`には含まれない、`elixir test/live/repl_iex_test.exs`で個別実行）がElixir版の全パイプライン検証。新しい言語を足したら、同じ構成（起動→完了検知→評価の6パターン(成功/in_plan参照/unsupported/例外/タイムアウト/構文が閉じていない呼び出し)→compare(same/changed)→離脱）の実機テストを、対象言語の実行環境が用意できた段階で書くこと。`test/fixtures/calc_sample/calc.exs`のような、外部依存の無い小さいサンプルプロジェクトを対象言語でも用意しておくと検証しやすい。
+`test/live/repl_iex_test.exs` (not in `test/run.sh`; run as `elixir test/live/repl_iex_test.exs`) checks Elixir's whole path; `repl_ocaml_test.exs`
+and `repl_haskell_test.exs` do the same for theirs. For a new language, write the same kind once its system is available: start → readiness →
+evaluation (success, an `:in_plan` reference, `unsupported`, an exception, a timeout, an unclosed call) → compare (`same`, `changed`) → leaving.
+A small sample project without outside dependencies, like `test/fixtures/calc_sample/calc.exs`, makes checking easy.

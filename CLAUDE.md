@@ -1,70 +1,74 @@
-# xipe_totec ── 作業を始めるときの案内
+# xipe_totec — where to start
 
-記憶が無い状態からでも再開できるように、入口だけをまとめる。中身は各文書が正で、
-ここはそこへの道案内。
+Only the entrances, so work can resume with no memory. The documents themselves are authoritative; this is the way to them.
 
-## 最初に読む順
+## Read in this order
 
-1. `README.md` ── 何のためのものか、何ではないか、設計原則 P1〜P10、いまどこまで動くか
-2. `document/scope.md` ── **動くと約束している範囲・その外で起きること・これから範囲に入れるもの（予定）**。
-   いま未解決のこと・次にやることもここ（tezcatl の分は `../tezcatl/docs/scope.md`）
-3. `document/verification/` ── **決定の置き場所**（英語）。`decisions.md` が生きている決定（`D-…`）と撤回した案の一覧、
-   `index.md` が全ファイルの1行、`<パスの / を - にしたもの>.md` がファイルごとの記録（何をするか・なぜ・その決定・選ばなかったもの）。
-   決定を足す・変えるときはその主なファイルの記録に書き、`decisions.md` に1行足す
-4. 言語やコマンドを足すとき: `document/拡張の手引き.md`（何を参考に、どういう動作を満たすか。壊してはいけない約束）
-5. 必要なときだけ: `document/動作原理.md`（どの順で何が呼ばれるか）、`document/How_to_use.md`（使い方）
+1. `README.md` — what it is for, what it is not, the design principles P1–P10, how far it works now
+2. `document/scope.md` — **what is promised to work, what happens outside it, and the work not started (planned, ideas)**; each row links to
+   the decision records. tezcatl's: `../tezcatl/docs/scope.md`
+3. `document/verification/` — **where decisions live**. `decisions.md` lists every decision in force (`D-…`) and the withdrawn proposals,
+   `index.md` every file in one line, `<path with / as ->.md` the record of a file (what it does, why, its decisions, what was not chosen).
+   A decision added or changed goes into the record of its main file, with a row in `decisions.md`
+4. Adding a language or a command: `document/extending.md` (what to start from, what behaviour to meet, the promises not to break), with
+   `document/repl-adapter-guide.md` for the REPL adapter's details
+5. Only when needed: `document/internals.md` (what is called in what order), `document/how-to-use.md` (how to use it)
 
-**`work_history/` は 2026-10-10 までの記録**（crux、2026-10-10 に移した）: `課題.md`（未解決の一覧と全体レビューの扱い）、
-`next_step.md`（次の段階の案と crux のコメント）、`xipe_totec_spec_v0.4.html`（仕様書の叩き台。`document/verification/` の決定と
-食い違うときは決定を優先）。**ふだんは読まない。書き足さない。**
-決定の経緯だった `Old.md` は、決定を `document/verification/` へ移したうえで **`work_history/旧Old.md`** として手元にだけ残してある
-（2026-10-19、git の管理外。中身を移し終えて要らなくなったものは、同じく `旧<名前>` として残し `.gitignore` で外す）。
-ほかの文書にある「`Old.md` §N」はこの旧Old.md の節で、どの決定に当たるかは `decisions.md` の「Earlier」の列で引ける。
-ほかの文書にある `課題.md`・`next_step.md` の名前は、`work_history/` の同名のファイルを指す。
-これからの経緯は git のコミットメッセージに、決めたことは `document/verification/` に、範囲は `scope.md` に書く。
+**`work_history/` is the record up to 2026-10-10** (Japanese; moved there by crux on 2026-10-10): `課題.md` (the open items then and how the
+overall review was handled), `next_step.md` (plans for the next stage, with crux's comments), `xipe_totec_spec_v0.4.html` (the draft spec;
+where it disagrees with `document/verification/`, the decisions win). **Do not read it day to day. Do not add to it.**
 
-**レビュー・検証をするとき**は、先に `document/scope.md`（と `../tezcatl/docs/scope.md`）を読む。範囲の外で
-書いてあるとおりに起きることは、不具合として挙げない（挙げてよい場合は同文書の「読み方」）。過去の指摘と
-その扱いは `work_history/課題.md` §6「全体レビュー（2026-10-02〜03）」。
+Documents whose content moved elsewhere are kept locally as `work_history/旧<name>` and left out of git (`.gitignore`): `旧Old.md` (the
+history of decisions — taken out into `document/verification/`), `旧範囲.md`, `旧How_to_use.md`, `旧動作原理.md`, `旧拡張の手引き.md`,
+`旧repl-adapter-guide.md`, `旧CLAUDE.md` (the Japanese originals of the English documents, 2026-10-19). "`Old.md` §N" in older text is a
+section of 旧Old.md; which decision it is can be looked up in the "Earlier" column of `decisions.md`.
 
-Poca（tezcatl を開く側のブラウザ）は別のプロジェクト（`~/my_app_no_nix/poca/`）で、xipe_totec の作業では読まなくてよい。
+From now on: history in git commit messages, decisions in `document/verification/`, the scope in `document/scope.md`.
 
-## テスト
+**When reviewing or verifying**, read `document/scope.md` (and `../tezcatl/docs/scope.md`) first. What happens outside the scope exactly as
+written there is not a defect (when it may still be raised: "How to read it" in that document). Past findings and how they were handled:
+`work_history/課題.md` §6 ("全体レビュー", 2026-10-02/03).
+
+Poca (the browser that opens tezcatl) is a separate project (`~/my_app_no_nix/poca/`); not read for xipe_totec work.
+
+The conversation with crux is in Japanese; documents, code comments and messages are in English.
+
+## Tests
 
 ```
-./test/run.sh                           # 全件（XIPE_TOTEC_LSP=off で走る。何も起動しない）
-elixir test/live/repl_iex_test.exs      # 実機の iex を使うテスト（run.sh には入っていない）
-nix shell nixpkgs#ocaml nixpkgs#dune_3 -c elixir test/live/repl_ocaml_test.exs   # 実機の ocaml・dune（無ければ除外）
-nix shell nixpkgs#ghc -c elixir test/live/repl_haskell_test.exs                   # 実機の GHCi（無ければ除外）
+./test/run.sh                           # everything (runs with XIPE_TOTEC_LSP=off; starts nothing)
+elixir test/live/repl_iex_test.exs      # with a real iex (not in run.sh)
+nix shell nixpkgs#ocaml nixpkgs#dune_3 -c elixir test/live/repl_ocaml_test.exs   # with a real ocaml and dune (skipped without them)
+nix shell nixpkgs#ghc -c elixir test/live/repl_haskell_test.exs                   # with a real GHCi (skipped without it)
 ```
 
-## 実際に動かして確かめるとき（実環境を汚さない）
+## Trying it for real (without touching the real environment)
 
-xipe_totec は自分の状態を `__DIR__` 基準の固定の場所に持つ（`tables/project/…/book.jsonl`、
-`tables/session.json`、`tables/logging_buffer.txt`、`info.json`）。環境変数で差し替えられないので、CLI を試すときは:
+xipe_totec keeps its state in fixed places relative to `__DIR__` (`tables/project/…/book.jsonl`, `tables/session.json`,
+`tables/logging_buffer.txt`, `info.json`). They cannot be redirected by environment variables, so to try the CLI:
 
-1. `lib/`・`main.exs`・`info.json`・`pipelines.json`・`defaults.json`・`project_env.json` を作業用ディレクトリへコピーする（OCaml・Haskell を評価するなら
-   `XIPE_TOTEC_EMBODY_DIR=~/my_app/embody` も。embody は別リポジトリで、既定では xipe_totec の隣を探す）
-2. 対象も `test/fixtures/calc_sample/` のコピーを使う
-3. コピーした側で `XIPE_TOTEC_LSP=off elixir main.exs choice project <コピーした対象>` → `scan` → `do …` → `eval …`
+1. Copy `lib/`, `main.exs`, `info.json`, `pipelines.json`, `defaults.json`, `project_env.json` to a work directory (to evaluate OCaml or
+   Haskell, also `XIPE_TOTEC_EMBODY_DIR=~/my_app/embody`; embody is a separate repository, looked for next to xipe_totec by default)
+2. Use a copy of `test/fixtures/calc_sample/` as the target too
+3. In the copy: `XIPE_TOTEC_LSP=off elixir main.exs choice project <the copied target>` → `scan` → `do …` → `eval …`
 
-tezcatl の画面から確かめるときは `../tezcatl/test/e2e/README.md`（隔離したポートで中継・偽の Xipe
-サーバー・ヘッドレス Chromium を立てる。作業用のコピーもそこで作る）。
+To check it from tezcatl's screen: `../tezcatl/test/e2e/README.md` (the relay, a fake Xipe server and headless Chromium on isolated ports; the
+work copy is made there too).
 
 ## git
 
-xipe_totec はこのディレクトリが独立した git リポジトリ（2026-10-01 から。`origin` =
-`git@github.com:Crux-xurC/xipe_totec.git`、ブランチ `main`）。普通に `git commit` / `git push origin main`
-する。`~/my_app` 側の git はもう xipe_totec を追跡しない（`~/my_app` は手元専用の別リポジトリ）。
+xipe_totec is its own git repository in this directory (since 2026-10-01; `origin` = `git@github.com:Crux-xurC/xipe_totec.git`, branch
+`main`). Plain `git commit` / `git push origin main`. The git of `~/my_app` no longer tracks xipe_totec (`~/my_app` is a separate, local-only
+repository).
 
-`tables/`（プロジェクトの登録・Book・選択中のプロジェクト `selection.json`・`session.json`）は
-マシンごとのデータで git 管理外。
+`tables/` (the project registry, Books, the chosen project `selection.json`, `session.json`) is per-machine data, not in git; nor are
+`work_history/旧*`.
 
-**commit も push も、crux が明示的に頼んだときだけ。**
+**Commit and push only when crux explicitly asks.**
 
-## tezcatl との関係
+## With tezcatl
 
-- tezcatl（`../tezcatl`）は窓。どのプロジェクトを開くかを決めるのは xipe_totec（`xipe choice project`）
-- tezcatl は xipe_totec の人向けの文字列を解釈しない（`document/verification/lib-protocol.exs.md` の D-envelope「I/Oは解析対象ではない」）
-- tezcatl の対話窓は `input` `{"text": "<打った行>"}` だけを送る。行の意味は xipe_totec が決める。
-  未実装の受け口は `document/scope.md` の「予定」
+- tezcatl (`../tezcatl`) is the window. Which project is open is decided by xipe_totec (`xipe choice project`)
+- tezcatl does not interpret xipe_totec's text for people (D-envelope in `document/verification/lib-protocol.exs.md`: "I/O is not for parsing")
+- tezcatl's dialogue window sends only `input` `{"text": "<the line typed>"}`; xipe_totec decides what the line means. Openings not yet
+  implemented: "Work not started" in `document/scope.md`

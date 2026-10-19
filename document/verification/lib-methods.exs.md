@@ -37,7 +37,7 @@ reads serve every client.
 **Files**: `lib/methods.exs`, `lib/tables.exs`, `lib/dispatch.exs`, `lib/help.exs`; tests `test/methods_test.exs`,
 `test/help_test.exs`, `test/dialogue_do_test.exs`.
 
-**Earlier**: `document/拡張の手引き.md` §3.0, `document/scope.md`; commit f59d4d8.
+**Earlier**: `document/extending.md` §3.0, `document/scope.md`; commit f59d4d8.
 
 ## Notes
 
