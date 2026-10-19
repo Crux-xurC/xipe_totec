@@ -65,7 +65,7 @@ defmodule XipeTotec.Help do
       detail: """
       regenerate <path>'s surface table (registering it if new) and save it to
       tables/project/<id>_<name>/table -- each language's build tool is detected here --
-      and resolve its environment again (flake.nix)
+      and resolve its environment again (the marker of project_env.json at its root)
       """
     },
     %{
@@ -233,9 +233,9 @@ defmodule XipeTotec.Help do
       window: false,
       detail: """
       show or set the project's own settings (its project.json): env.path=prepend|replace
-      (how the environment a flake.nix gives, resolved with nix print-dev-env, meets
-      xipe's own PATH), env.refresh=auto|manual (a changed flake is resolved again on
-      the next scan/eval, or only on `xipe table generate`), eval.timeout=<ms> (how long
+      (how a nix environment's PATH, from project_env.json's nix print-dev-env, meets
+      xipe's own), env.refresh=auto|manual (a changed watched file -- flake.nix, flake.lock
+      -- is resolved again on the next scan/eval, or only on `xipe table generate`), eval.timeout=<ms> (how long
       one calc row may run) and eval.boot_timeout=<ms> (how long a pass waits for its
       REPL, a build included). Each is listed with what it may be and the file its value
       comes from. `dialogue update` asks for the same, also from the dialogue window.

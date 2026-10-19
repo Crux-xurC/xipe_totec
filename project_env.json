@@ -1,0 +1,8 @@
+{
+  "timeoutMs": 120000,
+  "entries": [
+    { "marker": "flake.nix", "command": ["nix", "print-dev-env", "--json"], "format": "nix", "watch": ["flake.nix", "flake.lock"] },
+    { "marker": ".envrc",    "command": ["direnv", "export", "json"],       "format": "env" },
+    { "marker": "mise.toml", "command": ["mise", "env", "--json"],          "format": "env" }
+  ]
+}

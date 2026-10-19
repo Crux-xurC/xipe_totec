@@ -12,11 +12,12 @@ defmodule XipeTotec.ProjectConfig do
 
   Keys (dotted, as they are written):
 
-    * `env.path` -- how the project's resolved environment's `PATH`
-      (`ProjectEnv`) meets xipe_totec's own: `prepend` (default) puts it
-      in front, `replace` uses it alone
-    * `env.refresh` -- when a changed `flake.nix`/`flake.lock` is resolved
-      again: `auto` (default) on the next scan/eval that needs it, `manual`
+    * `env.path` -- how the `PATH` (and `XDG_DATA_DIRS`) of a project's
+      `nix` environment (`ProjectEnv`, `project_env.json`) meets xipe_totec's
+      own: `prepend` (default) puts it in front, `replace` uses it alone. An
+      `env` environment's values are taken as they are
+    * `env.refresh` -- when a changed watched file of `project_env.json`'s
+      entry (`flake.nix`/`flake.lock` for a flake) is resolved again: `auto` (default) on the next scan/eval that needs it, `manual`
       only on `xipe table generate` (until then the old environment is used,
       with a warning)
     * `eval.timeout` -- how long one calc row may run, in ms (default

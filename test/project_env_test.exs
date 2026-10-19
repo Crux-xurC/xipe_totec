@@ -15,7 +15,7 @@ defmodule ProjectEnvTest do
     File.mkdir_p!(project_dir)
     File.write!(Path.join(project_dir, "project.json"), JSON.encode!(%{"path" => root}))
 
-    # stands in for `nix print-dev-env --json <root>`: prints a fixed
+    # stands in for `nix print-dev-env --json` (run in the root): prints a fixed
     # environment, and counts its runs in <base>/runs
     fake = Path.join(base, "fake-print-dev-env")
 
@@ -35,9 +35,15 @@ defmodule ProjectEnvTest do
     """)
 
     File.chmod!(fake, 0o755)
+    # a project_env.json of the test's own, its flake entry running the fake
+    config = Path.join(base, "project_env.json")
+    write_config(config, [%{"marker" => "flake.nix", "command" => [fake], "format" => "nix", "watch" => ["flake.nix", "flake.lock"]}])
     on_exit(fn -> File.rm_rf!(base) end)
-    {:ok, base: base, root: root, project_dir: project_dir, opts: [command: [fake]]}
+    {:ok, base: base, root: root, project_dir: project_dir, config: config, opts: [config: config]}
   end
+
+  defp write_config(file, entries, extra \\ %{}),
+    do: File.write!(file, JSON.encode!(Map.merge(%{"entries" => entries}, extra)))
 
   # how many times the fake command ran
   defp runs(base) do
@@ -47,7 +53,7 @@ defmodule ProjectEnvTest do
     end
   end
 
-  test "no flake.nix: no environment of its own", %{root: root, project_dir: project_dir, opts: opts} do
+  test "no marker: no environment of its own", %{root: root, project_dir: project_dir, opts: opts} do
     assert {%{}, %{"state" => "none", "source" => nil}} = ProjectEnv.resolve(root, project_dir, opts)
     assert {%{}, %{"state" => "none"}} = ProjectEnv.resolve(root, nil, opts)
   end
@@ -95,11 +101,59 @@ defmodule ProjectEnvTest do
     assert runs(base) == 3
   end
 
-  test "a failing command is an error status, falling back to xipe's own environment",
-       %{root: root, project_dir: project_dir} do
+  test "a failing command is an error status with its last stderr line, falling back to xipe's own environment",
+       %{root: root, project_dir: project_dir, config: config} do
     File.write!(Path.join(root, "flake.nix"), "{ }")
-    assert {%{}, %{"state" => "error", "message" => message}} = ProjectEnv.resolve(root, project_dir, command: ["false"])
+    write_config(config, [%{"marker" => "flake.nix", "command" => ["sh", "-c", "echo 'no flake here' >&2; exit 1"], "format" => "nix"}])
+    assert {%{}, %{"state" => "error", "message" => message}} = ProjectEnv.resolve(root, project_dir, config: config)
+    assert message =~ "exit code 1: no flake here"
     assert message =~ "xipe's own environment"
+  end
+
+  test "env format: values as they are (env.path does not apply), null unsets; the first entry whose marker is at the root",
+       %{root: root, project_dir: project_dir, config: config} do
+    File.write!(Path.join(root, ".envrc"), "")
+    File.write!(Path.join(root, "flake.nix"), "{ }")
+    write_config(config, [
+      %{"marker" => ".envrc", "command" => ["sh", "-c", ~s(printf '{"PATH":"/p/bin","HERE":"%s","LANG":null}' "$PWD")]},
+      %{"marker" => "flake.nix", "command" => ["false"], "format" => "nix"}
+    ])
+
+    assert {env, %{"state" => "resolved", "source" => ".envrc"}} = ProjectEnv.resolve(root, project_dir, config: config)
+    assert env == %{"PATH" => "/p/bin", "HERE" => root, "LANG" => false}
+    assert ProjectEnv.find_executable("sh", %{"LANG" => false}) == System.find_executable("sh")
+  end
+
+  test "a changed declaration is resolved again; another marker's cache is not used",
+       %{base: base, root: root, project_dir: project_dir, config: config, opts: opts} do
+    File.write!(Path.join(root, "flake.nix"), "{ }")
+    {_env, %{"state" => "resolved"}} = ProjectEnv.resolve(root, project_dir, opts)
+    [entry] = config |> File.read!() |> JSON.decode!() |> Map.fetch!("entries")
+    write_config(config, [Map.put(entry, "command", entry["command"] ++ ["--again"])])
+    assert {_env, %{"state" => "resolved"}} = ProjectEnv.resolve(root, project_dir, opts)
+    assert runs(base) == 2
+
+    File.rm!(Path.join(root, "flake.nix"))
+    File.write!(Path.join(root, "mise.toml"), "")
+    write_config(config, [%{"marker" => "mise.toml", "command" => ["echo", ~s({"A":"1"})]}])
+    assert {%{"A" => "1"}, %{"state" => "resolved", "source" => "mise.toml"}} = ProjectEnv.resolve(root, project_dir, opts)
+  end
+
+  test "no answer within timeoutMs is an error; a broken project_env.json is an error; none is no entries",
+       %{root: root, project_dir: project_dir, config: config} do
+    File.write!(Path.join(root, "flake.nix"), "{ }")
+    write_config(config, [%{"marker" => "flake.nix", "command" => ["sleep", "30"], "format" => "nix"}], %{"timeoutMs" => 300})
+    assert {%{}, %{"state" => "error", "message" => message}} = ProjectEnv.resolve(root, project_dir, config: config)
+    assert message =~ "no answer in 0 s"
+
+    File.write!(config, "{")
+    assert {%{}, %{"state" => "error", "source" => nil}} = ProjectEnv.resolve(root, project_dir, config: config)
+    assert {%{}, %{"state" => "none"}} = ProjectEnv.resolve(root, project_dir, config: config <> ".missing")
+  end
+
+  test "xipe_totec's own project_env.json reads", %{} do
+    assert {:ok, %{entries: [%{marker: "flake.nix", format: "nix", watch: ["flake.nix", "flake.lock"]} | _]}} =
+             ProjectEnv.read(Path.expand("../project_env.json", __DIR__))
   end
 
   test "find_executable/2 looks on env's PATH first", %{base: base} do

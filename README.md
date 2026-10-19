@@ -125,7 +125,7 @@ disk とずれるファイルは、そのファイルだけ次の Scanner（Elix
 | 対話 | `InOut` / `Dialogue` / `Dialogue.Depends` / `Dialogue.Search` / `Dialogue.Do` / `Dialogue.Rewrite` / `Dialogue.Update` / `LogBuffer` / `Tables` / `EvalTable` | 複数ターンの構造化対話（一覧は `InOut.programs/0`、CLI とサーバーで共通）、依存チェーン交渉、引数を尋ねて method を1つ実行する対話（`dialogue do`。尋ねる内容は `Methods` の `params`）、検索と、表の値を1つ手で書き換える対話（`dialogue rewrite`。列ごとの method は `Tables` の `writes`、値を尋ねるところからは `Dialogue.Do`）、設定を1つ変える対話（`dialogue update`。ファイルは `LogBuffer` ＝ 出した行の記録 `tables/logging_buffer.txt` から選ぶ。書くのは `config/set`）、検索が引ける表の宣言（`Tables`。名前・印・列・行の読み方・書き換えられる列。`roster` も同じ一覧を返す）、その `-e` が引く `eval_table`（計算行に関数と path を横付けした読み取り用の表） |
 | 人向けの入出力 | `Input` / `Help` / `OutcomeText` / `Show` / `Serve.Input` | 1行の読み方（CLI と同じ書き方）、`help` の表、結果・`show` の行（CLI と対話窓で共通）、`input` method |
 | サーバー | `Protocol` / `Serve.Project` / `Serve.Socket` | §16.3 の wire 形、1プロジェクト1GenServer、WebSocket の入口 |
-| プロジェクト | `Workspace` / `ProjectRegistry` / `ProjectConfig` / `ProjectEnv` / `Info` / `Repl.Language` | どのプロジェクトを対象にするかの解決、3桁 ID の登録、プロジェクトごとの設定（`project.json`、`xipe config`）、対象のツールを走らせる環境（対象の flake の devShell など）、xipe_totec 自身の `info.json`（言語と拡張子、アダプタ一覧）と、このマシンで選択中のプロジェクト（`tables/selection.json`）、言語ごとの自己申告 |
+| プロジェクト | `Workspace` / `ProjectRegistry` / `ProjectConfig` / `ProjectEnv` / `Info` / `Repl.Language` | どのプロジェクトを対象にするかの解決、3桁 ID の登録、プロジェクトごとの設定（`project.json`、`xipe config`）、対象のツールを走らせる環境（`project_env.json` の宣言で得る。tezcatl と同じ書き方。flake・direnv・mise など）、xipe_totec 自身の `info.json`（言語と拡張子、アダプタ一覧）と、このマシンで選択中のプロジェクト（`tables/selection.json`）、言語ごとの自己申告 |
 | 評価の周り | `Passes` / `GitCtx` / `CommandLine` | いま評価中のパス（`passes/` のファイル。`eval/status`、評価中の行を変えさせない、§51。止める依頼 `eval/cancel` もここのファイル）、評価した行に記録する git の出どころ、`xipe do` の引数をコマンド列に読む |
 
 ---

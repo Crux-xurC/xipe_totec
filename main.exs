@@ -92,9 +92,10 @@ defmodule XipeTotec.CLI do
     if status == :new, do: resolve_env(project)
   end
 
-  # resolve the project's environment again now (a flake.nix at its root:
-  # nix print-dev-env, ProjectEnv) -- registration and `xipe table generate`
-  # are where it is refreshed regardless of env.refresh
+  # resolve the project's environment again now (the marker of
+  # project_env.json at its root: nix print-dev-env ..., ProjectEnv) --
+  # registration and `xipe table generate` are where it is refreshed
+  # regardless of env.refresh
   defp resolve_env(project) do
     {_env, status} = ProjectEnv.resolve(project.path, project.dir, force: true)
     print_env_status("xipe", status, true)
@@ -291,15 +292,14 @@ defmodule XipeTotec.CLI do
 
   # Until CLI writes are routed through a running server, a CLI
   # command that changes the book of the project a session is serving
-  # writes the same book.jsonl behind the server's back: the server keeps
-  # its in-memory book and never sees the change. Say so rather than stay
-  # silent.
+  # writes the same book.jsonl as the server. The server imports CLI writes
+  # on its next request, so warn only that this command writes directly.
   defp warn_if_session_project(project) do
     case Workspace.session() do
       {:ok, %{"project" => id, "port" => port}} when id == project.id ->
         IO.puts(
           :stderr,
-          "xipe: warning: xipe start (port #{port}) is serving this project -- this change goes to book.jsonl directly and the running server won't see it until it restarts"
+          "xipe: warning: xipe start (port #{port}) is serving this project -- this command writes to book.jsonl directly; the server imports it on its next request"
         )
 
       _ ->

@@ -46,7 +46,8 @@ defmodule XipeTotec.Lsp.Transport.Stdio do
             :exit_status,
             :use_stdio,
             {:cd, root},
-            {:env, Enum.map(env, fn {k, v} -> {String.to_charlist(k), String.to_charlist(v)} end)},
+            # false unsets one (a project's `null`, ProjectEnv)
+            {:env, Enum.map(env, fn {k, v} -> {String.to_charlist(k), if(v == false, do: false, else: String.to_charlist(v))} end)},
             {:args, ["-c", ~s(exec "$0" "$@" 2>/dev/null), path | args]}
           ])
 

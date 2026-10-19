@@ -28,7 +28,7 @@ nix develop
 | elixir-ls | スキャンで使う言語サーバー（tezcatl が無くても自分で起動する） |
 
 対応言語は `info.json` に登録されたものだけで、いまは Elixir（`.ex`/`.exs`）・OCaml（`.ml`）・Haskell（`.hs`）。
-OCaml・Haskell を評価するには、対象の環境（flake、§4.3）か PATH に `ocaml`・`ghci` が要る。各言語の
+OCaml・Haskell を評価するには、対象の環境（`project_env.json` の flake など、§4.3）か PATH に `ocaml`・`ghci` が要る。各言語の
 `embody`（別リポジトリ `~/my_app/embody`）も要る（§9.1）。
 `lib/repl/language/` に言語を足したときだけ `xipe refresh -l` を打つ（§9）。
 
@@ -425,17 +425,32 @@ REPL（`iex`）は1回の評価（pass）の間だけ保持し、評価が終わ
 
 ---
 
-### 4.3 対象プロジェクトの環境（flake.nix）
+### 4.3 対象プロジェクトの環境（`project_env.json`）
 
-対象プロジェクトの直下に `flake.nix` があると、その開発環境の中で `iex` と、自分で起動する
-言語サーバー（elixir-ls）を動かす。`nix develop` は毎回起動せず、`nix print-dev-env --json`
-で環境変数を1回だけ取り出して `tables/project/<id>_<名前>/env.json` に保存し、以降はそれを使う。
-tezcatl の中継経由の言語サーバーは tezcatl の環境で動くので、対象外。
+対象の環境の取り出し方は、xipe_totec の `project_env.json` に書く。書き方は tezcatl の `project_env.json`
+（tezcatl の D-project-env）と同じで、Nix を使わない人は行を書き換える・書き足すだけで済む。
 
-- 取り出すのは `xipe choice project`（初回）と `xipe table generate` のとき。`flake.nix`・`flake.lock`
-  の内容が変わったかどうかはハッシュで判定する
+```json
+{ "timeoutMs": 120000,
+  "entries": [
+    { "marker": "flake.nix", "command": ["nix", "print-dev-env", "--json"], "format": "nix", "watch": ["flake.nix", "flake.lock"] },
+    { "marker": ".envrc",    "command": ["direnv", "export", "json"],       "format": "env" },
+    { "marker": "mise.toml", "command": ["mise", "env", "--json"],          "format": "env" } ] }
+```
+
+対象プロジェクトの直下に `marker` のファイルがある最初の行を使い、その `command` を対象の直下で走らせる。
+出てきた環境の中で `iex` と、自分で起動する言語サーバー（elixir-ls）を動かす。毎回は走らせず、1回だけ
+取り出して `tables/project/<id>_<名前>/env.json` に保存し、以降はそれを使う。tezcatl の中継経由の言語サーバーは、
+tezcatl の `project_env.json` から同じように環境を得る。
+
+- `format` は2つ: `env`（`{"名前": "値" | null}`。null はその変数を外す。direnv・mise・自分のスクリプト。値はそのまま使う）と
+  `nix`（`nix print-dev-env --json`。`nix develop` と同じく `HOME`・`TMPDIR` などは入れず、`PATH`・`XDG_DATA_DIRS` は `env.path` に従う）
+- 取り直すのは `xipe choice project`（初回）と `xipe table generate` のとき、それと `env.refresh=auto` で変わっていたとき。
+  変わったかどうかは `watch` のファイル（省くと `marker`）と、その行の書き方のハッシュで判定する（`watch` は xipe_totec だけが読む。
+  tezcatl は1回だけ尋ね、`env reload` まで持つ）
 - flake の `shellHook` は実行されない。`shellHook` の中で `export` している変数は入らない
-- `flake.nix` が無い対象（`shell.nix` だけの対象を含む）は、xipe 自身の環境のまま動く
+- `marker` が直下に無い対象は、xipe 自身の環境のまま動く（tezcatl と違い、上のディレクトリは探さない。対象の root は人が登録したもの）
+- 時間の上限は `timeoutMs`（既定 120 秒）。超えたら `error` で、xipe 自身の環境か前回の環境で動く
 - スキャン・評価の結果の `env`（`xipe scan` の出力）に、`cached`（保存済みを使った）・`resolved`
   （取り直した）・`stale`・`error` のどれかが出る。`stale`・`error` は評価のときにも警告が出る
 
@@ -454,9 +469,9 @@ $ xipe config env.refresh=manual eval.timeout=20000
 
 | 設定 | 値 | 意味 |
 |---|---|---|
-| `env.path` | `prepend`（既定） | flake の `PATH` を xipe の `PATH` の前に足す。対象のツールが優先され、`git` などの周辺コマンドも使える |
-| | `replace` | flake の `PATH` だけを使う。flake に無いコマンドは使えない（elixir-ls は初回に `git` を使うので、flake に `git` が無いと起動しない） |
-| `env.refresh` | `auto`（既定） | flake が変わっていれば、次のスキャン・評価のときに取り直す（その回は数秒遅くなる） |
+| `env.path` | `prepend`（既定） | `nix` の環境の `PATH` を xipe の `PATH` の前に足す。対象のツールが優先され、`git` などの周辺コマンドも使える（`env` の環境は値をそのまま使う） |
+| | `replace` | `nix` の環境の `PATH` だけを使う。flake に無いコマンドは使えない（elixir-ls は初回に `git` を使うので、flake に `git` が無いと起動しない） |
+| `env.refresh` | `auto`（既定） | `watch` のファイル（flake なら `flake.nix`・`flake.lock`）が変わっていれば、次のスキャン・評価のときに取り直す（その回は数秒遅くなる） |
 | | `manual` | `xipe table generate` のときだけ取り直す。それまでは古い環境のまま動き、警告を出す |
 | `eval.timeout` | ms（既定 5000、100〜600000） | 計算行1件が走ってよい時間。超えた行は `timeout`。変えると次のパスから効く |
 | `eval.boot_timeout` | ms（既定 15000、1000〜1800000） | パスが REPL の準備（ビルド込み）を待つ時間。超えると `boot_failed` |
@@ -773,7 +788,8 @@ xipe eval                                # 何度でも。compare で変化を�
 | `info.json` | 登録済みの言語と拡張子、言語ごとの REPL とビルドツールの優先順位、REPL アダプタ |
 | `pipelines.json` | Pipeline 経由の method の登録（通常は触らない） |
 | `tables/project/<id>_<名前>/project.json` | 対象プロジェクトの絶対パス（照合キー）と、プロジェクトごとの設定（§4.3） |
-| `tables/project/<id>_<名前>/env.json` | flake.nix から取り出した環境変数とハッシュ（§4.3） |
+| `project_env.json` | 対象の環境の取り出し方（marker・command・format・watch。tezcatl と同じ書き方、§4.3） |
+| `tables/project/<id>_<名前>/env.json` | `project_env.json` の行で取り出した環境変数と、どの marker か・ハッシュ（§4.3） |
 | `tables/project/<id>_<名前>/table` | ファイル→言語の表（言語・REPL・ビルドツール）。スキャン・評価はこれを読む |
 | `tables/project/<id>_<名前>/book.jsonl` | Book。追記のみの JSON Lines で、同じ id の最後の行が現在の値 |
 | `tables/selection.json` | 選択中のプロジェクト（`xipe choice project` が書く） |
@@ -891,7 +907,7 @@ xipe refresh -a     # 両方
 | `xipe start: a session is already running` | 既に動いている。止めるなら記録にある pid に SIGTERM を送る |
 | サーバーの表に CLI の変更が出ない | サーバーは次の要求で取り込むが、tezcatl の表は自動では変わらない。`matrix update` で取り直す |
 | スキャンが遅い | 初回は elixir-ls の起動を待つ。急ぐなら `XIPE_TOTEC_LSP=off` |
-| `env stale (flake.nix)` | `env.refresh=manual` で、flake が変わった。`xipe table generate` で取り直す（§4.3） |
-| `env error (flake.nix)` | `nix print-dev-env` が失敗した（flake の評価エラー、git 管理下で `flake.nix` が未追跡、など）。xipe 自身の環境か、前回の環境で動く |
+| `env stale (flake.nix)` | `env.refresh=manual` で、`watch` のファイル（flake）が変わった。`xipe table generate` で取り直す（§4.3） |
+| `env error (flake.nix)` | `project_env.json` の行のコマンドが失敗した（flake の評価エラー、git 管理下で `flake.nix` が未追跡、時間切れ、など。文言の最後はコマンドの標準エラーの最後の行）。括弧は marker。xipe 自身の環境か、前回の環境で動く |
 | mix プロジェクトなのに scripts-mode で起動する | ビルドツールは table を作ったときの判定。`xipe table generate` を打つ |
 | `stdio: language server exited (status 1)`（`env.path=replace`） | flake の `PATH` に elixir-ls が必要とするコマンド（`git` など）が無い。flake に足すか `prepend` にする |
