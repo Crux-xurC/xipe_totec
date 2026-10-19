@@ -37,5 +37,5 @@ table jumps to definitions by `path` and `line`.
 ## Notes
 
 - `row/add`'s checks (the node exists, the argument count fits — D-cli-values, D-arity-set) and the `row_in_pass` refusals (D-passes) are here
-- `line` is from the scan: it drifts when the source changes until the next scan (`範囲.md`)
+- `line` is from the scan: it drifts when the source changes until the next scan (`scope.md`)
 - Verified: not yet verified cold (written from the code, 2026-10-19)

@@ -6,7 +6,7 @@
 ## 最初に読む順
 
 1. `README.md` ── 何のためのものか、何ではないか、設計原則 P1〜P10、いまどこまで動くか
-2. `document/範囲.md` ── **動くと約束している範囲・その外で起きること・これから範囲に入れるもの（予定）**。
+2. `document/scope.md` ── **動くと約束している範囲・その外で起きること・これから範囲に入れるもの（予定）**。
    いま未解決のこと・次にやることもここ（tezcatl の分は `../tezcatl/docs/scope.md`）
 3. `document/verification/` ── **決定の置き場所**（英語）。`decisions.md` が生きている決定（`D-…`）と撤回した案の一覧、
    `index.md` が全ファイルの1行、`<パスの / を - にしたもの>.md` がファイルごとの記録（何をするか・なぜ・その決定・選ばなかったもの）。
@@ -21,9 +21,9 @@
 （2026-10-19、git の管理外。中身を移し終えて要らなくなったものは、同じく `旧<名前>` として残し `.gitignore` で外す）。
 ほかの文書にある「`Old.md` §N」はこの旧Old.md の節で、どの決定に当たるかは `decisions.md` の「Earlier」の列で引ける。
 ほかの文書にある `課題.md`・`next_step.md` の名前は、`work_history/` の同名のファイルを指す。
-これからの経緯は git のコミットメッセージに、決めたことは `document/verification/` に、範囲は `範囲.md` に書く。
+これからの経緯は git のコミットメッセージに、決めたことは `document/verification/` に、範囲は `scope.md` に書く。
 
-**レビュー・検証をするとき**は、先に `document/範囲.md`（と `../tezcatl/docs/scope.md`）を読む。範囲の外で
+**レビュー・検証をするとき**は、先に `document/scope.md`（と `../tezcatl/docs/scope.md`）を読む。範囲の外で
 書いてあるとおりに起きることは、不具合として挙げない（挙げてよい場合は同文書の「読み方」）。過去の指摘と
 その扱いは `work_history/課題.md` §6「全体レビュー（2026-10-02〜03）」。
 
@@ -67,4 +67,4 @@ xipe_totec はこのディレクトリが独立した git リポジトリ（2026
 - tezcatl（`../tezcatl`）は窓。どのプロジェクトを開くかを決めるのは xipe_totec（`xipe choice project`）
 - tezcatl は xipe_totec の人向けの文字列を解釈しない（`document/verification/lib-protocol.exs.md` の D-envelope「I/Oは解析対象ではない」）
 - tezcatl の対話窓は `input` `{"text": "<打った行>"}` だけを送る。行の意味は xipe_totec が決める。
-  未実装の受け口は `document/範囲.md` の「予定」
+  未実装の受け口は `document/scope.md` の「予定」

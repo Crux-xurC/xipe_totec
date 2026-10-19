@@ -136,7 +136,7 @@ guard their decisions.
 
 | File | What |
 |---|---|
-| `document/範囲.md` | What is promised to work, what happens outside it, what a person does (Japanese; to be put into English, citing these records). |
-| `document/How_to_use.md`, `動作原理.md`, `拡張の手引き.md`, `repl-adapter-guide.md` | Use, the order things are called in, extending, writing a REPL adapter (Japanese; to follow). |
+| [`document/scope.md`](../scope.md) | What is promised to work, what happens outside it, what a person does, and the work not done — citing these records. The Japanese original is kept locally as `work_history/旧範囲.md`. |
+| `document/How_to_use.md`, `動作原理.md`, `拡張の手引き.md`, `repl-adapter-guide.md` | Use, the order things are called in, extending, writing a REPL adapter (Japanese; to be put into English next). |
 | `document/verification/` | This directory. |
 | `work_history/課題.md`, `next_step.md`, `xipe_totec_spec_v0.4.html` | The record to 2026-10-10 (Japanese): open issues, plans, the draft spec. Not added to. |

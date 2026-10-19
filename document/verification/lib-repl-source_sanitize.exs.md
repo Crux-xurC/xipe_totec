@@ -32,6 +32,6 @@ its code.
 
 ## Notes
 
-- Files load in alphabetical order: a file whose `defmodule` needs another's struct or macro at compile time must come after it (`範囲.md`)
+- Files load in alphabetical order: a file whose `defmodule` needs another's struct or macro at compile time must come after it (`scope.md`)
 - The original is read when iex boots, not when the loader is written
 - Verified: not yet verified cold (written from the code, 2026-10-19)

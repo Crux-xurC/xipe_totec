@@ -40,6 +40,6 @@ boundaries, which are not handled); extensions written in `SurfaceTable` (the st
 
 ## Notes
 
-- A command to set a row's language by hand (for clashing extensions, files without one) is planned (`範囲.md`)
+- A command to set a row's language by hand (for clashing extensions, files without one) is planned (`scope.md`)
 - A table that cannot be read is refused before the command, with how to make it again (commit 3b39709)
 - Verified: not yet verified cold (written from the code, 2026-10-19)

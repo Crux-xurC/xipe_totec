@@ -180,7 +180,7 @@ Several projects can be handled. Once `xipe choice project` chooses the target, 
 
 **What is in progress is more languages.** The table that decides language, REPL and build tool (`SurfaceTable`) is in place, with
 Elixir (+ mix), OCaml (+ dune) and Haskell (+ stack, cabal). For the rest see [`work_history/課題.md`](work_history/課題.md) (Japanese)
-and [`document/範囲.md`](document/範囲.md) (Japanese).
+and [`document/scope.md`](document/scope.md) (Japanese).
 
 ---
 
@@ -313,7 +313,7 @@ The documents other than this README are in Japanese for now.
 | [`document/動作原理.md`](document/動作原理.md) | for each use, what is called in what order, and which program does it |
 | [`document/拡張の手引き.md`](document/拡張の手引き.md) | for someone adding a language or a command (and their AI): what to start from and what behaviour to meet |
 | [`document/repl-adapter-guide.md`](document/repl-adapter-guide.md) | how to write an adapter for a new language or REPL (the detailed reference from when Elixir was written; the entrance is the extension guide) |
-| [`document/範囲.md`](document/範囲.md) | what is promised to work, what happens outside it, and what a person does there |
+| [`document/scope.md`](document/scope.md) | what is promised to work, what happens outside it, and what a person does there |
 | [`work_history/課題.md`](work_history/課題.md) | what is unsolved now, and what comes next (to 2026-10-10) |
 | [`document/verification/`](document/verification/README.md) | every decision in force (`decisions.md`), every file (`index.md`), and a record per file: what it does, why, the decisions homed in it, what was not chosen. The decisions were taken out of the old history of decisions (`Old.md`, now kept only locally) |
 | `work_history/xipe_totec_spec_v0.4.html` | the draft spec (v0.4). Many differences from the implementation remain (the "documents" section of `課題.md`). Where they disagree, the records of `document/verification/` win |

@@ -44,7 +44,7 @@ is enough (D-scanners); loading the project's own `.cma`.
 
 ## Notes
 
-- Not supported (`範囲.md`): files needing ppx, two files of the same name, one `dune` file with several libraries (no aliases),
+- Not supported (`scope.md`): files needing ppx, two files of the same name, one `dune` file with several libraries (no aliases),
   `(wrapped false)` and a library's own `x.ml` (no alias needed)
 - dune builds into the project (`_build/`) — a departure from "nothing is written into the target", like elixir-ls's `.elixir_ls/`
 - Verified: not yet verified cold (written from the code, 2026-10-19)

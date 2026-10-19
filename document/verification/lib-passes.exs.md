@@ -41,7 +41,7 @@ CLIs. A judging step that never ends looked the same as a hung call; the phase t
 
 ## Notes
 
-- `eval/cancel` does not undo what a `writes` function already did (`範囲.md`)
+- `eval/cancel` does not undo what a `writes` function already did (`scope.md`)
 - A scan cannot be stopped (`scan/cancel` is only an idea)
 - OCaml and Haskell do not print `XT_CALLED` yet, so their phase stays `calling`
 - Verified: not yet verified cold (written from the code, 2026-10-19)

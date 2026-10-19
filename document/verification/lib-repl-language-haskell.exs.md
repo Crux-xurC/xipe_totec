@@ -47,5 +47,5 @@ live memory — not used).
 - Functions returning `IO` are not run; their type is the display (`observeIO` is not designed). No float tolerance in `compare`
 - stack has no global offline switch: a configuration that needs a snapshot fetched may go to the network
 - cabal writes `dist-newstyle/`, stack `.stack-work/` into the project
-- Out of scope (`範囲.md`): an exception whose own message throws cuts embody's `crash` line
+- Out of scope (`scope.md`): an exception whose own message throws cuts embody's `crash` line
 - Verified: not yet verified cold (written from the code, 2026-10-19)

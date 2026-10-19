@@ -44,6 +44,6 @@ same as in a terminal.
 
 ## Notes
 
-- Lines sent without waiting for the answer run at the same time; the window's way is one line, then its answer (`範囲.md`)
-- Two windows share one dialogue (one connection, one slot): another window's line becomes the answer (`範囲.md`)
+- Lines sent without waiting for the answer run at the same time; the window's way is one line, then its answer (`scope.md`)
+- Two windows share one dialogue (one connection, one slot): another window's line becomes the answer (`scope.md`)
 - Verified: not yet verified cold (written from the code, 2026-10-19)

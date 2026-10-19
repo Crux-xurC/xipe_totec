@@ -274,7 +274,7 @@ eval/cancel  ok  pass 01M4R8F0… is being stopped (nothing of it is recorded)
 - `pass_id` は `eval/status` に出る。走っているパスが1つなら書かなくてよい。2つ以上なら書く
 - サーバーの順番待ちのパスは `eval/cancel pass_id=<id>` で列から外れる（`status` は `dequeued`）。走っているものは `cancelling`
 - 端末が別でも止められる（止める依頼も `passes/` のファイル）。何も走っていなければ `no_pass`
-- スキャンは止められない（`範囲.md`）
+- スキャンは止められない（`scope.md`）
 
 **評価中の行は変えられない。** パスが走っている間、その対象の行への `row/update`・`row/set-result`・
 `row/remove` は `row_in_pass` で断られる（終わってからやり直す）。評価した値が、計算に使っていない

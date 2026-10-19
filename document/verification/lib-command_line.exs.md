@@ -32,6 +32,6 @@ that did not exist was accepted too (the code did not check what `Old.md` §16.1
 ## Notes
 
 - An element that itself contains a comma (an Elixir list as one argument) cannot be written on one line; `dialogue do` takes a list one
-  element a line (`範囲.md`)
+  element a line (`scope.md`)
 - Quotes are the shell's: `args=["hi"]` loses its quotes before `xipe` sees it
 - Verified: not yet verified cold (written from the code, 2026-10-19)

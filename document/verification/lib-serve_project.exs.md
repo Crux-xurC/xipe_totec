@@ -46,5 +46,5 @@ that long would freeze every window. Serial passes keep two evaluations of one p
 - The connection-local state (`initialized?`, declared capabilities, the dialogue slot) lives in `Serve.Socket`, not here: each entrance
   (stdio, WebSocket …) would naturally have its own session
 - `Serve.Socket` refuses browser connections by `Origin` (`XIPE_TOTEC_ALLOWED_ORIGINS`): only localhost programs, such as tezcatl's relay,
-  connect (`範囲.md`)
+  connect (`scope.md`)
 - Verified: not yet verified cold (written from the code, 2026-10-19)

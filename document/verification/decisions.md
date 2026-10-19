@@ -2,7 +2,7 @@
 
 Every decision in force, by layer: its name, what it decides in one line, its home record (in this directory), and the sections of
 `Old.md` (Japanese; kept locally as `work_history/旧Old.md`, not in git) it came from. Decisions after 2026-10-10 came from commits
-(named by hash) and `document/範囲.md`. Then the proposals that were withdrawn, and what replaced them.
+(named by hash) and `document/scope.md`. Then the proposals that were withdrawn, and what replaced them.
 
 ## Evaluation model
 
@@ -39,7 +39,7 @@ Every decision in force, by layer: its name, what it decides in one line, its ho
 
 | Decision | What | Home | Earlier |
 |---|---|---|---|
-| D-identity | IDs are surrogate keys (ULIDs), names natural keys; a rescan keeps an ID only on an exact match of (path, module, name, arity/anykey); a function gone is a tombstone, and does not come back | [`lib/identity.exs`](lib-identity.exs.md) | §4.5, README P3, `範囲.md` |
+| D-identity | IDs are surrogate keys (ULIDs), names natural keys; a rescan keeps an ID only on an exact match of (path, module, name, arity/anykey); a function gone is a tombstone, and does not come back | [`lib/identity.exs`](lib-identity.exs.md) | §4.5, README P3, `scope.md` |
 | D-scanners | a file is read by its language's Scanners in order of preference: Elixir through a language server (tezcatl's `/lsp`, else elixir-ls started by itself) then its own parser; OCaml and Haskell from text (no ocamllsp, no HLS). Cards follow the disk | [`lib/scanner/lsp.exs`](lib-scanner-lsp.exs.md) | §21.4, §42.4, §46.3, README |
 | D-references-list | the list of who calls a function comes from the static links (`:links`, `graph/neighbors`) after a full scan; rewriting the source (renames) is the editor's | [`lib/graph_query.exs`](lib-graph_query.exs.md) | §21, §21.1 (withdraws linked editing) |
 | D-address | an address is a set of columns matched as a filter (`file`, `module`, `name`, `arity`/`anykey`, `row` …); one match is the target, several are candidates; a value that is neither number nor string is refused | [`lib/address.exs`](lib-address.exs.md) | §9, §56.1 |
@@ -55,7 +55,7 @@ Every decision in force, by layer: its name, what it decides in one line, its ho
 | D-command-list | input → command list → action: a command list is data in the wire shape (`[{method, params}]`), `$<n>.<path>` refers to an earlier result at run time, failures do not stop the list; the pseudo-method `eval` is the one operation that uses a REPL; a written but empty `call_ids` is refused | [`lib/runner.exs`](lib-runner.exs.md) | §12, §16.5, §37.1, §54 |
 | D-pipeline | combinations of commands are data (`pipelines.json`): `eval/run` = `eval`, `row/update` = `edit` then `eval` of that row alone | [`lib/pipeline.exs`](lib-pipeline.exs.md) | §15, §37 |
 | D-cli-values | in `xipe do`, `[...]` is always a list, a bare value with commas is a list, anything else a string; `row/add` makes a row only for a node that exists, with the right number of arguments | [`lib/command_line.exs`](lib-command_line.exs.md) | §32 |
-| D-method-criteria | methods are added only for: using the target's environment, writing the Book, reading something whole, the minimum to look at it simply; new information comes as columns. Narrowing, sorting and following are the receiver's | [`lib/methods.exs`](lib-methods.exs.md) | `範囲.md` (2026-10-11/12), f59d4d8 |
+| D-method-criteria | methods are added only for: using the target's environment, writing the Book, reading something whole, the minimum to look at it simply; new information comes as columns. Narrowing, sorting and following are the receiver's | [`lib/methods.exs`](lib-methods.exs.md) | `scope.md` (2026-10-11/12), f59d4d8 |
 
 ## Dialogues and the window
 
@@ -109,6 +109,6 @@ Every decision in force, by layer: its name, what it decides in one line, its ho
 
 ## Not yet decided
 
-Kept in `work_history/課題.md` and `document/範囲.md` ("予定"): the doctest export's fresh path and its priority (§9), the trace table
+Kept in `work_history/課題.md` and `document/scope.md` ("予定"): the doctest export's fresh path and its priority (§9), the trace table
 (frozen), converting values across languages (`next_step.md` §2.6), `observeIO` for Haskell, `binary` and float tolerance for OCaml,
 choosing a language per row by hand, routing CLI writes through a running server.

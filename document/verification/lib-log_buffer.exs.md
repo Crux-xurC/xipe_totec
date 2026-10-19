@@ -27,7 +27,7 @@ point back at ("the file that line named").
 **Files**: `lib/log_buffer.exs`, `lib/outcome_text.exs` (the limits line), `lib/dialogue/update.exs`, `main.exs`, `lib/serve_input.exs`;
 tests `test/dialogue_update_test.exs`.
 
-**Earlier**: commit 901166d; `document/範囲.md`.
+**Earlier**: commit 901166d; `document/scope.md`.
 
 ## Notes
 

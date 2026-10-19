@@ -3,7 +3,7 @@
 What each file does, why it is written that way, and the decisions it is home to. This directory replaces `Old.md` (the history of
 decisions, Japanese, to 2026-10-10) as the place a decision is read from. The decisions were taken out of it into these records;
 `Old.md` is kept locally as `work_history/旧Old.md` (not in git) for how a decision came about, and is not added to. "Earlier:
-`Old.md` §N" in a record names its section there. Decisions made after 2026-10-10 come from the commit messages and `document/範囲.md`.
+`Old.md` §N" in a record names its section there. Decisions made after 2026-10-10 come from the commit messages and `document/scope.md`.
 
 When a record and the code disagree, trust the code and fix the record (keep the disagreement in its notes).
 
@@ -42,7 +42,7 @@ One or two sentences: what it does.
 ## Notes
 
 - Pitfalls: what only reading the code reveals
-- Difference from the documents: where `README.md`, `How_to_use.md`, `動作原理.md` or `範囲.md` say otherwise; "none" if none
+- Difference from the documents: where `README.md`, `How_to_use.md`, `動作原理.md` or `scope.md` say otherwise; "none" if none
 - Verified: date and commit, or "not yet verified cold"
 ```
 
@@ -56,5 +56,5 @@ One or two sentences: what it does.
 
 1. `decisions.md` — the map (done)
 2. the records, layer by layer, and `index.md` (done, 2026-10-19; not yet verified cold)
-3. then the documents that cite `Old.md §N` (`範囲.md`, `課題.md`, `動作原理.md`, `How_to_use.md`, `拡張の手引き.md`,
+3. then the documents that cite `Old.md §N` (`scope.md`, `課題.md`, `動作原理.md`, `How_to_use.md`, `拡張の手引き.md`,
    `repl-adapter-guide.md`) are pointed at the records and put into English

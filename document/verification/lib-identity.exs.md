@@ -30,7 +30,7 @@ rows to a different function.
 **Files**: `lib/identity.exs`, `lib/book.exs` (`find_node_by_natural_key/4`), `lib/scanner.exs` (`put_defs`, carrying `effect` and
 `arities` over), `lib/project.exs` (removing what is gone); tests `test/scanner_test.exs`, `test/project_test.exs`.
 
-**Earlier**: `Old.md` §4.5; `範囲.md` ("ソースと表のずれ").
+**Earlier**: `Old.md` §4.5; `document/scope.md` ("Source and table drifting apart").
 
 ## Notes
 

@@ -44,6 +44,6 @@ HLS dialect; scanning only by compiling.
 
 ## Notes
 
-- Unsaved edits the server holds: a deleted last function or a change inside a body can be missed (`範囲.md`)
+- Unsaved edits the server holds: a deleted last function or a change inside a body can be missed (`scope.md`)
 - A scan cannot be stopped
 - Verified: not yet verified cold (written from the code, 2026-10-19)

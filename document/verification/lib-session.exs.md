@@ -20,7 +20,7 @@ record.
   a long while a pid may belong to another program, which would otherwise pass for the session and send commands to the wrong project.
   An old record without `os_started` is judged by the pid alone
 - A record whose process is gone is simply absent: a stale file never needs cleaning by hand
-- A session that cannot write its record runs anyway and says so; other commands then do not know it (`範囲.md`)
+- A session that cannot write its record runs anyway and says so; other commands then do not know it (`scope.md`)
 
 **Why**: the CLI is short-lived and the server long-lived; a file both read is how a CLI command learns which project the running server
 serves.

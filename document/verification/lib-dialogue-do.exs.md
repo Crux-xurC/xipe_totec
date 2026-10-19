@@ -41,9 +41,9 @@ is settled by dialogue). One asker keeps the three consistent.
 `lib/tables.exs` (`writes`), `lib/dispatch.exs` (`row/set-args`, `row/set-prev`, `config/set`); tests `test/dialogue_do_test.exs`,
 `test/dialogue_rewrite_test.exs`, `test/dialogue_update_test.exs`, `test/serve_input_test.exs`.
 
-**Earlier**: commits f59d4d8 (`dialogue do`), adbce04 (`dialogue rewrite`), 901166d (`dialogue update`), 44b4c9c; `document/範囲.md`.
+**Earlier**: commits f59d4d8 (`dialogue do`), adbce04 (`dialogue rewrite`), 901166d (`dialogue update`), 44b4c9c; `document/scope.md`.
 
 ## Notes
 
-- `dialogue do`'s list must be one element a line: `{1, 2}` on one line is not read as a list (`範囲.md`)
+- `dialogue do`'s list must be one element a line: `{1, 2}` on one line is not read as a list (`scope.md`)
 - Verified: not yet verified cold (written from the code, 2026-10-19)
