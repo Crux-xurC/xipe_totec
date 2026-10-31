@@ -144,7 +144,8 @@ The "Records" column points at the decision records (`document/verification/`) o
 ## Work not started, and ideas to reconsider
 
 Unimplemented work inside the scope, kept apart from optional features to reconsider only when a need becomes concrete. "Decided (not
-implemented)" has its course set; "Ideas" have no settled form and are not part of the present promise.
+implemented)" has its course set; "Decided, put in when needed" has its form set but waits for a need, with what happens until then;
+"Ideas" have no settled form and are not part of the present promise.
 
 ### Decided (not implemented)
 
@@ -153,9 +154,17 @@ implemented)" has its course set; "Ideas" have no settled form and are not part 
 | embody's E-A: one time limit for a whole entry (not set again at each stage); after the time settings (in since 2026-10-13) | Haskell values taking two stages or more no longer end as `session_hung` | — |
 | Wording: a note about quotes in `help` for `do`, `row/add`, `row/update` | — | — |
 | Values that cannot be passed (`binary` …) settled by a person — no special dialogue: `dialogue rewrite`'s `result` puts one in (the dialogue is in; whether it is enough is checked in the end-to-end tests with tezcatl) | The remedy of "referring to a `binary` or `unsupported` value" above | — |
-| When ids are left out and more than 100 rows would be evaluated, show the count and confirm the whole evaluation; default "no"; not without an explicit choice when not interactive | Prevents evaluating everything by accident; initial threshold 100 | `main.exs` `eval/1`; not implemented |
-| On registering, making the table, starting or evaluating: check the OCaml / Haskell embody adapter, and when missing say in English that functions of that language — pure ones included — cannot be evaluated. Scanning, cards and lists still work. With the adapter, Haskell's `IO` actions are still not run | embody is required per language for evaluation, not by Xipe Totec as a whole | [D-embody](verification/lib-repl-embody.exs.md#d-embody), each language's `launch.exs`; the message is not implemented |
-| Say clearly in the CLI's help and at start, in English, what is evaluated, its side effects, and what remains after a cancel | People and automation judge the same safety boundary | `README.md`, `lib/help.exs`; wording not finished |
+
+### Decided, put in when needed
+
+Their form is settled, but they wait until a need appears (for example, people other than the author using Xipe Totec day to day).
+Until then, the "Today" column is what happens and what a person keeps in mind.
+
+| What | Today | Records |
+|---|---|---|
+| When ids are left out and more than 100 rows would be evaluated, show the count and confirm the whole evaluation; default "no"; not without an explicit choice when not interactive | `xipe eval` without ids evaluates every calc row of the project at once, without asking. Name the rows to evaluate | `main.exs` `eval/1` |
+| On registering, making the table, starting or evaluating: check the OCaml / Haskell embody adapter, and when missing say in English that functions of that language — pure ones included — cannot be evaluated (scanning, cards and lists still work; with the adapter, Haskell's `IO` actions are still not run) | Nothing is said before evaluating. Without embody, evaluating that language's rows fails (OCaml: every row crashes with `Unbound module Embody`). Clone embody next to Xipe Totec, or set `XIPE_TOTEC_EMBODY_DIR` | [D-embody](verification/lib-repl-embody.exs.md#d-embody), each language's `launch.exs` |
+| Say clearly in the CLI's help and at start, in English, what is evaluated, its side effects, and what remains after a cancel | Said in the README ("Before you use it") only; `xipe help` and `xipe start` do not say it | `README.md`, `lib/help.exs` |
 
 ### Ideas (form not settled)
 
