@@ -40,8 +40,6 @@ is enough (D-scanners); loading the project's own `.cma`.
 `lib/repl/ocaml/eval_template.exs`, `lib/scanner/ocaml.exs`, embody's `embody.ml`; tests `test/ocaml_adapter_test.exs`,
 `test/live/repl_ocaml_test.exs`; fixtures `test/fixtures/ocaml_sample/`, `test/fixtures/ocaml_dune/`.
 
-**Earlier**: `Old.md` §38, §42, §43.
-
 ## Notes
 
 - Not supported (`scope.md`): files needing ppx, two files of the same name, one `dune` file with several libraries (no aliases),

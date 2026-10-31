@@ -22,7 +22,7 @@ of a pass) and handed to `Core.apply_results/3`. Core and the Evaluator never ru
 
 **Files**: `lib/git_ctx.exs`, `main.exs`, `lib/serve_project.exs`, `lib/core.exs`.
 
-**Earlier**: `Old.md` §11.6, §16.5 (2); README P2.
+**Earlier**: README P2.
 
 ## Notes
 

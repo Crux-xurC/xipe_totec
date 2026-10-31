@@ -33,14 +33,14 @@ D-language-adapter ([`lib/repl/language.exs`](lib-repl-language.exs.md))
 **Why**: P8 — complete alone, a language server only on top; P4 — what a server gives is taken where it answers, not trusted blindly. A
 language server reads a project as its compiler does, without Xipe Totec compiling the project.
 
-**Alternatives**: deciding languages and project boundaries through the language server (§21.4 — narrowed to what is needed); an ocamllsp /
+**Alternatives**: deciding languages and project boundaries through the language server (narrowed to what is needed); an ocamllsp /
 HLS dialect; scanning only by compiling.
 
 **Files**: `lib/scanner.exs`, `lib/scanner/lsp.exs`, `lib/scanner/lsp/elixir.exs`, `lib/scanner/elixir.exs`, `lib/scanner/ocaml.exs`,
 `lib/scanner/haskell.exs`, `lib/lsp/transport/{relay,stdio}.exs`, `lib/project.exs`; tests `test/scanner_lsp_test.exs`,
 `test/scanner_test.exs`, `test/ocaml_adapter_test.exs`, `test/haskell_adapter_test.exs`.
 
-**Earlier**: `Old.md` §16.1 (`defp`), §21.2–21.4, §42.4, §46.3; README ("Structure").
+**Earlier**: README ("Structure").
 
 ## Notes
 

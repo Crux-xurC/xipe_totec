@@ -3,11 +3,11 @@
 > **The entrance is `document/extending.md`.** This guide is the detailed reference written while Elixir was implemented (2026-09-18 to
 > 09-26). OCaml and Haskell came later ([D-ocaml-adapter](verification/lib-repl-language-ocaml.exs.md#d-ocaml-adapter),
 > [D-haskell-adapter](verification/lib-repl-language-haskell.exs.md#d-haskell-adapter)) and added a third part, **embody**, a fixed module
-> loaded into the target's REPL (a separate repository, `~/my_app/embody`). The candidate checklists at the end were drafted before any of
+> loaded into the target's REPL (a separate repository, [embody](https://github.com/Crux-xurC/embody)). The candidate checklists at the end were drafted before any of
 > them was implemented; for OCaml and Haskell the real forms (the plain `ocaml` toplevel, not `utop`; GHCi entries bound with `let` …) are
 > in those records.
 
-Readers: whoever writes a REPL adapter for a language other than Elixir (spec §12.6's candidates: Haskell/GHCi, OCaml, Clojure, Racket …),
+Readers: whoever writes a REPL adapter for a language other than Elixir (the candidates considered: Haskell/GHCi, OCaml, Clojure, Racket …),
 person or AI, without knowing the conversations that led here.
 
 Elixir's adapter is complete and checked end to end on a real `iex` (start → readiness → evaluation → compare → parsing → leaving). Every

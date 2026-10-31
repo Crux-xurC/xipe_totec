@@ -35,7 +35,7 @@ value echoed by iex, a stray print) is ignored.
 `lib/repl/eval/parser.exs`, `lib/repl/eval_template.exs`; embody's `embody.ml` / `embody.hs`; tests `test/repl_eval_scan_test.exs`,
 `test/repl_eval_scan_direct_iex_test.exs`, `test/repl_eval_parser_test.exs`.
 
-**Earlier**: `Old.md` §10, §10.1, §10.4, §10.6, §14.3, §35.1-6 (`XT_READY`), §51 (`XT_CALLED`); `repl-adapter-guide.md` ("do not change").
+**Earlier**: `repl-adapter-guide.md` ("do not change").
 
 ## Notes
 

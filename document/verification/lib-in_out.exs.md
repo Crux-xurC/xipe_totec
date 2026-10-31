@@ -46,10 +46,10 @@ channel for final results.
 **Files**: `lib/in_out.exs`, `lib/dialogue.exs`, `lib/dialogue/*.exs`, `lib/serve_project.exs` (`request_dialogue/5`),
 `lib/serve_socket.exs` (the slot), `main.exs` (the CLI prompt); tests `test/in_out_test.exs`.
 
-**Earlier**: `Old.md` §16.4, §17, §17.1, §17.3, §41.3; `dialogue do` / `rewrite` / `update` from f59d4d8, adbce04, 901166d.
+**Earlier**: `dialogue do` / `rewrite` / `update` from f59d4d8, adbce04, 901166d.
 
 ## Notes
 
-- The two bits in `Old.md` §17's table and the field `via_repl` point in opposite directions for bit 2 (`via_repl: true` is the table's
+- The two bits of the first design's table and the field `via_repl` point in opposite directions for bit 2 (`via_repl: true` is the table's
   "bit2 = 0, to the REPL") — read them by value, not by name (D-envelope)
 - Verified: not yet verified cold (written from the code, 2026-10-19)

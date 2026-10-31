@@ -41,13 +41,13 @@ Nix adds a line:
 implementation could not serve a version without Nix. Declaring the command keeps Xipe Totec ignorant of the tools, and reading only JSON keeps
 to "never parse text for people".
 
-**Alternatives**: wrapping the REPL's argv in `nix develop <root> --command` (§25.2); the flake as the only source (the form until
+**Alternatives**: wrapping the REPL's argv in `nix develop <root> --command`; the flake as the only source (the form until
 2026-10-19); walking up for a marker.
 
 **Files**: `lib/project_env.exs`, `project_env.json`, `lib/project_config.exs`, `lib/runner.exs`, `lib/dispatch.exs` (`scan/run`),
 `lib/repl/sender_direct.exs`, `lib/lsp/transport/stdio.exs`, `main.exs` (`resolve_env`); tests `test/project_env_test.exs`.
 
-**Earlier**: `Old.md` §25.2, §25.6; commit 0bb3e88.
+**Earlier**: commit 0bb3e88.
 
 ## Notes
 

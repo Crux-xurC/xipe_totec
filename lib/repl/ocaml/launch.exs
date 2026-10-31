@@ -44,7 +44,7 @@ defmodule XipeTotec.Repl.Ocaml.Launch do
 
   @doc """
   `embody.ml`'s path: in `$XIPE_TOTEC_EMBODY_DIR`, else the `embody`
-  directory next to this xipe_totec checkout (`~/my_app/embody`). embody is
+  directory next to this xipe_totec checkout (`../embody`). embody is
   its own repository; when it isn't there, every entry is a crash saying
   `Unbound module Embody`.
   """

@@ -28,8 +28,6 @@ its code.
 **Files**: `lib/repl/source_sanitize.exs`, `lib/repl/language/elixir.exs` (`launch_opts/3` and its cleanup), `lib/scanner.exs`
 (`only_defmodules/1`); tests `test/repl_source_sanitize_test.exs`.
 
-**Earlier**: `Old.md` §6 (Fix F), §14.1, §38.2, §42.1.
-
 ## Notes
 
 - Files load in alphabetical order: a file whose `defmodule` needs another's struct or macro at compile time must come after it (`scope.md`)

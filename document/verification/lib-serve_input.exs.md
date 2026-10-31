@@ -40,8 +40,6 @@ same as in a terminal.
 (`request_dialogue/5`, `watch:`), `lib/outcome_text.exs`, `lib/show.exs`, `lib/help.exs`; tests `test/input_test.exs`,
 `test/serve_input_test.exs`; tezcatl's `test/e2e/xipe_input.mjs`.
 
-**Earlier**: `Old.md` §40, §41.4, §48.
-
 ## Notes
 
 - Lines sent without waiting for the answer run at the same time; the window's way is one line, then its answer (`scope.md`)

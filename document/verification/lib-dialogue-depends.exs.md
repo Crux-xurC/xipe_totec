@@ -33,8 +33,6 @@ there is no chain (crux: a direct evaluation is its own command).
 **Files**: `lib/dialogue/depends.exs`, `lib/core.exs` (`upstream_chain/2`, `set_result/3`, `call_label/2`), `lib/dispatch.exs`
 (`row/depends`, `row/set-result`); tests `test/dialogue_depends_test.exs`.
 
-**Earlier**: `Old.md` §16.3–16.4, §18 (`row/depends`), §19.
-
 ## Notes
 
 - `parse_answer/1` reads `y <value>` / `n`, for the CLI prompt and the window alike

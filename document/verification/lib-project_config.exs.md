@@ -12,7 +12,7 @@ D-hang-handling ([`lib/repl/evaluator.exs`](lib-repl-evaluator.exs.md))
 
 ## D-project-config — settings per project, over defaults that are never rewritten from a dialogue
 
-**Decided** (2026-10-13, crux; the limits as settings were planned in rev.2 §5):
+**Decided** (2026-10-13, crux; the limits as settings had been planned):
 
 | Key | May be | Default | Means |
 |---|---|---|---|
@@ -40,9 +40,9 @@ would change every project behind the person's back.
 line), `lib/dispatch.exs` (`config/set`), `main.exs` (`xipe config`); tests `test/project_env_test.exs` (ProjectConfig),
 `test/dialogue_update_test.exs`.
 
-**Earlier**: `Old.md` §5; commits 901166d, 44b4c9c.
+**Earlier**: commits 901166d, 44b4c9c.
 
 ## Notes
 
-- `eval.max_heap` / `eval.max_per_pass` of rev.2 §5 are not settings (the heap limit is fixed per entry)
+- `eval.max_heap` / `eval.max_per_pass`, also planned, are not settings (the heap limit is fixed per entry)
 - Verified: not yet verified cold (written from the code, 2026-10-19)

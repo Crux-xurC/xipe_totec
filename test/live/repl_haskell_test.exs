@@ -1,7 +1,7 @@
 # Live verification against a real GHCi, the Haskell
 # counterpart of repl_iex_test.exs. NOT swept into test/run.sh. Needs `ghci`
 # on PATH -- e.g. `nix shell nixpkgs#ghc -c elixir test/live/repl_haskell_test.exs`
-# -- and embody.hs (~/my_app/embody, or $XIPE_TOTEC_EMBODY_DIR); without
+# -- and embody.hs (../embody next to this checkout, or $XIPE_TOTEC_EMBODY_DIR); without
 # `ghci` every test is excluded, without `cabal` (`nixpkgs#cabal-install`)
 # or `stack` that one.
 #

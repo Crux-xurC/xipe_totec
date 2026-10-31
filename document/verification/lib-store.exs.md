@@ -38,7 +38,7 @@ of the file.
 **Files**: `lib/store.exs`, `lib/serve_project.exs` (`store_pos`, `caught_up`), `lib/session.exs` (`owner/0`), `main.exs`; tests
 `test/store_test.exs`, `test/serve_project_test.exs`.
 
-**Earlier**: `Old.md` §2, §8.1 (the unwired "CLI through the server"), §49, §55, §56.2; commit 3b39709.
+**Earlier**: commit 3b39709.
 
 ## Notes
 

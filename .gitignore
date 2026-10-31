@@ -1,5 +1,7 @@
 # Per-machine project registry and books (absolute paths, user data) -- see lib/workspace.exs
 /tables/
 
-# Old documents whose content moved elsewhere (kept locally only): work_history/旧<name>
-/work_history/旧*
+# Local-only, kept out of the published repository: the Japanese record up to
+# 2026-10-10 (work_history/) and the notes for agent sessions (CLAUDE.md)
+/work_history/
+/CLAUDE.md

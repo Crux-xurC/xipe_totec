@@ -33,8 +33,6 @@ executable is looked up on the project environment's `PATH` first.
 
 **Files**: `lib/repl/sender_direct.exs`, `lib/repl/sender.exs`; tests `test/repl_sender_direct_test.exs` (it caught the `:normal` decoding).
 
-**Earlier**: `Old.md` §10.1, §10.2, §12 (`:noproc`), §23.1–23.2, §35.4.
-
 ## Notes
 
 - `with_files/2` turns `message["files"]` into `-r <file>` for iex; OCaml's and Haskell's launches do not use `files` for that reason

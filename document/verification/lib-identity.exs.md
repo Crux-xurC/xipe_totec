@@ -25,15 +25,15 @@ and anykey.
 **Why**: identity must be predictable; a fuzzy match (body hashes, `needs_review`) was out of scope, and a guess would silently attach old
 rows to a different function.
 
-**Alternatives**: spec v0.4 §7.3's full matching (body hash, review states) — not implemented.
+**Alternatives**: the first design's full matching (body hash, review states) — not implemented.
 
 **Files**: `lib/identity.exs`, `lib/book.exs` (`find_node_by_natural_key/4`), `lib/scanner.exs` (`put_defs`, carrying `effect` and
 `arities` over), `lib/project.exs` (removing what is gone); tests `test/scanner_test.exs`, `test/project_test.exs`.
 
-**Earlier**: `Old.md` §4.5; `document/scope.md` ("Source and table drifting apart").
+**Earlier**: `document/scope.md` ("Source and table drifting apart").
 
 ## Notes
 
-- Difference from the documents: `Old.md` §4.5 names the key as (path, module, name, arity); the code's node key has no path —
+- Difference from earlier designs: the first design named the key as (path, module, name, arity); the code's node key has no path —
   `(module, name, anykey)`
 - Verified: not yet verified cold (written from the code, 2026-10-19)

@@ -26,8 +26,6 @@ summary, the longer text of `help <command>`, whether the window takes it), then
 
 **Files**: `lib/help.exs`, `lib/methods.exs`; tests `test/help_test.exs`.
 
-**Earlier**: `Old.md` §40.1.
-
 ## Notes
 
 - Verified: not yet verified cold (written from the code, 2026-10-19)

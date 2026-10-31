@@ -24,7 +24,7 @@ D-passes ([`lib/passes.exs`](lib-passes.exs.md)), D-method-criteria ([`lib/metho
 - Picking, sorting and following are the reader's (D-method-criteria)
 - Shaping cards for people on the CLI is not done here (P7)
 
-**Why**: spec §16.3 says `card/get` returns a card by address; a client should not need to know which kind of address it sent. tezcatl's
+**Why**: `card/get` returns a card by address; a client should not need to know which kind of address it sent. tezcatl's
 table jumps to definitions by `path` and `line`.
 
 **Alternatives**: formatting cards for people in the CLI (written once, withdrawn by crux, 2026-09-22).
@@ -32,7 +32,7 @@ table jumps to definitions by `path` and `line`.
 **Files**: `lib/dispatch.exs` (`render_match/2`, `compose_card/3`, `card/list`, `row/list`), `lib/card_table.exs`, `lib/methods.exs`; tests
 `test/dispatch_test.exs`.
 
-**Earlier**: `Old.md` §20; commit e70e1d1.
+**Earlier**: commit e70e1d1.
 
 ## Notes
 

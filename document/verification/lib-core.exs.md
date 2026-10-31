@@ -29,7 +29,7 @@ something impure.
 **Files**: `lib/core.exs`; the consequences are in [D-named-rows-only](#d-named-rows-only) and D-one-pass-one-repl
 ([`lib/repl/evaluator.exs`](lib-repl-evaluator.exs.md)).
 
-**Earlier**: `Old.md` §35.1 (1–3); README P1.
+**Earlier**: README P1.
 
 <a id="d-named-rows-only"></a>
 
@@ -48,14 +48,12 @@ plans exactly the rows given in `:call_ids` that exist and are not in a referenc
 **Why**: evaluating rows nobody named records evaluations no command asked for, which breaks "the Book is what was asked, in order". It
 also made results depend on what happened to be downstream.
 
-**Alternatives**: the affected set of spec v0.4 §6.6 (everything downstream of a change, by `dep_hash`) — withdrawn here; evaluating the
-upstream rows that cannot pass a value (2026-09-26 §35.1-5, withdrawn the same day); embedding the call of a pure `unsupported` reference
+**Alternatives**: the affected set of the first design (everything downstream of a change, by `dep_hash`) — withdrawn here; evaluating the
+upstream rows that cannot pass a value (2026-09-26, withdrawn the same day); embedding the call of a pure `unsupported` reference
 (`:inline_call`) — it ran the referenced function without recording it; a `--downstream` option — not made: naming the rows does it.
 
 **Files**: `lib/core.exs` (`plan_recalc/3`, `apply_result/3`), `lib/repl/evaluator.exs` (skipped rows reported, not folded),
 `lib/runner.exs`; tests `test/core_test.exs`.
-
-**Earlier**: `Old.md` §36 (replaces §4.1, §35.1-5); §37.3 removed the downstream query functions (`affected_set/3` …).
 
 <a id="d-plan-run-apply"></a>
 
@@ -83,8 +81,6 @@ plain ExUnit, with a fake Evaluator.
 
 **Files**: `lib/core.exs`, `lib/repl/evaluator.exs`, `lib/repl/eval/result.exs`; tests `test/core_test.exs`,
 `test/repl_evaluator_test.exs`.
-
-**Earlier**: `Old.md` §4.4, §28 B (B1, B2), §11.1 (repr as strings), §35.3 (`restart_session`, `bind_as`, `lost` removed).
 
 <a id="d-reference-values"></a>
 
@@ -114,8 +110,6 @@ doubt — left for when tezcatl's end-to-end tests need it.
 **Files**: `lib/core.exs` (`resolve_refs/3`, `resolve_ref/3`, `drop_unresolvable/2`), `lib/repl/eval_template.exs` (binding every result
 to `xt_<id>`); tests `test/core_test.exs`.
 
-**Earlier**: `Old.md` §4.4, §22 (the `session_hung` it fixed), §51 (X-2, `binary` not passed).
-
 <a id="d-effect-classes"></a>
 
 ## D-effect-classes — only side effects a person classified are trusted
@@ -132,12 +126,12 @@ person set it with `effect/set` (`effect_source: "user"`). It is never inferred.
 **Why**: P1 — a function's side effects cannot be known from outside reliably, and a wrong guess writes for real. A row that silently does
 nothing was the next problem (2026-09-24), hence the reasons.
 
-**Alternatives**: inferring effects (spec v0.4 §8.2) — out of scope; treating unclassified as pure — unsafe.
+**Alternatives**: inferring effects — out of scope; treating unclassified as pure — unsafe.
 
 **Files**: `lib/core.exs` (`set_effect/3`, `filter_by_effect/3`, `exclusion_reason/3`), `lib/runner.exs` (`not_run`), `main.exs`
 (`--include-writes`); tests `test/core_test.exs`, `test/runner_test.exs`.
 
-**Earlier**: `Old.md` §4.2, §16.2, §18, §33; README P1.
+**Earlier**: README P1.
 
 <a id="d-arity-set"></a>
 
@@ -162,8 +156,6 @@ match the node's arity fails when a default refers to something inside the modul
 **Files**: `lib/core.exs` (`accepted_arities/1`, `set_arities/3`, `node_label/1`, `call_label/2`), `lib/dispatch.exs` (`arity/set`, the
 check), `lib/scanner.exs` (`node_for`), `lib/scanner/elixir.exs` (`default_arities/4`), `lib/methods.exs`; tests `test/arity_set_test.exs`.
 
-**Earlier**: `Old.md` §53.
-
 ## Notes
 
 - `build_entry/3` puts `limits: %{timeout: 5_000, max_heap_words: 50_000_000}`; the per-project `eval.timeout` reaches the entries in the
@@ -172,6 +164,6 @@ check), `lib/scanner.exs` (`node_for`), `lib/scanner/elixir.exs` (`default_ariti
   were removed with D-named-rows-only
 - `set_result/3` writes a person's literal as `result` with `repr: "exact"` and `result_source: "user"`; nothing in Core reads
   `result_source` back (it is for showing)
-- Difference from the documents: `Old.md` §4.4's entry shape (with `bind_as`, `restart_session`, `:inline_call`) is history; the shape
+- Difference from earlier designs: the first entry shape (with `bind_as`, `restart_session`, `:inline_call`) is history; the shape
   above is the code's
 - Verified: not yet verified cold (written from the code, 2026-10-19)

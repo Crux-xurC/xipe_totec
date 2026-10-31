@@ -29,14 +29,12 @@ D-languages-per-pass ([`lib/runner.exs`](lib-runner.exs.md))
 **Why**: the scanner and the evaluator had extensions and `mix.exs` written into their code; a table of facts per project, filled from the
 languages' own declarations, removes that and is the one place to look.
 
-**Alternatives**: a `:files` table in the Book (§21.3); asking a language server which language a file is (needed only for monorepo
+**Alternatives**: a `:files` table in the Book; asking a language server which language a file is (needed only for monorepo
 boundaries, which are not handled); extensions written in `SurfaceTable` (the stopgap); collecting declarations on every run; failing
 `refresh` on a clash.
 
 **Files**: `lib/surface_table.exs`, `lib/info.exs`, `info.json`, `lib/repl/language/*.exs`, `lib/workspace.exs`, `main.exs` (`xipe refresh`,
 `xipe table generate`); tests `test/surface_table_test.exs`, `test/info_test.exs`.
-
-**Earlier**: `Old.md` §21.3, §24.3–24.5, §25.1, §25.4, §26, §29 (the place of `repl` / `build_tool`), §34.
 
 ## Notes
 

@@ -28,8 +28,6 @@ bindings (designed 2026-09-17, withdrawn 2026-09-18); a PTY (brings echo and ANS
 
 **Files**: `lib/repl/sender.exs`, `lib/repl/sender_direct.exs`, `lib/repl/launch.exs`, `lib/repl/session.exs`, `lib/repl/eval/scan/`.
 
-**Earlier**: `Old.md` §10 (withdrawing §6's distributed connection and §28 D/F).
-
 ## Notes
 
 - The handle contract (push only, one message shape, exit as `XT_EXIT <status>`) is written in the moduledoc; its reasons are under

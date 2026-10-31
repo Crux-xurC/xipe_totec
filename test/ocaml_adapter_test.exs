@@ -59,7 +59,7 @@ defmodule OcamlAdapterTest do
       assert File.exists?(Launch.embody_path())
     end
 
-    test "embody.ml comes from ~/my_app/embody (its own repository), or $XIPE_TOTEC_EMBODY_DIR" do
+    test "embody.ml comes from ../embody next to this checkout (its own repository), or $XIPE_TOTEC_EMBODY_DIR" do
       assert Launch.embody_path() == Path.expand("../../embody/embody.ml", __DIR__)
       System.put_env("XIPE_TOTEC_EMBODY_DIR", "/elsewhere")
 

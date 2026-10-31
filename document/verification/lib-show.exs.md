@@ -21,8 +21,6 @@ failed row prints `(error: <reason>)  previous=<previous value>  state=eval_erro
 
 **Files**: `lib/show.exs`, `lib/core.exs` (`apply_result/3`); tests `test/show_test.exs`.
 
-**Earlier**: `Old.md` §52 (tezcatl's field check S-2).
-
 ## Notes
 
 - Verified: not yet verified cold (written from the code, 2026-10-19)

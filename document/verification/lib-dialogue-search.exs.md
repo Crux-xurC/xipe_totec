@@ -34,7 +34,7 @@ rows with their function and path beside them).
 **Files**: `lib/dialogue/search.exs`, `lib/eval_table.exs`, `lib/tables.exs`, `lib/surface_table.exs`; tests
 `test/dialogue_search_test.exs`, `test/serve_input_test.exs`.
 
-**Earlier**: `Old.md` §41.1–41.2, §41.4; `roster` and the tables' declaration from f59d4d8.
+**Earlier**: `roster` and the tables' declaration from f59d4d8.
 
 ## Notes
 

@@ -26,8 +26,6 @@ ready, close it (`exit_input`, then a kill if it does not end). Nothing here kno
 
 **Files**: `lib/repl/session.exs`, each language's launch (`ready_pattern`, `ready_probe`, `exit_input`); tests `test/repl_session_test.exs`.
 
-**Earlier**: `Old.md` §10.2 (`ready_pattern`, `exit_input`), §25.3, §35.1-6.
-
 ## Notes
 
 - `exit_input` ends a REPL only when it can still read; a hung one is killed (D-hang-handling)

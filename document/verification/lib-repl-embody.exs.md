@@ -37,8 +37,6 @@ observation row back into its row (the card would show a cut value as the value)
 `embody.hs`, `ReadMe.md`; tests `test/ocaml_adapter_test.exs` (where embody is), `test/live/repl_ocaml_test.exs`,
 `test/live/repl_haskell_test.exs`.
 
-**Earlier**: `Old.md` §30 (the idea, the first plan and why not), §38 (OCaml), §44 (the separate repository), §45–46 (Haskell).
-
 ## Notes
 
 - Out of embody's scope, written in its `ReadMe.md`: OCaml's `Sys_error` from `load_all`, a SIGALRM between the end of an evaluation and the

@@ -10,7 +10,7 @@ Shared by `card/get`, `card/search`, `node/resolve` and the graph methods.
 
 ## D-address — columns as filters, never a delimited string
 
-**Decided** (2026-09-17, spec §6.1; hardened 2026-10-10):
+**Decided** (2026-09-17; hardened 2026-10-10):
 
 - An address is an object of columns, never a delimiter string: `{"file": "lib/shop/price.ex", "name": "add_tax", "arity": 2}`. It matches
   nodes (joined through their sheet for `file`) or one calc row by id (`row`). One match is the target, several are candidates — the caller
@@ -27,8 +27,6 @@ reasoning as an empty `call_ids`, D-command-list).
 **Alternatives**: `{table, id}` addresses; delimited strings.
 
 **Files**: `lib/address.exs`, `lib/dispatch.exs`, `lib/graph_query.exs`; tests `test/address_test.exs`.
-
-**Earlier**: `Old.md` §9, §56.1.
 
 ## Notes
 

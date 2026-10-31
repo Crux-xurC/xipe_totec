@@ -16,7 +16,7 @@ decisions are listed in [decisions.md](decisions.md).
 | `nix/relay-packages.nix` | The Hex packages fetched for the dev shell (cowlib, ranch, cowboy, erlexec). | — |
 | `nix/dev-tools.nix` | Tools on the dev shell's PATH (elixir-ls …). | — |
 | `.gitignore` | `tables/` (per-machine data with absolute paths). | D-workspace |
-| `README.md`, `CLAUDE.md` | What it is for and how to run it; where to start for a session with no memory. | — |
+| `README.md` | What it is for and how to run it. | — |
 
 ## Base: the Book and its model
 
@@ -136,7 +136,6 @@ guard their decisions.
 
 | File | What |
 |---|---|
-| [`document/scope.md`](../scope.md) | What is promised to work, what happens outside it, what a person does, and the work not done — citing these records. The Japanese original is kept locally as `work_history/旧範囲.md`. |
-| [`document/how-to-use.md`](../how-to-use.md), [`internals.md`](../internals.md), [`extending.md`](../extending.md), [`repl-adapter-guide.md`](../repl-adapter-guide.md) | How to use it; what is called in what order; adding a language or a command; writing a REPL adapter. The Japanese originals are kept locally as `work_history/旧<name>`. |
+| [`document/scope.md`](../scope.md) | What is promised to work, what happens outside it, what a person does, and the work not done — citing these records. |
+| [`document/how-to-use.md`](../how-to-use.md), [`internals.md`](../internals.md), [`extending.md`](../extending.md), [`repl-adapter-guide.md`](../repl-adapter-guide.md) | How to use it; what is called in what order; adding a language or a command; writing a REPL adapter. |
 | `document/verification/` | This directory. |
-| `work_history/課題.md`, `next_step.md`, `xipe_totec_spec_v0.4.html` | The record to 2026-10-10 (Japanese): open issues, plans, the draft spec. Not added to. |

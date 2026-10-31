@@ -30,17 +30,15 @@ D-project-env ([`lib/project_env.exs`](lib-project_env.exs.md))
 **Why**: a Book relative to the working directory was shared by every project — scanning B tombstoned A's nodes and their classifications
 (found 2026-09-24). Keeping data on Xipe Totec's side also avoids dirtying the target and needs no write permission there to remove it.
 
-**Alternatives**: `book.jsonl` in the working directory or the target; a `:files` table inside the Book (§21.3); an index file of projects
+**Alternatives**: `book.jsonl` in the working directory or the target; a `:files` table inside the Book; an index file of projects
 (the directory walk is enough); the selection in `info.json` (it is machine-local).
 
 **Files**: `lib/workspace.exs`, `lib/project_registry.exs`, `main.exs`, `.gitignore`; tests `test/workspace_test.exs`,
 `test/project_registry_test.exs`.
 
-**Earlier**: `Old.md` §24.1, §24.2, §24.6, §27-5, §31.
-
 ## Notes
 
-- Difference from the documents: `Old.md` §24 / §31 keep the selection in `info.json`'s `project`; the code keeps it in
+- Difference from earlier designs: the first design kept the selection in `info.json`'s `project`; the code keeps it in
   `tables/selection.json`
-- Two CLIs registering two new projects at the same moment may take the same id (no lock; a known issue in `work_history/課題.md` §4)
+- Two CLIs registering two new projects at the same moment may take the same id (no lock; a known issue)
 - Verified: not yet verified cold (written from the code, 2026-10-19)

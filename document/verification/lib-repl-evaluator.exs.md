@@ -13,8 +13,7 @@ runs it in a process of its own.
 ## D-one-pass-one-repl — one pass starts its own REPL and closes it
 
 **Decided** (2026-09-26, crux): a pass launches a REPL, evaluates its entries, and closes it (`exit_input`, or a kill when that does not
-end it). Nothing — the session, its bindings — is carried to the next pass. The "resident session" of spec v0.4 is read as "a REPL kept
-for the length of one request".
+end it). Nothing — the session, its bindings — is carried to the next pass. A "resident session" means "a REPL kept for the length of one request".
 
 - A result's `session_gen` (the row's `session` column) is the pass id
 - There is no `lost` state: it existed for a resident session losing its bindings, which cannot happen now. A REPL that wedges mid-pass is
@@ -28,8 +27,6 @@ between passes (P2). Measured on `calc` (scripts-mode): a whole `xipe eval` ≈ 
 reloading changes (`recompile()`) — conflicts with "cards follow the disk"; the CLI using the server's session — needs the first.
 
 **Files**: `lib/repl/evaluator.exs`, `lib/repl/session.exs`; tests `test/repl_evaluator_test.exs`, `test/live/repl_iex_test.exs`.
-
-**Earlier**: `Old.md` §35.1 (3–4), §35.2, §11.4.
 
 <a id="d-hang-handling"></a>
 
@@ -62,7 +59,7 @@ target, and the group kill also takes the REPL's children (`iex -S mix`'s build)
 **Files**: `lib/repl/evaluator.exs` (`run_entry`, `wait_result`, `end_hung_session`), `lib/repl/sender_direct.exs` (`interrupt/1`,
 `kill/1`), each language's launch (`interruptible`); tests `test/repl_evaluator_test.exs` (a silent fake Sender).
 
-**Earlier**: `Old.md` §14.2, §23 (heartbeat removed), §51 (`XT_CALLED`); `eval/cancel` from f59d4d8.
+**Earlier**: `eval/cancel` from f59d4d8.
 
 ## Notes
 
@@ -70,5 +67,5 @@ target, and the group kill also takes the REPL's children (`iex -S mix`'s build)
 - `:hang_grace_ms` and `:interrupt_grace_ms` exist for tests
 - Skipped rows from the plan come first in the results and are not folded into the Book
 - A real wedge needing the interrupt path (the scheduler stopping) has no safe reproduction; the path is checked with a fake Sender only
-- Difference from the documents: `Old.md` §14.2's later note gives the padding as 7 s; the code has 2 s
+- Difference from earlier designs: a later note of the first design gave the padding as 7 s; the code has 2 s
 - Verified: not yet verified cold (written from the code, 2026-10-19)

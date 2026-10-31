@@ -29,8 +29,6 @@ serves.
 
 **Files**: `lib/session.exs`, `lib/workspace.exs` (`resolve/2`), `main.exs`; tests `test/session_test.exs`.
 
-**Earlier**: `Old.md` §31.2 (the resolution order), §49.
-
 ## Notes
 
 - A CLI command that writes the session's project's Book says that it writes `book.jsonl` directly; the server takes it in on its next

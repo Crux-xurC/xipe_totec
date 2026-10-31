@@ -32,8 +32,6 @@ combination needs no code at the call sites.
 **Files**: `lib/pipeline.exs`, `pipelines.json`, `lib/runner.exs`, `lib/serve_project.exs`; tests `test/pipeline_test.exs`,
 `test/runner_test.exs`, `test/serve_project_test.exs`.
 
-**Earlier**: `Old.md` §15, §37.1–37.2, §54 (`eval_params` keeps `nil`).
-
 ## Notes
 
 - `pipelines.json` is read relative to the code (`__DIR__`), not the working directory: the server may run from anywhere

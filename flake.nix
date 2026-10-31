@@ -2,11 +2,10 @@
   description = "Xipe Totec — spreadsheet-like structure (tables/IDs/references/recalculation) for functional-language projects";
 
   inputs = {
-    # Same commit as ../tezcatl/flake.nix on purpose: Xipe Totec talks to a
-    # target project's `iex` session as a distributed BEAM node, and
-    # distributed Erlang needs the two ends' OTP versions to stay close.
-    # Pinning the same nixpkgs revision keeps this repo, tezcatl, and any
-    # personal (non-Mix) target project on the identical Elixir/OTP build.
+    # The same nixpkgs revision as tezcatl's flake.nix on purpose: the two
+    # run side by side (tezcatl's relay talks to `xipe start`), and one pin
+    # keeps both, and a target project that uses the same pin, on the
+    # identical Elixir/OTP build.
     nixpkgs.url = "github:NixOS/nixpkgs/6201e203d09599479a3b3450ed24fa81537ebc4e";
   };
 
@@ -43,12 +42,11 @@
           export ELIXIR_ERL_OPTIONS="+fnu"
 
           # This is not a Mix project (no mix.exs) -- main.exs Code.require_file's
-          # everything under lib/, same convention as ../tezcatl. No Hex deps
-          # beyond cowlib/ranch/cowboy (nix/relay-packages.nix):
-          # Core/Store/Scanner/CLI still lean on Elixir 1.18's built-in JSON
-          # module and the stdlib alone. cowboy is on PATH via buildInputs
-          # above but not required by any lib/*.exs yet -- the WebSocket
-          # listener module itself is still unwritten.
+          # everything under lib/, the same convention as tezcatl. The only Hex
+          # packages are those of nix/relay-packages.nix (cowboy and its deps
+          # for `xipe start`'s WebSocket server, gun for tezcatl's /lsp,
+          # erlexec for the REPLs); the rest leans on Elixir 1.18's built-in
+          # JSON module and the stdlib alone.
 
           # No cd: every file xipe_totec itself reads/writes (info.json,
           # pipelines.json, tables/project/<id>_<name>/{project.json,table,

@@ -11,7 +11,9 @@ examples were made for real against `test/fixtures/calc_sample/calc.exs` (ids ch
 ## 1. Getting ready
 
 ```
-cd ~/my_app/xipe_totec
+git clone https://github.com/Crux-xurC/xipe_totec.git
+git clone https://github.com/Crux-xurC/embody.git    # next to it: OCaml and Haskell evaluation load it from ../embody
+cd xipe_totec
 nix develop
 ```
 
@@ -28,7 +30,7 @@ The shell holds:
 
 The languages are only those registered in `info.json`: today Elixir (`.ex`/`.exs`), OCaml (`.ml`), Haskell (`.hs`). Evaluating OCaml or
 Haskell needs `ocaml` / `ghci` in the target's environment (a flake in `project_env.json` …, §4.3) or on PATH, and each language's `embody`
-(a separate repository, `~/my_app/embody`, §9.1). Type `xipe refresh -l` only after adding a language to `lib/repl/language/` (§9).
+(a separate repository, [embody](https://github.com/Crux-xurC/embody), §9.1). Type `xipe refresh -l` only after adding a language to `lib/repl/language/` (§9).
 
 ---
 
@@ -247,7 +249,7 @@ If any command of a list fails, the exit code is 1.
 | `node/resolve` | an address (below) | decide the one function the address matches and return its `id`: none is `not_found`, two or more `ambiguous` (with candidates) |
 | `row/check` | `call_ids` (none: all) `on` (default `error`) | fail when a row is in an `on` state (§3.4) |
 | `row/update` | `id` `args` | change a row's arguments (checked as `row/add`) and evaluate **that row alone** |
-| `eval/run` | `call_ids` (none: all) `include_writes=true` | the same as `eval` (spec §16's name) |
+| `eval/run` | `call_ids` (none: all) `include_writes=true` | the same as `eval` (the name on the wire) |
 | `eval/status` | none | the passes being evaluated: language, elapsed time, the number of rows, the row being evaluated now and its phase (below). On the server, waiting passes too |
 | `eval/cancel` | `pass_id` (may be left out when one pass runs) | stop a running pass (below). On the server, also take a waiting pass out by `pass_id` |
 | `config/set` | `key` `value` | change one setting of the open project (§4.1; what `dialogue update` runs at its end), written to its `project.json` |
@@ -737,15 +739,15 @@ Normally `xipe start` is started without `<dir>` on :4200, as a process apart fr
 2026-10-19, `t` starts only tezcatl's pages and relay). Started from a row of Poca's box, it stops when Poca closes. By hand, for example:
 
 ```
-nix develop ~/my_app/xipe_totec --command elixir main.exs start --port 4200 \
-  --lsp ws://127.0.0.1:4100/lsp --fs-root ~/my_app
+nix develop /path/to/xipe_totec --command elixir main.exs start --port 4200 \
+  --lsp ws://127.0.0.1:4100/lsp --fs-root ~/projects
 ```
 
 tezcatl's relay only connects to it, so closing tezcatl's windows does not stop it. The target is the chosen project; with none chosen it ends
 at once (said in its log). Xipe Totec decides the target; tezcatl is only the window. Choose it first with `xipe choice project`.
 
 When connecting with tezcatl (the example above, a row of Poca's box, the relay under `xipe.json`'s `mode: "spawn"`), pass `--port`, `--lsp`
-(the URL of tezcatl's `/lsp` relay) and `--fs-root` (tezcatl's file root). Scanning then shares tezcatl's language servers. Started by hand,
+(the URL of tezcatl's `/lsp` relay) and `--fs-root` (tezcatl's file root; `~/projects` above stands for yours). Scanning then shares tezcatl's language servers. Started by hand,
 pass them yourself or set the environment variables (§10). Without tezcatl it works the same, starting elixir-ls itself.
 
 ---
@@ -807,7 +809,7 @@ written per language and not converted yet) ([D-languages-per-pass](verification
 
 ([D-ocaml-adapter](verification/lib-repl-language-ocaml.exs.md#d-ocaml-adapter))
 
-- Evaluation uses the plain `ocaml` toplevel. It loads `embody.ml` (a separate repository, `~/my_app/embody/`; by default next to Xipe Totec,
+- Evaluation uses the plain `ocaml` toplevel. It loads `embody.ml` (a separate repository, [embody](https://github.com/Crux-xurC/embody); by default next to Xipe Totec,
   changed with `XIPE_TOTEC_EMBODY_DIR`; without it every row crashes with `Unbound module Embody`) and always wraps each row's call in it. The
   target's `.ml` files load one file one module (`geometry.ml` is `Geometry`). Top-level expressions and `let ()` / `let _` are not run. The order
   of dependencies between files is found by loading again what failed
@@ -830,7 +832,7 @@ written per language and not converted yet) ([D-languages-per-pass](verification
 
 ([D-haskell-adapter](verification/lib-repl-language-haskell.exs.md#d-haskell-adapter))
 
-- Evaluation uses GHCi (`ghci -v0 -fdefer-type-errors …`). It `:load`s `embody.hs` (`~/my_app/embody/`) and the target's `.hs`, and brings each
+- Evaluation uses GHCi (`ghci -v0 -fdefer-type-errors …`). It `:load`s `embody.hs` (from embody, as above) and the target's `.hs`, and brings each
   module into scope as `*M`: unexported functions can be called as `M.f`. `main` is not run
 - A module comes from each file's `module X` line (none: `Main`). For `Geo.Shape` in `src/Geo/Shape.hs`, `src` goes on the search path. Two or more
   `Main` files cannot load together, so then no `Main` is loaded

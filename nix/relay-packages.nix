@@ -1,10 +1,10 @@
 # WS server stack for the WebSocket (localhost) entry point, plus erlexec for
 # REPL process spawning (`Repl.Sender.Direct`: process-group isolation and
 # group-wide interrupt/kill).
-# Same packages, same versions, same hashes as ../../tezcatl/nix/relay-packages.nix
-# and ../../nix/exla-packages.nix (fetchHex hashes are content-addressed, so
-# copying is safe as long as the version matches -- both of those pin the
-# identical nixpkgs revision and erlang_27 that this flake.nix does).
+# The same packages, versions and hashes as tezcatl's nix/relay-packages.nix
+# (fetchHex hashes are content-addressed, so copying is safe as long as the
+# version matches -- tezcatl pins the identical nixpkgs revision and
+# erlang_27 that this flake.nix does).
 #
 # xipe_totec is the *server* being connected to (relay's /xipe
 # connects out to it), so it needs cowboy itself. `erlexec` came in once

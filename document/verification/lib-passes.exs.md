@@ -37,7 +37,7 @@ CLIs. A judging step that never ends looked the same as a hung call; the phase t
 **Files**: `lib/passes.exs`, `lib/runner.exs`, `lib/repl/evaluator.exs` (`:progress`, `:cancelled?`), `lib/dispatch.exs`, `lib/pipeline.exs`,
 `lib/serve_project.exs`; tests `test/passes_test.exs`, `test/serve_project_test.exs`.
 
-**Earlier**: `Old.md` §51 (X-3, `eval/status`, the phases); commit f59d4d8 (`eval/cancel`).
+**Earlier**: commit f59d4d8 (`eval/cancel`).
 
 ## Notes
 

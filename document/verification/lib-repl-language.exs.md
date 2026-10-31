@@ -30,13 +30,11 @@ its REPL, its build tools, its scanners, its REPL adapter, and how to boot the R
 made-up language in the tests made the evaluation path language-neutral. Facts about a language that are neither building a call nor
 reading a body (extensions, build tools, embody) needed a place of their own.
 
-**Alternatives**: extensions declared by FieldDrip (`extensions/0` there, the first plan of §24.5) — its role has nothing to do with
+**Alternatives**: extensions declared by FieldDrip (`extensions/0` there, the first plan) — its role has nothing to do with
 files; a table of extensions inside `SurfaceTable` (the stopgap it replaced).
 
 **Files**: `lib/repl/language.exs`, `lib/repl/language/{elixir,ocaml,haskell}.exs`, `lib/info.exs` (`refresh_languages`,
 `language_module`), `lib/repl/evaluator.exs`; tests `test/repl_evaluator_test.exs` (a toy language), `test/info_test.exs`.
-
-**Earlier**: `Old.md` §10.6–10.9, §13, §25.4, §34.1–34.2.
 
 ## Notes
 

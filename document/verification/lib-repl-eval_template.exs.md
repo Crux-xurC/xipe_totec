@@ -25,14 +25,14 @@ Totec's side. The other languages do the same work in `embody` ([D-embody](lib-r
 - Structs are walked as maps (`Map.to_list/1`): `Enum` on a struct raises (`Date`, `URI`) or walks its elements (`MapSet`, `Range`), and an
   exception there printed no marker
 
-**Why**: a fixed list of types misses project structs; reading the value back is the round-trip check of spec §12.3. It has to run in the
+**Why**: a fixed list of types misses project structs; reading the value back is the round-trip check. It has to run in the
 target, since only the target knows its structs.
 
 **Alternatives**: a list of types per `repr`; judging on Xipe Totec's own node.
 
 **Files**: `lib/repl/eval_template.exs`; tests `test/repl_eval_template_test.exs`, `test/live/repl_iex_test.exs`.
 
-**Earlier**: `Old.md` §28 C, §10.3, §10.5, §11.1 (newlines), §50 (structs); 899ab29 (`printable_limit` for long values).
+**Earlier**: 899ab29 (`printable_limit` for long values).
 
 <a id="d-compare-basis"></a>
 
@@ -46,18 +46,16 @@ target, since only the target knows its structs.
 - **The comparison runs in the target**: the basis is rebuilt there (`Code.eval_string` for `exact`, `Base.decode64!` + `binary_to_term`
   for `binary`), and the two values are compared as terms, recursively; floats are equal within a relative or absolute tolerance of
   `1.0e-9`, fixed in the module
-- The word printed is `same`, as spec §4.6 / §6.4 name it
+- The word printed is `same`
 
 **Why**: strings cannot carry a tolerance, and map keys past 32 are not ordered stably in `inspect`; comparing terms avoids both. The
-basis follows spec §6.4: a person's expectation, else the value before this evaluation.
+basis is a person's expectation, else the value before this evaluation.
 
 **Alternatives**: comparing display strings; making the tolerance a setting (`compare.float_rel_tol`) — not done, it stays a module
 attribute.
 
 **Files**: `lib/core.exs` (`basis`), `lib/repl/eval_template.exs` (`compare_snippet/1`); tests `test/core_test.exs` (basis),
 `test/repl_eval_template_test.exs`.
-
-**Earlier**: `Old.md` §11.2, §14.4 (`unchanged` → `same`, the user's `prev`), §28 C.
 
 <a id="d-closed-args"></a>
 
@@ -81,7 +79,7 @@ the same silence.
 **Files**: `lib/repl/eval_template.exs` (`build/1`, `build_syntax_error/3`, `build_eval/5`); tests `test/repl_eval_template_test.exs`,
 `test/live/repl_iex_test.exs`.
 
-**Earlier**: `Old.md` §14.2; `document/repl-adapter-guide.md` ("send only closed expressions").
+**Earlier**: `document/repl-adapter-guide.md` ("send only closed expressions").
 
 ## Notes
 

@@ -39,8 +39,6 @@ changed.
 **Files**: `lib/runner.exs` (`run/4`, `substitute_command/2`), `lib/command_line.exs` (the CLI's lists), `lib/input.exs` (the window's),
 `lib/dispatch.exs`; tests `test/runner_test.exs`.
 
-**Earlier**: `Old.md` §12, §16.5 (`call_ids` omitted = all), §18 (`include_writes`), §33 (`not_run`), §37.1, §54.
-
 <a id="d-languages-per-pass"></a>
 
 ## D-languages-per-pass — the rows of a request are evaluated by language, side by side
@@ -60,12 +58,10 @@ in parallel (`Task`); the results are folded once at the end, all under one pass
 (`multiple_languages`); BEAM runs several REPLs side by side easily.
 
 **Alternatives**: one language per pass (the earlier temporary limit); converting values across languages now — designed only
-(`next_step.md` §2.6: a conversion step chosen by the referenced row's `result_type`).
+(a conversion step chosen by the referenced row's `result_type`).
 
 **Files**: `lib/runner.exs` (`eval_groups/4`, `run_groups/8`, `run_group/8`, `repl_opts/4`); tests `test/runner_test.exs` (Elixir with a
 made-up `.toy` language).
-
-**Earlier**: `Old.md` §38.4, §39.
 
 ## Notes
 

@@ -1,10 +1,10 @@
 # Scope
 
 What Xipe Totec promises to work, what it does not promise, what happens outside the promise and what a person does there; then the
-work not yet done. tezcatl's scope is in its own repository (`../tezcatl/docs/scope.md`).
+work not yet done. tezcatl's scope is in its own repository
+([docs/scope.md](https://github.com/Crux-xurC/tezcatl/blob/main/docs/scope.md)).
 
-The "Records" column points at the decision records (`document/verification/`, English) or the code; `work_history/課題.md` and
-`work_history/next_step.md` are the Japanese record to 2026-10-10.
+The "Records" column points at the decision records (`document/verification/`) or the code; "—" where the row itself is the record.
 
 ## How to read it (for people and AI reviewing or verifying)
 
@@ -53,10 +53,10 @@ The "Records" column points at the decision records (`document/verification/`, E
 
 | Operation outside | What happens | What to do | Records |
 |---|---|---|---|
-| Scanning while a function is missing from the source (a half-typed save, commented out, a moved file, a branch switch) | Its calc rows lose it (`show`: `(node gone)`, `row/list`: `linked: false`, evaluation: not run). When the function comes back it gets a new id, and its `effect` is `unknown` again. **It does not revive** | Make the rows again (they give the same value) | [D-identity](verification/lib-identity.exs.md#d-identity); tezcatl `work_history/2026-10-06_実地確認.md` X-1 |
+| Scanning while a function is missing from the source (a half-typed save, commented out, a moved file, a branch switch) | Its calc rows lose it (`show`: `(node gone)`, `row/list`: `linked: false`, evaluation: not run). When the function comes back it gets a new id, and its `effect` is `unknown` again. **It does not revive** | Make the rows again (they give the same value) | [D-identity](verification/lib-identity.exs.md#d-identity) |
 | Adding a file | Not scanned or evaluated until `xipe table generate` | `xipe table generate` in a terminal (not from the window) | [D-surface-table](verification/lib-surface_table.exs.md#d-surface-table), `how-to-use.md` §2.2 |
 | A file with a syntax error, or one that cannot be read (permissions) | `scan` is `scan_failed` (the file's name and, for a syntax error, the parser's first line — on the CLI too); evaluation is `eval_failed` (every row: scripts-mode loads every file). The Book does not change | Fix it and run again | `lib/project.exs` (2026-10-16) |
-| Changing a function's name, module or argument count | Another function (as "missing" above) | Make the rows again | [D-identity](verification/lib-identity.exs.md#d-identity) (spec §7.3's matching is not implemented) |
+| Changing a function's name, module or argument count | Another function (as "missing" above) | Make the rows again | [D-identity](verification/lib-identity.exs.md#d-identity) (matching by body hash, renames and moved files is not implemented) |
 
 ### Evaluation
 
@@ -72,12 +72,12 @@ The "Records" column points at the decision records (`document/verification/`, E
 | `eval/cancel` of a pass run with `--include-writes` | Writes may be left half done (the pass records nothing, but what a function wrote outside stays) | Check it yourself | [D-passes](verification/lib-passes.exs.md#d-passes) |
 | Stopping a running scan | No way (`eval/cancel` stops evaluation passes only) | Wait for it | `scan/cancel` is only an idea |
 | The REPL falling during a pass (`System.halt` …) | Waits until the deadline (limit + 2 s), then `session_hung`; the rest of the pass `aborted` | Evaluate the rest again | [D-hang-handling](verification/lib-repl-evaluator.exs.md#d-hang-handling) (an unexpected `XT_EXIT` is not read) |
-| A pass with many rows | About 170–180 ms a row (301 trivial rows ≈ 55 s, measured 2026-10-10); the results arrive together at the end | Evaluate fewer rows at a time | `work_history/課題.md` §2 |
+| A pass with many rows | About 170–180 ms a row (301 trivial rows ≈ 55 s, measured 2026-10-10); the results arrive together at the end | Evaluate fewer rows at a time | — |
 | A Haskell function throwing an exception whose own message throws (`error (show (1 `div` 0))`), or a value whose `Show` throws on its contents | embody's `crash` line is cut. Depending on the order stdout and stderr arrive, a `crash` with GHCi's message, or the deadline then `session_hung` (the rest `aborted`) | Leave the row out, or fix the exception's message | embody `ReadMe.md` ("Haskell", crux, 2026-10-16) |
 | Referring to a `binary` or `unsupported` value | Cannot be passed: `skipped` | Name the referenced row in the same command, or give a value with `dialogue depends` | [D-reference-values](verification/lib-core.exs.md#d-reference-values), `how-to-use.md` §2.6 |
-| A list of integers within character codes | Shown as a charlist (`~c"\t\n"`); the value is right | Do not rely on the display | `work_history/課題.md` §3 (the display is not changed) |
-| Evaluating a Mix project while its development server runs | Each pass starts the application with `iex -S mix`, so a port in use gives `boot_failed` (not checked) | Configure separate ports | `work_history/課題.md` §6 |
-| References across languages | Not converted (`not_run`) | — | [D-languages-per-pass](verification/lib-runner.exs.md#d-languages-per-pass), `work_history/next_step.md` §2.6 |
+| A list of integers within character codes | Shown as a charlist (`~c"\t\n"`); the value is right | Do not rely on the display | — |
+| Evaluating a Mix project while its development server runs | Each pass starts the application with `iex -S mix`, so a port in use gives `boot_failed` (not checked) | Configure separate ports | — |
+| References across languages | Not converted (`not_run`) | — | [D-languages-per-pass](verification/lib-runner.exs.md#d-languages-per-pass) |
 
 ### The Book and state files
 
@@ -108,9 +108,9 @@ The "Records" column points at the decision records (`document/verification/`, E
 | Operation outside | What happens | What to do | Records |
 |---|---|---|---|
 | Sending the next line without waiting for the answer | The lines run at once; a later line may not see the earlier one's results | Put lines that need an order on one line with `--` | [D-input-line](verification/lib-serve_input.exs.md#d-input-line) |
-| Using a dialogue (`search`, `dialogue depends`) with two or more tezcatl windows open | The dialogue is shared: another window's line is taken as its answer | Dialogues in one window | [D-dialogue-core](verification/lib-in_out.exs.md#d-dialogue-core); tezcatl `work_history/05-未決定.md` X2 |
-| `show` / `row/list` with large values | Values are returned whole (one row of 50,000 elements ≈ 340 KB) | Look in tezcatl's table (it shortens cells) | decided on tezcatl's side (`work_history/課題.md`) |
-| `row/remove` of a row others refer to | It goes without a warning; the referring rows' guidance is wrong | — (known, not started) | `work_history/課題.md` §6 |
+| Using a dialogue (`search`, `dialogue depends`) with two or more tezcatl windows open | The dialogue is shared: another window's line is taken as its answer | Dialogues in one window | [D-dialogue-core](verification/lib-in_out.exs.md#d-dialogue-core) |
+| `show` / `row/list` with large values | Values are returned whole (one row of 50,000 elements ≈ 340 KB) | Look in tezcatl's table (it shortens cells) | decided on tezcatl's side |
+| `row/remove` of a row others refer to | It goes without a warning; the referring rows' guidance is wrong | — (known, not started) | — |
 | Writing with the CLI, then asking the server nothing | The server takes the lines in only at its next request (no notification) | Type something in the window / fetch the table again | [D-store](verification/lib-store.exs.md#d-store) |
 
 ### Not targeted
@@ -124,7 +124,7 @@ The "Records" column points at the decision records (`document/verification/`, E
 | Learning from notifications that a row or function is gone | Notifications carry only changed rows and functions (`notify/rowChanged`, `notify/nodeChanged`); what disappeared is not sent | Fetch the table again | `lib/serve_project.exs` |
 | `graph/export`'s `doctest` format | Written from the values in the table (no new evaluation, existing files not looked at) | Evaluate first | [D-references-list](verification/lib-graph_query.exs.md#d-references-list) |
 | Scripts-mode files depending on each other at compile time (structs, macros, `import`) | Loaded in file-name order (the referenced file must come first) | — | [D-source-sanitize](verification/lib-repl-source_sanitize.exs.md#d-source-sanitize) |
-| Languages other than Elixir, OCaml, Haskell | No `language` in the table: neither scanned nor evaluated (Clojure, Racket stopped; Java, Python by the scope decision) | — | `work_history/next_step.md` §2.3–2.4 |
+| Languages other than Elixir, OCaml, Haskell | No `language` in the table: neither scanned nor evaluated (Clojure, Racket stopped; Java, Python by the scope decision) | — | — |
 | Calc rows for `defp`, macros, guards, library functions | `defp` is in the list of references but `row/add` refuses it; macros, guards and library functions are not cards | Call them from a public function | [D-scanners](verification/lib-scanner-lsp.exs.md#d-scanners) |
 | Haskell functions returning `IO` | Not run; the type is the display | — (`observeIO` not designed) | [D-haskell-adapter](verification/lib-repl-language-haskell.exs.md#d-haskell-adapter) |
 | OCaml: files needing ppx, files of the same name, the `binary` repr, float tolerance in `compare`, a memory limit per row | Not supported. Long values are cut with `...` by the toplevel, so they are not `exact` (estimated) | — | [D-ocaml-adapter](verification/lib-repl-language-ocaml.exs.md#d-ocaml-adapter) |
@@ -133,13 +133,13 @@ The "Records" column points at the decision records (`document/verification/`, E
 | Several projects in one directory (a monorepo) | Everything under the given path is one project | Register each project | same |
 | Using `line` of `card/list` / `row/list` after changing the source | The line is the scan's (it drifts); a function gone has empty `path` and `line` | Scan again | [D-card-shape](verification/lib-dispatch.exs.md#d-card-shape) |
 | Scanning with unsaved changes in an editor | Cards follow the disk; shifted lines are detected and read again, but deleting the last function or a change inside a body is missed | Save, then scan | [D-scanners](verification/lib-scanner-lsp.exs.md#d-scanners) |
-| elixir-ls's first use in a new environment | Its self-install takes more than 30 s, and that scan falls back to `Scanner.Elixir`; fast from the second | Scan again | `work_history/課題.md` §1-2 |
-| Reading a mix project through the language server | `.elixir_ls/` appears in the target (a departure from "nothing is written into the target") | — | `work_history/課題.md` §1-6 |
-| Elixir calling another language (a Port …) | It runs as a side effect of the function. Dependencies across languages are not in `links`, and a change on the other side is not seen as stale. Xipe Totec evaluates each language's functions separately | Check the connections with the cards, the existing `links` and SQL or the like; pass serialisable values by hand; check the real Port traffic in the target application | `work_history/next_step.md` §2.6 |
+| elixir-ls's first use in a new environment | Its self-install takes more than 30 s, and that scan falls back to `Scanner.Elixir`; fast from the second | Scan again | — |
+| Reading a mix project through the language server | `.elixir_ls/` appears in the target (a departure from "nothing is written into the target") | — | — |
+| Elixir calling another language (a Port …) | It runs as a side effect of the function. Dependencies across languages are not in `links`, and a change on the other side is not seen as stale. Xipe Totec evaluates each language's functions separately | Check the connections with the cards, the existing `links` and SQL or the like; pass serialisable values by hand; check the real Port traffic in the target application | — |
 | Changing only the arguments with `dialogue rewrite` / `row/set-args` | Not evaluated, so the value stays the old arguments' (nothing marks it stale) | `eval` (both at once: `row/update`) | `lib/dispatch.exs` |
 | Rewriting the surface table (`-s`) or an `eval_table` column that is not rewritable in `dialogue rewrite` | Refused, asked again (`-s` has no rewritable column yet) | — (`surface/set` is an idea) | `lib/tables.exs` |
 | Writing the new value on `dialogue rewrite`'s starting line | Refused (the value is always asked: on the line it would be split into words) | Type it when asked | `lib/input.exs` |
-| Seeing a row's past values, or which rows are stale | No way (they are in `book.jsonl`) | — (planned ideas) | `work_history/next_step.md` §1.2, §1.4, §1.6 |
+| Seeing a row's past values, or which rows are stale | No way (they are in `book.jsonl`) | — (planned ideas) | — |
 
 ## Work not started, and ideas to reconsider
 
@@ -150,9 +150,9 @@ implemented)" has its course set; "Ideas" have no settled form and are not part 
 
 | What | What changes when it is in | Records |
 |---|---|---|
-| embody's E-A: one time limit for a whole entry (not set again at each stage); after the time settings (in since 2026-10-13) | Haskell values taking two stages or more no longer end as `session_hung` | `work_history/課題.md` §3 |
-| Wording: a note about quotes in `help` for `do`, `row/add`, `row/update` | — | `work_history/課題.md` §6 |
-| Values that cannot be passed (`binary` …) settled by a person — no special dialogue: `dialogue rewrite`'s `result` puts one in (the dialogue is in; whether it is enough is checked in the end-to-end tests with tezcatl) | The remedy of "referring to a `binary` or `unsupported` value" above | `work_history/課題.md` §3 |
+| embody's E-A: one time limit for a whole entry (not set again at each stage); after the time settings (in since 2026-10-13) | Haskell values taking two stages or more no longer end as `session_hung` | — |
+| Wording: a note about quotes in `help` for `do`, `row/add`, `row/update` | — | — |
+| Values that cannot be passed (`binary` …) settled by a person — no special dialogue: `dialogue rewrite`'s `result` puts one in (the dialogue is in; whether it is enough is checked in the end-to-end tests with tezcatl) | The remedy of "referring to a `binary` or `unsupported` value" above | — |
 | When ids are left out and more than 100 rows would be evaluated, show the count and confirm the whole evaluation; default "no"; not without an explicit choice when not interactive | Prevents evaluating everything by accident; initial threshold 100 | `main.exs` `eval/1`; not implemented |
 | On registering, making the table, starting or evaluating: check the OCaml / Haskell embody adapter, and when missing say in English that functions of that language — pure ones included — cannot be evaluated. Scanning, cards and lists still work. With the adapter, Haskell's `IO` actions are still not run | embody is required per language for evaluation, not by Xipe Totec as a whole | [D-embody](verification/lib-repl-embody.exs.md#d-embody), each language's `launch.exs`; the message is not implemented |
 | Say clearly in the CLI's help and at start, in English, what is evaluated, its side effects, and what remains after a cancel | People and automation judge the same safety boundary | `README.md`, `lib/help.exs`; wording not finished |
@@ -163,22 +163,22 @@ Not planned; reconsidered when a need becomes concrete. Not part of the basic sc
 
 | What | To decide | Records |
 |---|---|---|
-| `xipe do` notation: `address.module=Calc` (nested by dots), `args:=[…]` (read as JSON) | The two notations. What people type is covered by `dialogue do` (2026-10-12); what is left is one-line `--` lists and scripts, when needed | `work_history/next_step.md` §1.7 |
-| Fixing the surface table by hand (`surface/set`: a person decides the language of a file; the entrance is `dialogue rewrite` — one line in the surface table's `writes` in `lib/tables.exs` and it is asked). `surface/diff` is not made (the viewer's job) | How a value set by hand survives `table generate`. When in, "adding a file" above becomes noticeable | same §1.3, `work_history/課題.md` §1-3 |
-| A row's history `row/history` (the minimum to look; past values are only in the Book, so it just returns them — comparing and narrowing are the viewer's) | Whether to show the values before and after a change of arguments together | same §1.2 |
-| `effect/set` for many at once | One by one, or ids chosen on the user's side | same §1.5 |
-| A stale mark as a `row/list` column (record `body_hash` in the row; not a `row/stale` command) | Whether changes of dependencies count | same §1.6 |
-| A status check `xipe status` (the minimum to look; the CLI bundles existing reads; no method added) | — | same §1.8 |
-| A third table for `search` reading `links` (`search -l`): no new turn kind, one more table. When in, "the functions calling this one" from the CLI and the window (today only `graph/neighbors`, not typable with `xipe do` or in the window) | The table's column names; whether to give it as a whole read too | `work_history/next_step.md` §1.1 |
-| Converting references across languages automatically | Pass values by hand; see the flow between functions with cards, links and the user's own diagrams or SQL | same §2.6 |
-| Examining values by type, counting by type | The user processes saved data or read results with SQL or the like | `work_history/課題.md` §3 |
-| Checking each language adapter's representative and boundary values with fixtures (structs, long lists, floats, nesting) | Kept as work within checking the quality of supported languages | `work_history/課題.md` §3 |
-| Spec §7.3's matching (`body_hash`, renames, moved files) | When in, part of "scanning while a function is missing" comes inside. Today "no revival" is the decision | [D-identity](verification/lib-identity.exs.md#d-identity) |
+| `xipe do` notation: `address.module=Calc` (nested by dots), `args:=[…]` (read as JSON) | The two notations. What people type is covered by `dialogue do` (2026-10-12); what is left is one-line `--` lists and scripts, when needed | — |
+| Fixing the surface table by hand (`surface/set`: a person decides the language of a file; the entrance is `dialogue rewrite` — one line in the surface table's `writes` in `lib/tables.exs` and it is asked). `surface/diff` is not made (the viewer's job) | How a value set by hand survives `table generate`. When in, "adding a file" above becomes noticeable | — |
+| A row's history `row/history` (the minimum to look; past values are only in the Book, so it just returns them — comparing and narrowing are the viewer's) | Whether to show the values before and after a change of arguments together | — |
+| `effect/set` for many at once | One by one, or ids chosen on the user's side | — |
+| A stale mark as a `row/list` column (record `body_hash` in the row; not a `row/stale` command) | Whether changes of dependencies count | — |
+| A status check `xipe status` (the minimum to look; the CLI bundles existing reads; no method added) | — | — |
+| A third table for `search` reading `links` (`search -l`): no new turn kind, one more table. When in, "the functions calling this one" from the CLI and the window (today only `graph/neighbors`, not typable with `xipe do` or in the window) | The table's column names; whether to give it as a whole read too | — |
+| Converting references across languages automatically | Pass values by hand; see the flow between functions with cards, links and the user's own diagrams or SQL | — |
+| Examining values by type, counting by type | The user processes saved data or read results with SQL or the like | — |
+| Checking each language adapter's representative and boundary values with fixtures (structs, long lists, floats, nesting) | Kept as work within checking the quality of supported languages | — |
+| Matching functions across rescans by `body_hash`, renames and moved files | When in, part of "scanning while a function is missing" comes inside. Today "no revival" is the decision | [D-identity](verification/lib-identity.exs.md#d-identity) |
 
 ### Ideas withdrawn (2026-10-11, crux)
 
-Removed by the criteria of [D-method-criteria](verification/lib-methods.exs.md#d-method-criteria). The reasons are in each section of
-`../tezcatl/work_history/ja/コマンドの案.md` §2.
+Removed by the criteria of [D-method-criteria](verification/lib-methods.exs.md#d-method-criteria); what replaces each is in the
+second column.
 
 | What | Instead |
 |---|---|
@@ -197,13 +197,13 @@ out.
 
 | What | State | Records |
 |---|---|---|
-| The Evaluator does not read an unexpected `XT_EXIT` (it waits for the deadline) | low priority | [D-hang-handling](verification/lib-repl-evaluator.exs.md#d-hang-handling), `work_history/課題.md` §3 |
-| No warning on `row/remove` of a row others refer to | small | `work_history/課題.md` §6 |
+| The Evaluator does not read an unexpected `XT_EXIT` (it waits for the deadline) | low priority | [D-hang-handling](verification/lib-repl-evaluator.exs.md#d-hang-handling) |
+| No warning on `row/remove` of a row others refer to | small | — |
 | A pass's record (`passes/`) is written after its REPL is ready, so a `row/update` right after a pass starts is not refused (estimated) | small | same |
-| A scan's status and `scan/cancel` | Out of scope: a feature apart from a pass's status. A scan is waited for | `work_history/課題.md` §2 |
+| A scan's status and `scan/cancel` | Out of scope: a feature apart from a pass's status. A scan is waited for | — |
 | Streaming results, more `notify/*`, `dialogue depends` run synchronously over the WebSocket | Out of scope: optional features apart from the basic evaluation path | same |
 | `provider/*`, `cell/complete`, `trace/*` | Outside the basic scope; not implemented (`not_implemented`); `trace/*` frozen | same |
-| The true hang (where even the inner timeout fails) is not checked on a real machine | to be decided | `work_history/課題.md` §3 |
+| The true hang (where even the inner timeout fails) is not checked on a real machine | to be decided | — |
 | embody's E-B (OCaml's `compare` reads `changed`), E-D (OCaml's `sanitized`) | not started | same |
-| Putting Haskell's syntax error text into the marker; `compare`'s tolerance and `eval.max_per_pass` as settings; the doctest freshness rule | not decided | `work_history/課題.md` §1, §3, §4 |
-| Splitting files and making layers; a version without Nix | to come | `work_history/課題.md` §7 |
+| Putting Haskell's syntax error text into the marker; `compare`'s tolerance and `eval.max_per_pass` as settings; the doctest freshness rule | not decided | — |
+| Splitting files and making layers; a version without Nix | to come | — |

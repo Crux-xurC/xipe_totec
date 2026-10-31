@@ -83,7 +83,7 @@ main.exs (do)
   1. a leading "--dir <path>" is taken out, and Workspace.resolve decides the project (none: the chosen one, §10)
   2. the rest is split on "--"; in each group the first word is the method and the rest are "key=value" pairs
      (XipeTotec.CommandLine: [..] is always a list; anything else with a comma too)
-     → the command list [%{"method" =>, "params" =>}, ...] (the shape of the wire messages of spec §16.3)
+     → the command list [%{"method" =>, "params" =>}, ...] (the shape of the wire messages, §7)
   3. run_commands(dir, commands)
       → XipeTotec.Runner.run(book, dir, commands, opts)
           from the first, one at a time (Enum.reduce):
@@ -238,7 +238,7 @@ These strings do not change with the target language (`document/repl-adapter-gui
           evaluated earlier in this plan      → :in_plan (the binding's name, xt_<id>)
           outside the plan, repr exact        → its text embedded as it is
           anything else                       → :binding (→ skipped in 5.)
-     → the basis (what compare compares with, spec §6.4's rule B):
+     → the basis (what compare compares with):
           call.prev_source == "user" and call.prev not empty → {:exact, call.prev}  (a person's expectation, row/set-prev)
           else call.repr == "exact"                          → {:exact, call.result}
           else call.repr == "binary"                         → {:binary, call.bin}

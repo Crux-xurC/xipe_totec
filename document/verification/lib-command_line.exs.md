@@ -20,14 +20,12 @@ value.
 - The `--` groups are shared with the window's input lines (`groups/1`)
 
 **Why**: a one-argument row could not be written at all, and `args=3,` silently made a two-argument row `["3", ""]`; a row for a node
-that did not exist was accepted too (the code did not check what `Old.md` §16.1 said it did).
+that did not exist was accepted too (the code did not check what the design said it did).
 
 **Alternatives**: repeating a key (`args[]=10`, long); JSON in the value (`args='["10"]'`, shell quoting).
 
 **Files**: `lib/command_line.exs` (`parse/1`, `parse_value/1`, `groups/1`), `lib/dispatch.exs` (`check_args/4`); tests
 `test/command_line_test.exs`, `test/dispatch_test.exs`.
-
-**Earlier**: `Old.md` §31.1-3, §32.
 
 ## Notes
 

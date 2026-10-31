@@ -27,7 +27,7 @@ field_drip it delegates to.
   them is loaded
 - **cabal / stack**: GHCi is started under `cabal exec --offline --` / `stack exec --`, which only make the dependencies visible; loading
   stays Xipe Totec's, all components at once. cabal needs the project built once, so `cabal build --offline all` runs first (output
-  dropped, failure not stopping GHCi). `--offline`: evaluating fetches nothing (§16.1)
+  dropped, failure not stopping GHCi). `--offline`: evaluating fetches nothing
 
 **Why**: GHCi decides instances at type-checking time, so the stages must be bound and tried at run time to always print a marker.
 `cabal repl` cannot add `embody.hs` in its multi-component mode (`:add` is not supported there).
@@ -39,8 +39,6 @@ live memory — not used).
 **Files**: `lib/repl/language/haskell.exs`, `lib/repl/haskell/launch.exs`, `lib/repl/haskell/eval_template.exs`,
 `lib/scanner/haskell.exs`, embody's `embody.hs`; tests `test/haskell_adapter_test.exs`, `test/live/repl_haskell_test.exs`; fixture
 `test/fixtures/haskell_sample/`.
-
-**Earlier**: `Old.md` §45, §46, §47.
 
 ## Notes
 

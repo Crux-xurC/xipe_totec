@@ -39,7 +39,7 @@ that long would freeze every window. Serial passes keep two evaluations of one p
 **Files**: `lib/serve_project.exs`, `lib/serve_socket.exs`, `lib/runner.exs`, `lib/store.exs`, `main.exs` (`xipe start`); tests
 `test/serve_project_test.exs`, `test/serve_socket_test.exs`.
 
-**Earlier**: `Old.md` §9 (the server's modules), §28 E, §37.2, §56.1; commit 3b39709 (failures as results).
+**Earlier**: commit 3b39709 (failures as results).
 
 ## Notes
 

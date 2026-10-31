@@ -13,14 +13,17 @@ time; if you find a disagreement, trust the code and fix this.
 
 ## 0. For people working with an AI
 
-Have the AI read this document and `CLAUDE.md` first, and hold it to three things:
+Have the AI read this document first, and hold it to three things:
 
 1. **Check the real REPL before implementing** (§2.2). A REPL's behaviour written from knowledge is wrong. For OCaml, "loading the
    compiler libraries makes type errors unreadable", and for Haskell, "`-fdefer-type-errors` works only on `let` bindings", were found only
    by checking; written from knowledge, neither would have worked
-2. **Do not touch the real environment**. Xipe Totec keeps its state (`tables/`, `info.json`) relative to `__DIR__`, so to try something,
-   copy it to a work directory first (`CLAUDE.md`, "trying it for real"). Pass embody with `XIPE_TOTEC_EMBODY_DIR`
-3. **Write down what was decided**. When the implementation fills a gap in the spec ("left out means `id`" …), write the decision in the
+2. **Do not touch the real environment**. Xipe Totec keeps its state (`tables/`, `info.json`) relative to `__DIR__`, and environment
+   variables cannot move it. To try something, copy `lib/`, `main.exs`, `info.json`, `pipelines.json`, `defaults.json` and
+   `project_env.json` to a work directory, copy a fixture (`test/fixtures/calc_sample/`) as the target, and run the copy:
+   `XIPE_TOTEC_LSP=off elixir main.exs choice project <the copied target>`, then `scan`, `do …`, `eval …`. Pass embody with
+   `XIPE_TOTEC_EMBODY_DIR`
+3. **Write down what was decided**. When the implementation fills a gap in the design ("left out means `id`" …), write the decision in the
    record of its main file (`document/verification/`, an anchor `d-<name>`) and a row in `document/verification/decisions.md`: what was
    checked, what was decided, what is left. Commit and push only when asked
 
@@ -38,7 +41,7 @@ Adding a language or a command does not change these. If one needs to change, th
 | The output contract | Between `XT_BEGIN_<id>` … `XT_END_<id>`: `repr=`, `type=`, `compare=`, `display=`; or `XT_ERROR_<id> timeout` / `crash <one line>`. The same in every language | [D-markers](verification/lib-repl-eval-scan.exs.md#d-markers), embody's `ReadMe.md` |
 | The three words of `repr` | `exact` (evaluating its source gives the value back), `binary`, `unsupported`. Core reads them (embedding into `⟦id⟧`, comparing with the previous value), so their meaning does not change by language | [D-repr](verification/lib-repl-eval_template.exs.md#d-repr) |
 | Loading runs none of the target's side effects | A script's top level, `main`, … | [D-source-sanitize](verification/lib-repl-source_sanitize.exs.md#d-source-sanitize) |
-| Evaluating does not go to the network | localhost only; build tools get `--offline` or the like | spec §16.1, [D-haskell-adapter](verification/lib-repl-language-haskell.exs.md#d-haskell-adapter) |
+| Evaluating does not go to the network | localhost only; build tools get `--offline` or the like | [D-haskell-adapter](verification/lib-repl-language-haskell.exs.md#d-haskell-adapter) |
 | tezcatl does not interpret text for people | tezcatl sends one line by `input` and shows the answer's `dialogue.text` as it is | [D-envelope](verification/lib-protocol.exs.md#d-envelope), tezcatl's D-xipe-dialogue |
 
 ---
@@ -55,7 +58,7 @@ Adding a language or a command does not change these. If one needs to change, th
 | Eval.Scan | `lib/repl/eval/scan/<transport>/<REPL>.exs` | `clean/1` removes the `XT_EXIT` line from the output. Over a pipe, delegating to iex's is enough | `scan/direct/ocaml.exs` |
 | FieldDrip | `lib/repl/eval/field_drip/<language>.exs` | Reads the body's `key=value` lines. If the output contract is kept, delegating to Elixir's is enough | `field_drip/ocaml.exs` |
 | Scanner | `lib/scanner/<language>.exs` (the `XipeTotec.Scanner` behaviour) | `scan_defs/3` (definitions → nodes) and `scan_links_report/3` (calls). §2.5 | `scanner/ocaml.exs` |
-| embody | a separate repository, `~/my_app/embody/embody.<extension>` | Always returns one entry in the output contract's form. §2.4 | `embody.ml`, `embody.hs` |
+| embody | a separate repository ([embody](https://github.com/Crux-xurC/embody)), `embody.<extension>` | Always returns one entry in the output contract's form. §2.4 | `embody.ml`, `embody.hs` |
 | How the target's environment is got (a project layer, not a language; also for tools other than Nix) | one line in `project_env.json` (`marker`, `command`, `format` `env` or `nix`, `watch` if needed), kept in the same form as tezcatl's `project_env.json`. For any other tool, write a script that prints the `env` format (`{"NAME": "value" \| null}`) | It runs at the target's root and prints only JSON; a failure is an exit code and stderr | `how-to-use.md` §4.3, [D-project-env](verification/lib-project_env.exs.md#d-project-env) |
 
 What each `Repl.Language` callback means is in `lib/repl/language.exs`'s moduledoc. The four parts (launch, eval_template, Eval.Scan,
@@ -96,12 +99,12 @@ the REPL as stuck, sends SIGINT, then SIGKILL if that does not work, and makes t
   compare (`none`)
 - A language that cannot have a memory limit need not (a stuck REPL is killed). OCaml and Haskell have none
 - **Starting waits `eval.boot_timeout`** (default 15 s, per project — [D-project-config](verification/lib-project_config.exs.md#d-project-config)).
-  With a build before the start (dune, cabal), a first build over it makes the start fail (`work_history/課題.md` §3)
+  With a build before the start (dune, cabal), a first build over it makes the start fail
 
 ### 2.4 Writing embody
 
 embody is a fixed module that knows no target. It is loaded into the REPL, takes the line (or lines) the caller sends, and prints in the
-output contract's form. `~/my_app/embody/ReadMe.md` has the shared contract and each language's content
+output contract's form. embody's [ReadMe.md](https://github.com/Crux-xurC/embody/blob/main/ReadMe.md) has the shared contract and each language's content
 ([D-embody](verification/lib-repl-embody.exs.md#d-embody)). The points when writing one:
 
 - **Depend on no target**. Which function to evaluate arrives as text; interpreting it is left to the REPL itself (OCaml's `Toploop`,
@@ -185,7 +188,7 @@ Narrowing, sorting, following and reshaping are the receiver's (tezcatl's table 
 methods that exist (`card/get`, `card/search`, `node/resolve`, `row/depends`, `row/check`, `graph/*`) are not removed, but no more are added.
 The same for `search`: no new kinds of turns. **Tables and columns may be added** (crux, 2026-10-12) — giving information in a clear shape is
 Xipe Totec's job, and the whole reads (3) and `search` (4) use the same tables. How each idea was handled: `document/scope.md` ("Work not
-started") and `../tezcatl/work_history/ja/コマンドの案.md` §2.
+started", "Ideas withdrawn").
 
 ### 3.1 Where to add it
 
@@ -242,7 +245,6 @@ window. The method table in `how-to-use.md` §3.2, the README's method table, th
 | Every decision, and why | `document/verification/decisions.md` and the records it links |
 | How the languages were added, and what was checked | [D-ocaml-adapter](verification/lib-repl-language-ocaml.exs.md#d-ocaml-adapter), [D-haskell-adapter](verification/lib-repl-language-haskell.exs.md#d-haskell-adapter), [D-embody](verification/lib-repl-embody.exs.md#d-embody) |
 | The REPL adapter's detailed contract (the marker protocol, hangs) | `document/repl-adapter-guide.md` |
-| embody's output contract and each language's content | `~/my_app/embody/ReadMe.md` |
+| embody's output contract and each language's content | embody's [ReadMe.md](https://github.com/Crux-xurC/embody/blob/main/ReadMe.md) |
 | The core of evaluation | `lib/repl/evaluator.exs` (each entry's round trip and deadline), `lib/runner.exs` (sorting by language) |
-| What is open now | `document/scope.md` ("Work not started"), `work_history/課題.md` (to 2026-10-10) |
-| What was planned next | `work_history/next_step.md` (adding languages paused on 2026-09-27) |
+| What is open now, and what was planned next | `document/scope.md` ("Work not started"; adding languages paused on 2026-09-27) |

@@ -29,11 +29,8 @@ nothing extra.
 
 **Files**: `lib/graph_query.exs`, `lib/address.exs`, `lib/dispatch.exs`; tests `test/graph_query_test.exs`.
 
-**Earlier**: `Old.md` §9 (the export formats, the doctest plan), §21, §21.1.
-
 ## Notes
 
 - Not decided: the doctest export's fresh path (evaluate each row alone, then write) and how it ranks against an existing doctest file
-  (`Old.md` §9, §8.1)
 - A function called through its default arguments links only once `arity/set` declares it (D-arity-set)
 - Verified: not yet verified cold (written from the code, 2026-10-19)
