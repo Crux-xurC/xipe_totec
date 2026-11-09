@@ -318,7 +318,7 @@ but are different things.
 ## With tezcatl
 
 The `/xipe` route of [tezcatl](https://github.com/Crux-xurC/tezcatl)'s relay connects the panels on the browser side
-(`panels/matrix.html` …) with the Xipe Totec server. Which project is the target is decided by Xipe Totec (`xipe choice project`);
+(`panels/resident/matrix.html` …) with the Xipe Totec server. Which project is the target is decided by Xipe Totec (`xipe choice project`);
 tezcatl is only its window. Normally `xipe start` is started on its own on :4200 without `<dir>` (tezcatl's `t` does not start it:
 Poca's box row or a person does, as with Emacs), and the relay only connects to it by WebSocket (`mode: "connect"` in `xipe.json`).
 Closing the window does not stop it. There is also `mode: "spawn"`, in which the relay starts it (it stops 45 seconds after the last
