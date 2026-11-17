@@ -31,9 +31,10 @@ and what replaced them.
 | D-ready-probe | a REPL is ready after two steps: its banner (`ready_pattern`, may be none), then the answer `XT_READY` to a probe expression (`ready_probe`) | [`lib/repl/session.exs`](lib-repl-session.exs.md) | — |
 | D-language-adapter | per language, four swappable modules (launch, eval_template, Eval.Scan by transport × REPL, FieldDrip) and one declaration (`Repl.Language`: extensions, REPL, build tools, scanner, launch options); the Evaluator knows no language | [`lib/repl/language.exs`](lib-repl-language.exs.md) | — |
 | D-source-sanitize | loading the target in scripts-mode runs no top-level code: only `defmodule` parts are compiled, at their original paths and lines | [`lib/repl/source_sanitize.exs`](lib-repl-source_sanitize.exs.md) | — |
-| D-embody | for languages without a read-back of their own (OCaml, Haskell), every call is wrapped in `embody`, a fixed module that knows no target and always returns one marker record; it is a separate repository | [`lib/repl/embody.exs`](lib-repl-embody.exs.md) | embody `ReadMe.md` |
+| D-embody | for languages without a read-back of their own (OCaml, Haskell, Python), every call is wrapped in `embody`, a fixed module that knows no target and always returns one marker record; it is a separate repository | [`lib/repl/embody.exs`](lib-repl-embody.exs.md) | embody `ReadMe.md` |
 | D-ocaml-adapter | the plain `ocaml` toplevel + `embody.ml` (its own `Toploop`); files loaded with top-level effects blanked, retried after their dependencies; dune: dependencies from `dune ocaml top`, own code from source, wrapped libraries by aliases | [`lib/repl/language/ocaml.exs`](lib-repl-language-ocaml.exs.md) | — |
 | D-haskell-adapter | GHCi + `embody.hs`, one entry as `let` bindings so `-fdefer-type-errors` applies; cabal / stack only lend the environment (`cabal exec`, `stack exec`) | [`lib/repl/language/haskell.exs`](lib-repl-language-haskell.exs.md) | — |
+| D-python-adapter | `python -i` + `embody.py`, one entry as one `run(…)` line with the call as a string; the project's modules imported through an import hook that runs only definitions, imports and literal constants; `.venv/bin/python` when there is one | [`lib/repl/language/python.exs`](lib-repl-language-python.exs.md) | `document/Xipe Totec 拡張案のまとめ.md` (2026-11-16 check) |
 
 ## Scanning and the Book
 

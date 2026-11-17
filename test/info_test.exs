@@ -27,10 +27,10 @@ defmodule InfoTest do
     info = %{"languages" => [], "repls" => ["placeholder"], "project" => nil}
     refreshed = Info.refresh_languages(info)
 
-    assert refreshed["languages"] == ["elixir", "haskell", "ocaml"]
-    assert refreshed["extensions"] == %{"ex" => ["elixir"], "exs" => ["elixir"], "hs" => ["haskell"], "ml" => ["ocaml"]}
+    assert refreshed["languages"] == ["elixir", "haskell", "ocaml", "python"]
+    assert refreshed["extensions"] == %{"ex" => ["elixir"], "exs" => ["elixir"], "hs" => ["haskell"], "ml" => ["ocaml"], "py" => ["python"]}
     # each language's REPL and build-tool priority list
-    assert refreshed["language_repls"] == %{"elixir" => "iex", "haskell" => "ghci", "ocaml" => "ocaml"}
+    assert refreshed["language_repls"] == %{"elixir" => "iex", "haskell" => "ghci", "ocaml" => "ocaml", "python" => "python"}
 
     assert refreshed["build_tools"] == %{
              "elixir" => [%{"name" => "mix", "markers" => ["mix.exs"]}],
@@ -38,7 +38,12 @@ defmodule InfoTest do
                %{"name" => "stack", "markers" => ["stack.yaml"]},
                %{"name" => "cabal", "markers" => ["*.cabal", "cabal.project"]}
              ],
-             "ocaml" => [%{"name" => "dune", "markers" => ["dune-project"]}]
+             "ocaml" => [%{"name" => "dune", "markers" => ["dune-project"]}],
+             "python" => [
+               %{"name" => "uv", "markers" => ["uv.lock"]},
+               %{"name" => "poetry", "markers" => ["poetry.lock"]},
+               %{"name" => "pip", "markers" => ["pyproject.toml", "requirements.txt", "setup.py"]}
+             ]
            }
 
     assert refreshed["repls"] == ["placeholder"]
@@ -97,7 +102,8 @@ defmodule InfoTest do
     assert refreshed["repls"] == [
              %{"transport" => "direct", "repl" => "ghci"},
              %{"transport" => "direct", "repl" => "iex"},
-             %{"transport" => "direct", "repl" => "ocaml"}
+             %{"transport" => "direct", "repl" => "ocaml"},
+             %{"transport" => "direct", "repl" => "python"}
            ]
     assert refreshed["languages"] == ["placeholder"]
   end

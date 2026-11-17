@@ -8,7 +8,7 @@ new skins.
 
 Written in Elixir. Application `:xipe_totec`, module `XipeTotec`, CLI command `xipe`. It works on its own from the command line;
 [tezcatl](https://github.com/Crux-xurC/tezcatl), a browser-side development environment in a separate repository, can be its window
-(see "With tezcatl" below). OCaml and Haskell evaluation use [embody](https://github.com/Crux-xurC/embody), also a separate repository.
+(see "With tezcatl" below). OCaml, Haskell and Python evaluation use [embody](https://github.com/Crux-xurC/embody), also a separate repository.
 
 ---
 
@@ -69,7 +69,7 @@ What is promised to work, and what happens outside the promise, is in [`document
 
 - **Nix** with flakes, on `x86_64-linux`. `nix develop` gives Elixir 1.18 / OTP 27 and the Erlang packages it uses (cowboy, gun,
   erlexec). There is no build without Nix yet.
-- For **OCaml** and **Haskell** projects: `ocaml` / `ghci` in the target's environment (a flake, direnv or mise declared in
+- For **OCaml**, **Haskell** and **Python** projects: `ocaml` / `ghci` / `python3` (or the project's `.venv`) in the target's environment (a flake, direnv or mise declared in
   `project_env.json`, or on `PATH`), and [embody](https://github.com/Crux-xurC/embody) cloned next to this repository (or
   `XIPE_TOTEC_EMBODY_DIR` pointing at it).
 - Optional: **elixir-ls** for scanning Elixir (without it, Xipe Totec's own scanner is used).
@@ -80,7 +80,7 @@ What is promised to work, and what happens outside the promise, is in [`document
 
 ```
 git clone https://github.com/Crux-xurC/xipe_totec.git
-git clone https://github.com/Crux-xurC/embody.git        # only for OCaml / Haskell
+git clone https://github.com/Crux-xurC/embody.git        # only for OCaml / Haskell / Python
 cd xipe_totec
 nix develop                                             # gives the `xipe` command
 
@@ -154,14 +154,16 @@ Hex packages it uses (cowboy, gun, erlexec …) come from `nix/relay-packages.ni
 
 ## How far it works now
 
-As of 2026-10-31, all 50 files and 568 cases of `./test/run.sh` pass. Apart from them there are tests that start real REPLs
-(`test/live/`: `iex` 12, `ocaml` 6, `ghci` 7; the OCaml and Haskell ones are skipped when their system is not on PATH).
+As of 2026-11-16, all 51 files and 579 cases of `./test/run.sh` pass. Apart from them there are tests that start real REPLs
+(`test/live/`: `iex` 12, `ocaml` 6, `ghci` 7, `python3` 4; the OCaml, Haskell and Python ones are skipped when their system is not on PATH).
 
 **From the CLI, scan → making calc rows → real evaluation → persisting the results works end to end for Elixir projects.** OCaml
 (`.ml`) works the same way; for dune projects the libraries depended on are loaded from `dune ocaml top`
 ([D-ocaml-adapter](document/verification/lib-repl-language-ocaml.exs.md#d-ocaml-adapter)). So does Haskell (`.hs`); for cabal and
 stack projects GHCi is started under `cabal exec` / `stack exec` so dependency packages are visible
-([D-haskell-adapter](document/verification/lib-repl-language-haskell.exs.md#d-haskell-adapter)). Both the mix layout (`iex -S mix`)
+([D-haskell-adapter](document/verification/lib-repl-language-haskell.exs.md#d-haskell-adapter)). So does Python (`.py`), each file imported
+without its top-level statements through `embody.py`
+([D-python-adapter](document/verification/lib-repl-language-python.exs.md#d-python-adapter)). Both the mix layout (`iex -S mix`)
 and the script layout are supported. In the script layout only the `defmodule` parts of each file are compiled, with the original
 file's path and line numbers (the loading script of `Repl.SourceSanitize`; top-level side effects are not run; error positions and
 `__DIR__` point at the original file).
@@ -207,7 +209,7 @@ Several projects can be handled. Once `xipe choice project` chooses the target, 
 (`tables/project/<id>_<name>/book.jsonl`).
 
 **What is in progress is more languages.** The table that decides language, REPL and build tool (`SurfaceTable`) is in place, with
-Elixir (+ mix), OCaml (+ dune) and Haskell (+ stack, cabal). For the rest see [`document/scope.md`](document/scope.md) ("Work not
+Elixir (+ mix), OCaml (+ dune), Haskell (+ stack, cabal) and Python (+ uv, poetry, pip). For the rest see [`document/scope.md`](document/scope.md) ("Work not
 started").
 
 ---
@@ -261,7 +263,8 @@ modules given to `Repl.Evaluator` (`launch`/`eval_template`/`Eval.Scan`/`field_d
 `Project` (scanning) and `Runner` (evaluation) use them. There is one REPL per language (`iex` for Elixir), and the build tool only
 changes how it starts. Elixir, OCaml (the plain `ocaml` toplevel + `embody.ml`,
 [D-ocaml-adapter](document/verification/lib-repl-language-ocaml.exs.md#d-ocaml-adapter)) and Haskell (GHCi + `embody.hs`,
-[D-haskell-adapter](document/verification/lib-repl-language-haskell.exs.md#d-haskell-adapter)) are declared. embody is a separate
+[D-haskell-adapter](document/verification/lib-repl-language-haskell.exs.md#d-haskell-adapter)) and Python (`python -i` + `embody.py`,
+[D-python-adapter](document/verification/lib-repl-language-python.exs.md#d-python-adapter)) are declared. embody is a separate
 repository ([Crux-xurC/embody](https://github.com/Crux-xurC/embody)).
 
 Elixir's Scanner prefers elixir-ls (`Scanner.Lsp.Elixir`). It tries tezcatl's `/lsp` first for the language server, and starts

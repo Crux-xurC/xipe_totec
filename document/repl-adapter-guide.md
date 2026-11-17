@@ -54,10 +54,10 @@ lib/repl/
   sender_direct.exs       (XipeTotec.Repl.Sender.Direct)       -- execution: over a plain pipe
   session.exs             (XipeTotec.Repl.Session)             -- generic: readiness, leaving
   language.exs            (XipeTotec.Repl.Language)            -- the behaviour of a declaration
-  language/{elixir,ocaml,haskell}.exs                          -- computing: each language's declaration
+  language/{elixir,ocaml,haskell,python}.exs                   -- computing: each language's declaration
   eval_template.exs       (XipeTotec.Repl.EvalTemplate)        -- computing: Elixir's call + safety wrapper
                                                                   + repr/compare + markers, all in one
-  ocaml/{launch,eval_template}.exs, haskell/{launch,eval_template}.exs
+  ocaml/{launch,eval_template}.exs, haskell/{launch,eval_template}.exs, python/{launch,eval_template}.exs
   embody.exs              (XipeTotec.Repl.Embody)              -- where embody is
   evaluator.exs           (XipeTotec.Repl.Evaluator)           -- generic: one plan through one session
   source_sanitize.exs     (XipeTotec.Repl.SourceSanitize)      -- Elixir only (see the note): defmodule-only
@@ -69,7 +69,7 @@ lib/repl/
     parser.exs            (XipeTotec.Repl.Eval.Parser)         -- generic: the above in one step
     scan/direct/{iex,ocaml,ghci}.exs                           -- computing: per REPL over a plain pipe
     scan/pty/             (empty: for a PTY Sender, when there is one)
-    field_drip/{elixir,ocaml,haskell}.exs                      -- computing: reading the body
+    field_drip/{elixir,ocaml,haskell,python}.exs               -- computing: reading the body
 ```
 
 **A note on `source_sanitize.exs`**: outside the four computing modules — an Elixir-only helper used by Elixir's `launch_opts/3` for

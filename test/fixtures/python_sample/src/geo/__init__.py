@@ -1,0 +1,1 @@
+print("GEO_INIT_SIDE_EFFECT")

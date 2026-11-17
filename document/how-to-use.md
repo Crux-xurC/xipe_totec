@@ -12,7 +12,7 @@ examples were made for real against `test/fixtures/calc_sample/calc.exs` (ids ch
 
 ```
 git clone https://github.com/Crux-xurC/xipe_totec.git
-git clone https://github.com/Crux-xurC/embody.git    # next to it: OCaml and Haskell evaluation load it from ../embody
+git clone https://github.com/Crux-xurC/embody.git    # next to it: OCaml, Haskell and Python evaluation load it from ../embody
 cd xipe_totec
 nix develop
 ```
@@ -28,8 +28,8 @@ The shell holds:
 | cowboy, gun, erlexec | the WebSocket server, connecting to tezcatl's `/lsp`, starting REPLs |
 | elixir-ls | the language server scanning uses (started by Xipe Totec itself when tezcatl is not there) |
 
-The languages are only those registered in `info.json`: today Elixir (`.ex`/`.exs`), OCaml (`.ml`), Haskell (`.hs`). Evaluating OCaml or
-Haskell needs `ocaml` / `ghci` in the target's environment (a flake in `project_env.json` …, §4.3) or on PATH, and each language's `embody`
+The languages are only those registered in `info.json`: today Elixir (`.ex`/`.exs`), OCaml (`.ml`), Haskell (`.hs`), Python (`.py`). Evaluating OCaml,
+Haskell or Python needs `ocaml` / `ghci` / `python3` (or the project's `.venv`) in the target's environment (a flake in `project_env.json` …, §4.3) or on PATH, and each language's `embody`
 (a separate repository, [embody](https://github.com/Crux-xurC/embody), §9.1). Type `xipe refresh -l` only after adding a language to `lib/repl/language/` (§9).
 
 ---
@@ -849,6 +849,25 @@ written per language and not converted yet) ([D-languages-per-pass](verification
   are read from source. Dependency packages must already be usable (nix's `ghcWithPackages`, a build beforehand …; with `--offline` nothing is
   fetched while evaluating). `dist-newstyle/` / `.stack-work/` appear in the target
 - Not supported: running functions that return `IO`
+
+### 9.3 Python (2026-11-16)
+
+([D-python-adapter](verification/lib-repl-language-python.exs.md#d-python-adapter))
+
+- Evaluation uses `python -i` — the project's `.venv/bin/python` when it exists, else `python3` from the target's environment. It imports
+  `embody.py` (from embody, as above), whose import hook loads the project's files: only `def`, `class`, imports and constants with literal
+  values run (`print(…)`, `if __name__ == "__main__":`, `X = f()` do not). Packages the project imports from elsewhere import as usual. Nothing
+  (`__pycache__`) is written into the target
+- A module is the file's path: `geo/shape.py` is `geo.shape`, `geo/__init__.py` is `geo`, and `src/` is left out for the src layout
+- A row's arguments are written in Python (`args=["'x'", "[1, 2]"]`). The call is `module.f((a), (b))`; a function with no arguments is `f()`
+- `repr`: a `repr()` that `ast.literal_eval` reads back equal is `exact` (numbers, strings, lists, tuples, dicts, sets …); otherwise a value
+  `pickle` round-trips is `binary` (class instances with `__eq__`, cyclic lists); otherwise `unsupported` (functions, generators, coroutines).
+  `type` is the class, with its module unless a builtin (`int`, `target.Point`). `compare`: floats within `1e-9`
+- Failures: an exception is `crash` with its type and message (`ValueError: bad`); an argument that does not parse is `crash SyntaxError: …`.
+  A timeout is `timeout` (SIGALRM). A loop inside C code is stopped by nothing but the deadline (`session_hung`)
+- Scanning (`Scanner.Python`) reads text: top-level `def` / `async def` (methods and nested functions left out). Calls from names of the same
+  module, `from … import` (aliased, relative), and `module.f` of imported project modules
+- Not supported: methods as rows, awaiting `async` functions
 
 ---
 

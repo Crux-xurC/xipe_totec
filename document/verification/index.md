@@ -42,6 +42,7 @@ decisions are listed in [decisions.md](decisions.md).
 | `lib/scanner/elixir.exs` | Elixir's own parser and compiler tracer (the fallback); counts default arguments for `arity/set`'s hint. | D-scanners, D-source-sanitize, D-arity-set |
 | `lib/scanner/ocaml.exs` | OCaml read as text. | D-scanners |
 | `lib/scanner/haskell.exs` | Haskell read as text. | D-scanners |
+| `lib/scanner/python.exs` | Python read as text (module names from paths). | D-scanners, D-python-adapter |
 | `lib/lsp/transport.exs` | How a language server is reached: the behaviour. | D-scanners |
 | `lib/lsp/transport/relay.exs` | Through tezcatl's `/lsp` relay. | D-scanners |
 | `lib/lsp/transport/stdio.exs` | Started by Xipe Totec itself, in the project's environment. | D-scanners, D-project-env |
@@ -63,12 +64,14 @@ decisions are listed in [decisions.md](decisions.md).
 | `lib/repl/language/elixir.exs` | Elixir: `ex`/`exs`, `iex`, `mix`, its scanners and adapter. | D-language-adapter, D-source-sanitize |
 | [`lib/repl/language/ocaml.exs`](lib-repl-language-ocaml.exs.md) | OCaml: `ml`, `ocaml` + embody, `dune`. | **D-ocaml-adapter** |
 | [`lib/repl/language/haskell.exs`](lib-repl-language-haskell.exs.md) | Haskell: `hs`, GHCi + embody, `stack` / `cabal`. | **D-haskell-adapter** |
+| [`lib/repl/language/python.exs`](lib-repl-language-python.exs.md) | Python: `py`, `python -i` + embody, `uv` / `poetry` / `pip`. | **D-python-adapter** |
 | `lib/repl/ocaml/launch.exs`, `lib/repl/ocaml/eval_template.exs` | OCaml's launch message and one entry (`Embody.run …`). | D-ocaml-adapter |
 | `lib/repl/haskell/launch.exs`, `lib/repl/haskell/eval_template.exs` | Haskell's launch message and one entry (five `let`s and `Embody.run`). | D-haskell-adapter |
+| `lib/repl/python/launch.exs`, `lib/repl/python/eval_template.exs` | Python's launch message, init file and one entry (`_xt_embody.run(…)`). | D-python-adapter |
 | [`lib/repl/embody.exs`](lib-repl-embody.exs.md) | Where embody is. | **D-embody** |
 | [`lib/repl/eval/scan.exs`](lib-repl-eval-scan.exs.md) | Finding one id's markers in a cleaned buffer. | **D-markers** |
-| `lib/repl/eval/scan/direct/{iex,ocaml,ghci}.exs` | Per transport and REPL: `XT_EXIT` removed (OCaml and GHCi delegate to iex's). | D-markers, D-language-adapter |
-| `lib/repl/eval/field_drip.exs`, `lib/repl/eval/field_drip/{elixir,ocaml,haskell}.exs` | Reading the `key=value` body (the others delegate to Elixir's). | D-markers |
+| `lib/repl/eval/scan/direct/{iex,ocaml,ghci,python}.exs` | Per transport and REPL: `XT_EXIT` removed (the others delegate to iex's). | D-markers, D-language-adapter |
+| `lib/repl/eval/field_drip.exs`, `lib/repl/eval/field_drip/{elixir,ocaml,haskell,python}.exs` | Reading the `key=value` body (the others delegate to Elixir's). | D-markers |
 | `lib/repl/eval/result.exs` | A parsed body or error as a result for Core. | D-plan-run-apply |
 | `lib/repl/eval/parser.exs` | clean → scan → field_drip → result, in one step. | D-markers |
 
@@ -126,10 +129,11 @@ guard their decisions.
 | File | What |
 |---|---|
 | `test/run.sh` | Runs the suite. |
-| `test/live/repl_iex_test.exs`, `repl_ocaml_test.exs`, `repl_haskell_test.exs` | Against real `iex`, `ocaml` (+ dune), `ghci` (+ cabal, stack); skipped when the tool is not on PATH. |
+| `test/live/repl_iex_test.exs`, `repl_ocaml_test.exs`, `repl_haskell_test.exs`, `repl_python_test.exs` | Against real `iex`, `ocaml` (+ dune), `ghci` (+ cabal, stack), `python3`; skipped when the tool is not on PATH. |
 | `test/fixtures/calc_sample/` | A small script-mode Elixir project (also used by tezcatl's E2E). |
 | `test/fixtures/ocaml_sample/`, `test/fixtures/ocaml_dune/` | OCaml: plain files with top-level effects; a dune project with a wrapped library. |
 | `test/fixtures/haskell_sample/` | Haskell: an export list hiding a function, a module importing another, a `main`. |
+| `test/fixtures/python_sample/` | Python: a top level that writes files, a src-layout package with relative and aliased imports. |
 | `test/fixtures/fake_lsp_server.exs` | A language server stand-in for the stdio transport. |
 
 ## Documents
