@@ -149,6 +149,12 @@ defmodule XipeTotec.Scanner.Python do
   # {modules: local name -> module, names: local name -> {module, name}},
   # for the module-level imports of a file whose package is `package`
   defp imports(text, package) do
+    # `from m import (a, b,\n    c)` made one line first: its continuation lines are indented
+    text =
+      Regex.replace(~r/^(from\s+\.*[\w.]*\s+import\s*)\(([^)]*)\)/m, text, fn _, head, inner ->
+        head <> (inner |> String.replace(~r/#[^\n]*/, "") |> String.replace(~r/\s+/, " ") |> String.trim())
+      end)
+
     top = text |> String.split("\n") |> Enum.reject(&String.match?(&1, ~r/^\s/)) |> Enum.join("\n")
 
     plain =

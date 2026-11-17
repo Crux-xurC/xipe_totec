@@ -209,8 +209,8 @@ Several projects can be handled. Once `xipe choice project` chooses the target, 
 (`tables/project/<id>_<name>/book.jsonl`).
 
 **What is in progress is more languages.** The table that decides language, REPL and build tool (`SurfaceTable`) is in place, with
-Elixir (+ mix), OCaml (+ dune), Haskell (+ stack, cabal) and Python (+ uv, poetry, pip). For the rest see [`document/scope.md`](document/scope.md) ("Work not
-started").
+Elixir (+ mix), OCaml (+ dune), Haskell (+ stack, cabal) and Python (+ uv, poetry, pip). Where the others stand (JavaScript / TypeScript next, as a map
+only; Go, C#, Java, PHP planned) is [`document/evolving.md`](document/evolving.md).
 
 ---
 
@@ -347,6 +347,7 @@ Totec decides what the line means (written as on the CLI, `XipeTotec.Input`), an
 | [`document/how-to-use.md`](document/how-to-use.md) | how to actually use it with the code as it is |
 | [`document/scope.md`](document/scope.md) | what is promised to work, what happens outside it, what a person does there, and the work not started |
 | [`document/internals.md`](document/internals.md) | for each use, what is called in what order, and which program does it |
+| [`document/evolving.md`](document/evolving.md) | where the languages beyond today's are going: stages, order, what each needs, what is set aside and why |
 | [`document/extending.md`](document/extending.md) | for someone adding a language or a command (and their AI): what to start from and what behaviour to meet |
 | [`document/repl-adapter-guide.md`](document/repl-adapter-guide.md) | how to write an adapter for a new language or REPL (the detailed reference from when Elixir was written; the entrance is the extension guide) |
 | [`document/verification/`](document/verification/README.md) | every decision in force (`decisions.md`), every file (`index.md`), and a record per file: what it does, why, the decisions homed in it, what was not chosen |

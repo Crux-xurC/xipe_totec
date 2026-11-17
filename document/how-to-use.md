@@ -855,8 +855,8 @@ written per language and not converted yet) ([D-languages-per-pass](verification
 ([D-python-adapter](verification/lib-repl-language-python.exs.md#d-python-adapter))
 
 - Evaluation uses `python -i` — the project's `.venv/bin/python` when it exists, else `python3` from the target's environment. It imports
-  `embody.py` (from embody, as above), whose import hook loads the project's files: only `def`, `class`, imports and constants with literal
-  values run (`print(…)`, `if __name__ == "__main__":`, `X = f()` do not). Packages the project imports from elsewhere import as usual. Nothing
+  `embody.py` (from embody, as above), whose import hook loads the project's files: only `def`, `class`, imports, constants with literal
+  values and aliases (`comp = compose`) run (`print(…)`, `if __name__ == "__main__":`, `X = f()` do not). Packages the project imports from elsewhere import as usual. Nothing
   (`__pycache__`) is written into the target
 - A module is the file's path: `geo/shape.py` is `geo.shape`, `geo/__init__.py` is `geo`, and `src/` is left out for the src layout
 - A row's arguments are written in Python (`args=["'x'", "[1, 2]"]`). The call is `module.f((a), (b))`; a function with no arguments is `f()`

@@ -27,8 +27,10 @@ D-source-sanitize ([`lib/repl/source_sanitize.exs`](lib-repl-source_sanitize.exs
   element, types must match; a value with a cycle compared by its pickle bytes
 - **Loading**: `embody.install` puts an import hook first on `sys.meta_path` for the project's modules (name → file, from
   `launch_opts/3`). A module is executed with only its `def`, `async def`, `class`, `import`, `from … import`, assignments of literal
-  values (`FACTOR = 3`, `NAMES: list = ["a"]`) and `try` blocks made of those — not `print(…)`, not `if __name__ == "__main__":`, not
-  `X = f()`. Imports between project files go through the same hook; other packages import as usual (their top level runs, as OCaml's
+  values (`FACTOR = 3`, `NAMES: list = ["a"]`), aliases (`comp = compose`, `join = os.path.join`: a name or a chain of
+  attributes, no call; 2026-11-17) and `try` blocks made of those — not `print(…)`, not `if __name__ == "__main__":`, not
+  `X = f()`. `run` imports the module's top-level package before the module itself, so a package whose `__init__.py` fails is that
+  failure in every entry (a submodule left in `sys.modules` by the failed import would otherwise hide it as `KeyError`). Imports between project files go through the same hook; other packages import as usual (their top level runs, as OCaml's
   dune dependencies do)
 - **Module names** (`Scanner.Python.module_name/2`): the path, `/` as `.`, `__init__.py` as its package, a leading `src/` left out unless
   `src/__init__.py` exists. One file per name
@@ -72,3 +74,15 @@ top level); a per-entry memory limit (`resource` limits the whole process — no
 - The value is judged (`repr`, `pickle`) outside the time limit; a value whose `repr` does not end is ended by the Evaluator's deadline
 - Verified: `test/live/repl_python_test.exs` (4 tests) and the CLI end to end (`refresh -l`, `choice project`, `scan`, `row/add`, `eval`)
   on a copy, 2026-11-16
+- Applied to a project not written for it (2026-11-17): toolz (pytoolz/toolz at 451af60, 51 files, 289 functions), on a copy of Xipe
+  Totec with its own `tables/`. Found and fixed: aliases at a package's top level (`comp = compose` in `toolz/__init__.py`) were dropped,
+  so the package failed to import, and every later entry was `KeyError: 'toolz'`; a parenthesized `from … import (…)` over several
+  lines bound only the names on its first line (links 188 → 270). Then 12 calc rows: `exact` for dicts, tuples and nested dicts
+  (`frequencies`, `get_in`, `merge`, `assoc_in`, `groupby`, `countby`, `topk`), `binary` for a `Compose` instance, `unsupported` for
+  iterators (`sliding_window`'s `zip`, `interpose`'s `chain`) and a closure (`memoize`), an `IndexError` crash (`nth`); the second
+  evaluation `same` for every `exact` and `binary` row
+- Seen in that check, left as they are: lazy functions give iterators, which are `unsupported` (a row cannot wrap its call in
+  `list(…)`); calls from a class's methods (toolz's tests are `unittest`-style classes) are no node's, so they are not links;
+  `toolz/curried/` builds its names with top-level calls (`x = toolz.curry(…)`), which do not run, so `toolz.curried` lacks them;
+  an argument containing `,` cannot be written in a one-line `xipe do` (`list("ab")`, `dict(a=1)` written instead — the `args:=[…]`
+  idea in `scope.md`)

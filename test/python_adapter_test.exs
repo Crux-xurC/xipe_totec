@@ -131,5 +131,28 @@ defmodule PythonAdapterTest do
       # grow -> add (aliased as plus), square (target.square), scale
       assert edges == [{"area", "scale"}, {"grow", "add"}, {"grow", "scale"}, {"grow", "square"}, {"square", "add"}]
     end
+
+    test "links: a parenthesized from-import over several lines (comments inside) binds every name" do
+      files = %{
+        "pkg/a.py" => "def f(x):\n    return x\n\ndef g(x):\n    return x\n\ndef h(x):\n    return x\n",
+        "b.py" => "from pkg.a import (f,  # first\n    g as gg,\n    h)\n\ndef use(x):\n    return f(x) + gg(x) + h(x)\n"
+      }
+
+      {book, ids} =
+        Enum.reduce(files, {Book.new(), %{}}, fn {path, text}, {book, ids} ->
+          {book, more} = Scanner.Python.scan_defs(book, path, %{root: "/p", path: path, source: text})
+          {book, Map.merge(ids, more)}
+        end)
+
+      book = Enum.reduce(files, book, fn {path, text}, book ->
+          book |> Scanner.Python.scan_links_report(ids, %{root: "/p", path: path, source: text}) |> elem(0)
+        end)
+
+      edges =
+        for({_, l} <- book.links, do: {Book.get(book, :nodes, l.node).name, Book.get(book, :nodes, l.ref).name})
+        |> Enum.sort()
+
+      assert edges == [{"use", "f"}, {"use", "g"}, {"use", "h"}]
+    end
   end
 end

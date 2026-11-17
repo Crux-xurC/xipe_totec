@@ -22,7 +22,7 @@ defmodule ReplLivePythonTest do
 
   @moduletag :python
   @fixture_dir Path.expand("../fixtures/python_sample", __DIR__)
-  @files ["target.py", "src/geo/__init__.py", "src/geo/shape.py", "src/geo/units.py"]
+  @files ["target.py", "src/geo/__init__.py", "src/geo/shape.py", "src/geo/units.py", "src/broken/__init__.py", "src/broken/part.py"]
 
   setup do
     dir = Path.join(System.tmp_dir!(), "xipe_totec_python_live_#{System.unique_integer([:positive])}")
@@ -74,6 +74,7 @@ defmodule ReplLivePythonTest do
 
   defp untouched!(dir) do
     assert File.ls!(dir) |> Enum.sort() == ["src", "target.py"]
+    assert File.ls!(Path.join(dir, "src")) |> Enum.sort() == ["broken", "geo"]
     assert File.ls!(Path.join(dir, "src/geo")) |> Enum.sort() == ["__init__.py", "shape.py", "units.py"]
   end
 
@@ -126,6 +127,23 @@ defmodule ReplLivePythonTest do
     assert {:error, "SyntaxError: " <> _} = r["e3"].outcome
     assert :timeout = r["e4"].outcome
     assert {:ok, %{display: "4"}} = r["e5"].outcome
+  end
+
+  test "aliases at a package's top level are loaded; a package whose __init__ fails is that error in every entry", %{dir: dir} do
+    {_book, r} =
+      run(dir, [
+        {"r1", "geo.rescale", ["5"]},
+        {"r2", "geo.units_scale", ["1"]},
+        {"b1", "broken.part.ok", []},
+        {"b2", "broken.part.ok", []}
+      ])
+
+    assert {:ok, %{display: "10"}} = r["r1"].outcome
+    assert {:ok, %{display: "2"}} = r["r2"].outcome
+    assert {:error, "ImportError: " <> _} = r["b1"].outcome
+    # not KeyError: 'broken' (the submodule the failed import left behind)
+    assert {:error, "ImportError: " <> _} = r["b2"].outcome
+    untouched!(dir)
   end
 
   test "compare against the previous value: same, changed; a float within tolerance; a binary value", %{dir: dir} do

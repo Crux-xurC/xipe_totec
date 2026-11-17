@@ -34,7 +34,7 @@ and what replaced them.
 | D-embody | for languages without a read-back of their own (OCaml, Haskell, Python), every call is wrapped in `embody`, a fixed module that knows no target and always returns one marker record; it is a separate repository | [`lib/repl/embody.exs`](lib-repl-embody.exs.md) | embody `ReadMe.md` |
 | D-ocaml-adapter | the plain `ocaml` toplevel + `embody.ml` (its own `Toploop`); files loaded with top-level effects blanked, retried after their dependencies; dune: dependencies from `dune ocaml top`, own code from source, wrapped libraries by aliases | [`lib/repl/language/ocaml.exs`](lib-repl-language-ocaml.exs.md) | — |
 | D-haskell-adapter | GHCi + `embody.hs`, one entry as `let` bindings so `-fdefer-type-errors` applies; cabal / stack only lend the environment (`cabal exec`, `stack exec`) | [`lib/repl/language/haskell.exs`](lib-repl-language-haskell.exs.md) | — |
-| D-python-adapter | `python -i` + `embody.py`, one entry as one `run(…)` line with the call as a string; the project's modules imported through an import hook that runs only definitions, imports and literal constants; `.venv/bin/python` when there is one | [`lib/repl/language/python.exs`](lib-repl-language-python.exs.md) | `document/Xipe Totec 拡張案のまとめ.md` (2026-11-16 check) |
+| D-python-adapter | `python -i` + `embody.py`, one entry as one `run(…)` line with the call as a string; the project's modules imported through an import hook that runs only definitions, imports and literal constants; `.venv/bin/python` when there is one | [`lib/repl/language/python.exs`](lib-repl-language-python.exs.md) | [`evolving.md`](../evolving.md) §5 (2026-11-16 check) |
 
 ## Scanning and the Book
 
