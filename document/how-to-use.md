@@ -869,7 +869,33 @@ written per language and not converted yet) ([D-languages-per-pass](verification
   module, `from … import` (aliased, relative), and `module.f` of imported project modules
 - Not supported: methods as rows, awaiting `async` functions
 
-### 9.4 JavaScript and TypeScript — the map only (2026-11-17)
+### 9.4 F# (2026-11-20)
+
+([D-fsharp-adapter](verification/lib-repl-language-fsharp.exs.md#d-fsharp-adapter))
+
+- Evaluation uses F# Interactive (`dotnet fsi --quiet`) with `embody.fsx` (from embody, as above). Each `*.fsproj` is built by `dotnet
+  build` into a temp dir (nothing fetched: FSharp.Core comes with the SDK; other packages must already be in the NuGet cache) and
+  referenced. Each `.fsx` script is loaded with only its definitions: `let` functions, values that run nothing (literals, names,
+  lambdas), types, `open`, modules; `printfn …`, `do …`, `let x = f ()` do not run. A `.fs` file no project builds is on the map only.
+  `obj/` appears in the target
+- A module is F#'s own name (`Sample.Calc`, nested `Sample.Geo.Inner`); a script without a `module` line is its file's name (`tool.fsx` is
+  `Tool`). `anykey` is the curried arguments as written: `let add a b` 2, `let addPair (a, b)` 1, `let answer ()` 1
+- A row's arguments are written in F#, one per curried argument (`args=[2,3]`, `args=[()]`, `args=[{ Sample.Point.X = 1.0; Y = 2.0 }]`;
+  a tuple is one argument and contains `,`, which a one-line `xipe do` cannot write yet). The call is `M.f (a) (b)`
+- `repr`: F#'s literals read back equal are `exact`: numbers, strings, arrays, lists, options, tuples, `Dictionary`, enums, and F#'s
+  records (`{ Sample.Point.X = 2.0; Y = 3.0 }`) and unions (`Sample.Shape.Rect (2.0, 3.0)`) — a later row takes them as they are.
+  Otherwise `binary` (System.Text.Json, when the round trip is the same) or `unsupported` (functions: `type=int -> int`)
+- Failures: an exception is `crash System.Exception: boom: 1`; a call that does not compile is `crash the call did not compile: …` in F#'s
+  terms (no module — with the build's first error or the scripts that did not load —, private, a value, `takes 2 argument(s), got 3`,
+  the signature `add : int -> int -> int`); fsi's own message (in your locale's language) is in the REPL's output. A timeout is `timeout`,
+  and the rest of the pass runs in a new session (`session` `<pass>/2`)
+- Scanning (`Scanner.FSharp`) uses F#'s own parser inside `dotnet fsi` (it comes with the SDK; `dotnet` must be in the target's
+  environment to scan too). Nodes: module-level `let` functions (values, members of types, operators left out). Links: names found as F#
+  looks them up (the module and the enclosing ones, then `open`s)
+- Not supported: values and point-free functions as rows (`let addTen = add 10`), members of types, scripts whose functions use a value
+  their top level computes
+
+### 9.5 JavaScript and TypeScript — the map only (2026-11-17)
 
 ([D-map-only-language](verification/lib-repl-language.exs.md#d-map-only-language))
 

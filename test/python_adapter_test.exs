@@ -39,7 +39,7 @@ defmodule PythonAdapterTest do
       message = Launch.build(cwd: "/p", init: "/tmp/init.py", argv: ["/p/.venv/bin/python"])
       assert message["argv"] == ~w(/p/.venv/bin/python -i -q -u /tmp/init.py)
       assert message["env"] == %{"PYTHONDONTWRITEBYTECODE" => "1"}
-      assert %{"files" => [], "ready_pattern" => nil, "exit_input" => "quit()\n", "interruptible" => true} = message
+      assert %{"files" => [], "ready_pattern" => nil, "exit_input" => "quit()\n", "interruptible" => true, "restart_after_timeout" => true} = message
       assert message["ready_probe"] == ~s|print("XT_" + "READY")\n|
     end
 

@@ -40,22 +40,26 @@ Nothing new in the design: every plan sits on the existing division of work.
 | Rust through Rustler | iex (as today) | an opt-in convention on the Elixir side | map (Elixir side) + evaluation | works today without a new adapter (§5); the convention is not made |
 | JavaScript / TypeScript | — | — | **map only** (decided 2026-11-17, §4.1) | **done** 2026-11-17 ([D-map-only-language](verification/lib-repl-language.exs.md#d-map-only-language)) |
 | Go | a driver | `embody.go` | map + evaluation | planned |
-| C# (F# as the window) | `dotnet fsi` | `embody.fsx` | map + evaluation | planned |
-| Java (Scala as the window) | Scala's REPL (or jshell) | `embody.scala` | map, then some evaluation | planned; the map first |
+| F# | `dotnet fsi` | `embody.fsx` | map + evaluation | **done** 2026-11-20 ([D-fsharp-adapter](verification/lib-repl-language-fsharp.exs.md#d-fsharp-adapter)) |
+| C# (F# as the window, a seam `embody.cs`) | `dotnet fsi` | `embody.fsx` + `embody.cs` | map + evaluation | next; a first attempt without the seam is on the branch `csharp-via-fsi` |
+| Scala | Scala's REPL | `embody.scala` | map + evaluation | planned (before Java, as F# before C#) |
+| Java (Scala as the window) | Scala's REPL (or jshell) | `embody.scala` (+ a seam) | map, then some evaluation | planned; the map first |
 | PHP | a driver | `embody.php` | mostly map | planned; the map first |
 | Rust alone | — | — | — | **set aside** (§6) |
 | TypeScript's logic evaluated | — | — | — | **set aside** (§6) |
 
 ### Order
 
-Cheapest checks first; each step makes the pattern the next one uses.
+Cheapest checks first; each step makes the pattern the next one uses. Changed 2026-11-20 (crux): a window's own language comes before
+the language it is a window for — aiming at C# and Java first made one embody carry two languages at once.
 
 1. Rust through Rustler: already evaluates (§5). Add embody's opt-in convention (§4.2) when a project needs `ResourceArc`'s contents
 2. Python: done
 3. JavaScript / TypeScript, map only: done; the pattern for Java's and PHP's maps
-4. Go: the first driver; the pattern for PHP
-5. C# with `fsi`: the first pair of a language and another language's REPL
-6. Java (Scala) and PHP: from 5 and 4; the map first
+4. F#: done — `embody.fsx` F#'s own
+5. C#: on F#'s adapter, with a seam project `embody.cs` (§4.4): the first pair of a language and another language's REPL
+6. Scala, then Java on it with a seam: the pattern of 4 and 5
+7. PHP, then Go: the drivers; the map first
 
 ## 4. Per language
 
@@ -104,18 +108,20 @@ the target — a special case no other language has, and a distortion of Xipe To
 - `init()` runs every time (unavoidable while the package is imported)
 - Scan: gopls as a `Scanner.Lsp` dialect
 
-### 4.4 C# — F# as the window
+### 4.4 C# — F# as the window, through a seam
 
-- Declaration: language `csharp` (`cs`), REPL `fsi`, build tool dotnet (`*.csproj`, `*.sln`). F# itself (`fs`) can share the REPL
-- Launch: `dotnet build` first (the first build against `boot_timeout`), then `dotnet fsi --quiet` with `embody.fsx` and the built dll
-  through `#r`
-- Calls: `Ns.Class.Method(a, b)` as in C#; arguments as F# literals
-- repr: `%A` for primitives, strings, arrays; records and classes through System.Text.Json as `binary` — **only after checking the
-  round trip** (serialize → deserialize → serialize again, the same), with `IncludeFields = true`: tuples and fields are dropped
-  silently otherwise. Classes compare by reference, so compare their serialized forms
-- Time: a running thread cannot be stopped; a timeout falls to `session_hung` as with Rustler. `fsi` is `interruptible: true` (§5)
-- Loading: top-level statements run only at the entry point; static constructors run on first use
-- Scan: csharp-ls (needs the .NET 10 SDK)
+Decided 2026-11-20 (crux), on top of F#'s adapter ([D-fsharp-adapter](verification/lib-repl-language-fsharp.exs.md#d-fsharp-adapter)):
+
+- Declaration: language `csharp` (`cs`), REPL `fsi`, build tool dotnet (`*.csproj`, `*.sln`): the project built and `#r`-ed as F#'s is
+- The seam: `embody.cs`, a small C# project **built in the temp dir** next to the target's build (never written into the project),
+  referencing the target's assemblies, and `#r`-ed into fsi with them. Its one job is to bring C#'s meaning to F# **on the side that
+  receives the result**: a `Task` awaited (`async` methods), values (C# records, anonymous types, what F# cannot read back), and failure
+  reasons in C#'s terms (`public static`, overloads). `out` / `ref` are left to F#
+- Calls: `Ns.Class.Method(a, b)`; the arguments stay F# expressions (C# text cannot be evaluated: Roslyn's scripting is not in the SDK)
+- Not decided: type arguments (a generic method whose type appears in no argument), together with `anykey` for overloads sharing a
+  parameter count (today one node, the first)
+- The first attempt (C# alone through fsi, a text scanner, 2026-11-19) is on the branch `csharp-via-fsi`; its scanner and tests can be
+  taken from there
 
 ### 4.5 Java — Scala as the window
 

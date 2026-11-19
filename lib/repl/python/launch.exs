@@ -24,6 +24,10 @@ defmodule XipeTotec.Repl.Python.Launch do
       and the REPL goes on reading (checked with Python 3.13.12). A loop
       inside C code (`sum(itertools.count())`) is stopped by neither SIGALRM
       nor SIGINT -- the Evaluator's deadline kills it
+    * `restart_after_timeout`: SIGALRM raises inside whatever the call was
+      doing, so a module's state may be left half changed; after a
+      `timeout` the rest of the pass runs in a new session (`Evaluator`'s
+      "A timeout and a new session")
   """
 
   @doc "`opts`: `:cwd` (required), `:init` (the init file), `:argv` (default `[\"python3\"]`), `:env`."
@@ -42,7 +46,8 @@ defmodule XipeTotec.Repl.Python.Launch do
       # the marker split so an echo of the line can't be taken for it
       "ready_probe" => ~s|print("XT_" + "READY")\n|,
       "exit_input" => "quit()\n",
-      "interruptible" => true
+      "interruptible" => true,
+      "restart_after_timeout" => true
     }
   end
 

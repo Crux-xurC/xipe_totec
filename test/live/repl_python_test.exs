@@ -127,6 +127,9 @@ defmodule ReplLivePythonTest do
     assert {:error, "SyntaxError: " <> _} = r["e3"].outcome
     assert :timeout = r["e4"].outcome
     assert {:ok, %{display: "4"}} = r["e5"].outcome
+    # after the timeout, a new session
+    assert r["e4"].session_gen == "pass1"
+    assert r["e5"].session_gen == "pass1/2"
   end
 
   test "aliases at a package's top level are loaded; a package whose __init__ fails is that error in every entry", %{dir: dir} do

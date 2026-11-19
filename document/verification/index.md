@@ -43,6 +43,7 @@ decisions are listed in [decisions.md](decisions.md).
 | `lib/scanner/ocaml.exs` | OCaml read as text. | D-scanners |
 | `lib/scanner/haskell.exs` | Haskell read as text. | D-scanners |
 | `lib/scanner/python.exs` | Python read as text (module names from paths). | D-scanners, D-python-adapter |
+| `lib/scanner/fsharp.exs`, `lib/scanner/fsharp/scan.fsx` | F# read by F#'s own parser (FSharp.Compiler.Service in `dotnet fsi`, once per scan); names resolved as F# looks them up. | D-scanners, D-fsharp-adapter |
 | `lib/scanner/javascript.exs` | JavaScript and TypeScript read as text (modules are paths; IIFE bodies as the top level; ES imports, `require`). | D-scanners, D-map-only-language |
 | `lib/lsp/transport.exs` | How a language server is reached: the behaviour. | D-scanners |
 | `lib/lsp/transport/relay.exs` | Through tezcatl's `/lsp` relay. | D-scanners |
@@ -70,10 +71,12 @@ decisions are listed in [decisions.md](decisions.md).
 | `lib/repl/ocaml/launch.exs`, `lib/repl/ocaml/eval_template.exs` | OCaml's launch message and one entry (`Embody.run …`). | D-ocaml-adapter |
 | `lib/repl/haskell/launch.exs`, `lib/repl/haskell/eval_template.exs` | Haskell's launch message and one entry (five `let`s and `Embody.run`). | D-haskell-adapter |
 | `lib/repl/python/launch.exs`, `lib/repl/python/eval_template.exs` | Python's launch message, init file and one entry (`_xt_embody.run(…)`). | D-python-adapter |
+| [`lib/repl/language/fsharp.exs`](lib-repl-language-fsharp.exs.md) | F#: `fs`, `fsx`, `dotnet fsi` + embody, `dotnet`. | **D-fsharp-adapter** |
+| `lib/repl/fsharp/launch.exs`, `lib/repl/fsharp/eval_template.exs` | F#'s start script (build, scripts' definitions-only copies), init file and one entry (three fsi submissions). | D-fsharp-adapter |
 | [`lib/repl/embody.exs`](lib-repl-embody.exs.md) | Where embody is. | **D-embody** |
 | [`lib/repl/eval/scan.exs`](lib-repl-eval-scan.exs.md) | Finding one id's markers in a cleaned buffer. | **D-markers** |
-| `lib/repl/eval/scan/direct/{iex,ocaml,ghci,python}.exs` | Per transport and REPL: `XT_EXIT` removed (the others delegate to iex's). | D-markers, D-language-adapter |
-| `lib/repl/eval/field_drip.exs`, `lib/repl/eval/field_drip/{elixir,ocaml,haskell,python}.exs` | Reading the `key=value` body (the others delegate to Elixir's). | D-markers |
+| `lib/repl/eval/scan/direct/{iex,ocaml,ghci,python,fsi}.exs` | Per transport and REPL: `XT_EXIT` removed (the others delegate to iex's). | D-markers, D-language-adapter |
+| `lib/repl/eval/field_drip.exs`, `lib/repl/eval/field_drip/{elixir,ocaml,haskell,python,fsharp}.exs` | Reading the `key=value` body (the others delegate to Elixir's). | D-markers |
 | `lib/repl/eval/result.exs` | A parsed body or error as a result for Core. | D-plan-run-apply |
 | `lib/repl/eval/parser.exs` | clean → scan → field_drip → result, in one step. | D-markers |
 

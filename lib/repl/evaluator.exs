@@ -21,6 +21,20 @@ defmodule XipeTotec.Repl.Evaluator do
   as the evaluation that needs it. A result's `session_gen` is the pass id,
   recorded as the row's `session`.
 
+  ## A timeout and a new session
+
+  A REPL stops a call at its time limit by raising inside it (Python's
+  SIGALRM, .NET's `ControlledExecution`): whatever the call was changing
+  -- a static, a lock, a module's global -- may be left half done, and a
+  thread waiting natively may even run on. A launch message that declares
+  `"restart_after_timeout": true` has the rest of the pass evaluated in a
+  new session after a `timeout`: the old one is killed, the next is
+  launched from the same message, and its results carry `session_gen`
+  `"<pass>/2"`, `"<pass>/3"` ... `carry_over/2` hands earlier rows' values
+  to the entries that refer to them (`exact` only; otherwise
+  `{:skipped, ref}`). When a later session fails to boot, the rest is
+  `:aborted` and what was evaluated is kept.
+
   ## Language independence
 
   The four per-language modules are `run_pass/3` options
@@ -196,32 +210,55 @@ defmodule XipeTotec.Repl.Evaluator do
 
   defp launch_and_run(book, ctx, entries, pass_id, cwd, sender, adapter, boot_timeout_ms, hang_grace_ms, interrupt_grace_ms, launch_opts) do
     message = adapter.launch.build([{:cwd, cwd} | launch_opts])
+    waits = %{boot: boot_timeout_ms, hang: hang_grace_ms, interrupt: interrupt_grace_ms}
+
+    case run_sessions(entries, pass_id, 1, message, sender, adapter, waits, []) do
+      {:ok, results} -> {:ok, Core.apply_results(book, ctx, results), results}
+      error -> error
+    end
+  end
+
+  # One REPL session per round. A `timeout` in a REPL whose launch message
+  # declares "restart_after_timeout" ends the round: the session is killed
+  # (whatever the stopped call left half done goes with it) and the rest of
+  # the pass goes on in a new one, `session_gen` "<pass>/2", "<pass>/3" ...
+  # (see moduledoc's "A timeout and a new session"). `done`: the results of
+  # the earlier rounds.
+  defp run_sessions(entries, pass_id, n, message, sender, adapter, waits, done) do
+    gen = session_gen(pass_id, n)
 
     case sender.send(message) do
       {:ok, handle} ->
-        case Session.await_ready(sender, handle, message, boot_timeout_ms, adapter.cancelled?) do
+        case Session.await_ready(sender, handle, message, waits.boot, adapter.cancelled?) do
           :ok ->
             interruptible = Map.get(message, "interruptible", false)
-            {status, results} = run_entries(entries, pass_id, handle, sender, adapter, interruptible, hang_grace_ms, interrupt_grace_ms)
+            restart? = Map.get(message, "restart_after_timeout", false)
 
-            # a hung session was already forced down (run_entries' :hung
-            # branch calls end_hung_session/3, which itself always calls
-            # sender.kill/1): calling Session.close/4 again here would
-            # re-send exit_input / re-wait for XT_EXIT against a handle
-            # that -- for a real Sender.Direct -- is racing its own async
-            # {:DOWN,...} -> {:stop, :normal} shutdown, so a second
-            # `write/2` could hit a dead GenServer (`:noproc`) instead of
-            # the intended no-op.
-            case status do
+            case run_entries(entries, gen, handle, sender, adapter, interruptible, restart?, waits.hang, waits.interrupt) do
               # stopped (eval/cancel): the process group goes at once, and
               # nothing of the pass is kept
-              :cancelled ->
+              {:cancelled, _} ->
                 sender.kill(handle)
                 {:error, :cancelled}
 
-              _ ->
+              {:restart, results, rest} ->
+                sender.kill(handle)
+                done = done ++ results
+                {rest, skipped} = carry_over(rest, done)
+                done = done ++ skipped
+                if rest == [], do: {:ok, done}, else: run_sessions(rest, pass_id, n + 1, message, sender, adapter, waits, done)
+
+              # a hung session was already forced down (run_entries' :hung
+              # branch calls end_hung_session/4, which itself always calls
+              # sender.kill/1): calling Session.close/4 again here would
+              # re-send exit_input / re-wait for XT_EXIT against a handle
+              # that -- for a real Sender.Direct -- is racing its own async
+              # {:DOWN,...} -> {:stop, :normal} shutdown, so a second
+              # `write/2` could hit a dead GenServer (`:noproc`) instead of
+              # the intended no-op.
+              {status, results} ->
                 if status == :ok, do: Session.close(sender, handle, message["exit_input"])
-                {:ok, Core.apply_results(book, ctx, results), results}
+                {:ok, done ++ results}
             end
 
           {:error, :cancelled} ->
@@ -230,23 +267,73 @@ defmodule XipeTotec.Repl.Evaluator do
 
           {:error, reason} ->
             sender.kill(handle)
-            {:error, {:boot_failed, reason}}
+            if n == 1, do: {:error, {:boot_failed, reason}}, else: {:ok, done ++ aborted(entries)}
         end
 
       {:error, reason} ->
-        {:error, {:launch_failed, reason}}
+        if n == 1, do: {:error, {:launch_failed, reason}}, else: {:ok, done ++ aborted(entries)}
     end
   end
 
-  defp run_entries([], _pass_id, _handle, _sender, _adapter, _interruptible, _hang_grace_ms, _interrupt_grace_ms), do: {:ok, []}
+  defp session_gen(pass_id, 1), do: pass_id
+  defp session_gen(pass_id, n), do: "#{pass_id}/#{n}"
 
-  defp run_entries([entry | rest], pass_id, handle, sender, adapter, interruptible, hang_grace_ms, interrupt_grace_ms) do
-    if adapter.cancelled?.(),
-      do: {:cancelled, []},
-      else: run_entry(entry, rest, pass_id, handle, sender, adapter, interruptible, hang_grace_ms, interrupt_grace_ms)
+  defp aborted(entries), do: for(e <- entries, do: %{call_id: e.call_id, outcome: :aborted, compare: "skipped", evaluated_at: nil, session_gen: nil})
+
+  @doc """
+  The entries left after a restart, ready for a new session: a reference
+  to a row evaluated in an earlier session (Core's `:in_plan`, the
+  variable `xt_<id>` the old session bound) becomes that row's `exact`
+  text, as Core embeds a value from outside the pass; a row whose value
+  can't be handed over that way (not `exact`, an error, skipped) makes the
+  entry `{:skipped, ref}`, and so the entries that depend on it. Nothing is
+  evaluated again. `{entries, skipped results}`.
+  """
+  @spec carry_over([map()], [map()]) :: {[map()], [map()]}
+  def carry_over(entries, earlier) do
+    values =
+      for %{call_id: id, outcome: {:ok, %{repr: "exact", display: text}}} <- earlier, into: %{}, do: {id, text}
+
+    earlier_ids = MapSet.new(earlier, & &1.call_id)
+
+    {kept, skipped, _} =
+      Enum.reduce(entries, {[], [], MapSet.new()}, fn entry, {kept, skipped, skipped_ids} ->
+        refs = for {:in_plan, %{ref: ref} = input} <- entry.inputs, do: {ref, input}
+
+        case Enum.find(refs, fn {ref, _} ->
+               MapSet.member?(skipped_ids, ref) or (MapSet.member?(earlier_ids, ref) and not Map.has_key?(values, ref))
+             end) do
+          {ref, _} ->
+            skip = %{call_id: entry.call_id, outcome: {:skipped, ref}, compare: "skipped", evaluated_at: nil, session_gen: nil}
+            {kept, [skip | skipped], MapSet.put(skipped_ids, entry.call_id)}
+
+          nil ->
+            embedded = for {ref, input} <- refs, Map.has_key?(values, ref), do: {input, values[ref]}
+
+            args =
+              Enum.map(entry.args, fn arg ->
+                Enum.reduce(embedded, arg, fn {input, text}, arg ->
+                  String.replace(arg, ~r/(?<![A-Za-z0-9_])#{Regex.escape(input.placeholder)}(?![A-Za-z0-9_])/, fn _ -> text end)
+                end)
+              end)
+
+            inputs = entry.inputs -- Enum.map(embedded, fn {input, _} -> {:in_plan, input} end)
+            {[%{entry | args: args, inputs: inputs} | kept], skipped, skipped_ids}
+        end
+      end)
+
+    {Enum.reverse(kept), Enum.reverse(skipped)}
   end
 
-  defp run_entry(entry, rest, pass_id, handle, sender, adapter, interruptible, hang_grace_ms, interrupt_grace_ms) do
+  defp run_entries([], _session_gen, _handle, _sender, _adapter, _interruptible, _restart?, _hang_grace_ms, _interrupt_grace_ms), do: {:ok, []}
+
+  defp run_entries([entry | rest], session_gen, handle, sender, adapter, interruptible, restart?, hang_grace_ms, interrupt_grace_ms) do
+    if adapter.cancelled?.(),
+      do: {:cancelled, []},
+      else: run_entry(entry, rest, session_gen, handle, sender, adapter, interruptible, restart?, hang_grace_ms, interrupt_grace_ms)
+  end
+
+  defp run_entry(entry, rest, session_gen, handle, sender, adapter, interruptible, restart?, hang_grace_ms, interrupt_grace_ms) do
     adapter.progress.(entry.call_id, "calling")
     sender.write(handle, adapter.eval_template.build(entry))
     grace_ms = hang_grace_ms || entry.limits.timeout + @default_deadline_padding_ms
@@ -254,10 +341,15 @@ defmodule XipeTotec.Repl.Evaluator do
     # wait_result/7)
     deadline = System.monotonic_time(:millisecond) + grace_ms
 
-    case wait_result(handle, entry.call_id, "", pass_id, adapter, deadline, false) do
+    case wait_result(handle, entry.call_id, "", session_gen, adapter, deadline, false) do
+      {:ok, %{outcome: :timeout} = result} when restart? and rest != [] ->
+        {:restart, [result], rest}
+
       {:ok, result} ->
-        {status, rest_results} = run_entries(rest, pass_id, handle, sender, adapter, interruptible, hang_grace_ms, interrupt_grace_ms)
-        {status, [result | rest_results]}
+        case run_entries(rest, session_gen, handle, sender, adapter, interruptible, restart?, hang_grace_ms, interrupt_grace_ms) do
+          {:restart, results, more} -> {:restart, [result | results], more}
+          {status, rest_results} -> {status, [result | rest_results]}
+        end
 
       :cancelled ->
         {:cancelled, []}
@@ -265,8 +357,7 @@ defmodule XipeTotec.Repl.Evaluator do
       {:hung, called?} ->
         end_hung_session(sender, handle, interruptible, interrupt_grace_ms)
         hung = %{call_id: entry.call_id, outcome: {:error, hung_reason(called?)}, compare: "skipped", evaluated_at: nil, session_gen: nil}
-        aborted = for e <- rest, do: %{call_id: e.call_id, outcome: :aborted, compare: "skipped", evaluated_at: nil, session_gen: nil}
-        {:hung, [hung | aborted]}
+        {:hung, [hung | aborted(rest)]}
     end
   end
 

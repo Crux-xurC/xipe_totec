@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Xipe Totec's F# fixture: FSharp.Core comes with the SDK, so it builds without fetching anything -->
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <AssemblyName>Sample</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="src/Geo.fs" />
+    <Compile Include="src/Calc.fs" />
+  </ItemGroup>
+</Project>

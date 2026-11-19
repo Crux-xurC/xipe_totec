@@ -180,6 +180,80 @@ defmodule ReplEvaluatorTest.ToyLanguage do
   end
 end
 
+# A REPL that declares "restart_after_timeout": `spin` times out, `unsup`
+# is unsupported, anything else is exact and shows the session it ran in
+# (`s<n>:<args>`). Each send/1 is a new session; kill/1 tells the test.
+defmodule ReplEvaluatorTest.RestartLanguage do
+  defmodule Launch do
+    def build(opts) do
+      %{
+        "kind" => "repl/launch",
+        "argv" => ["true"],
+        "env" => %{},
+        "cwd" => Keyword.fetch!(opts, :cwd),
+        "files" => [],
+        "ready_pattern" => "RT_READY",
+        "exit_input" => "bye\n",
+        "restart_after_timeout" => Keyword.get(opts, :restart, true)
+      }
+    end
+  end
+
+  defmodule EvalTemplate do
+    def build(entry), do: "RT #{entry.call_id}|#{Enum.join(entry.args, ",")}\n"
+  end
+
+  defmodule FieldDrip do
+    @behaviour XipeTotec.Repl.Eval.FieldDrip
+    @impl true
+    def parse(body) do
+      [repr, display] = String.split(String.trim(body), " ", parts: 2)
+      %{"repr" => repr, "type" => "toy", "display" => display, "compare" => "none"}
+    end
+  end
+
+  defmodule Sender do
+    @behaviour XipeTotec.Repl.Sender
+
+    @impl true
+    def send(message) do
+      handle = self()
+      Process.put(:rt_session, (Process.get(:rt_session) || 0) + 1)
+      Kernel.send(handle, {handle, {:data, message["ready_pattern"] <> "\nXT_READY\n"}})
+      {:ok, handle}
+    end
+
+    @impl true
+    def write(handle, "RT " <> rest) do
+      [id, args] = rest |> String.trim_trailing("\n") |> String.split("|", parts: 2)
+
+      body =
+        case args do
+          "spin" -> "XT_ERROR_#{id} timeout\n"
+          "unsup" -> "XT_BEGIN_#{id}\nunsupported <fun>\nXT_END_#{id}\n"
+          _ -> "XT_BEGIN_#{id}\nexact s#{Process.get(:rt_session)}:#{args}\nXT_END_#{id}\n"
+        end
+
+      Kernel.send(handle, {handle, {:data, body}})
+      :ok
+    end
+
+    def write(handle, "bye\n") do
+      Kernel.send(handle, {handle, {:data, "XT_EXIT 0\n"}})
+      :ok
+    end
+
+    @impl true
+    def kill(handle) do
+      Kernel.send(handle, {:rt_killed, Process.get(:rt_session)})
+      :ok
+    end
+
+    @impl true
+    def interrupt(_handle), do: :ok
+  end
+end
+
 defmodule ReplEvaluatorTest do
   use ExUnit.Case, async: true
 
@@ -326,5 +400,82 @@ defmodule ReplEvaluatorTest do
 
     assert result.outcome == {:ok, %{repr: "exact", type: "toy", display: "HELLO", bin: nil}}
     assert Book.get(new_book, :calls, "c1").result == "HELLO"
+  end
+
+  describe "restart_after_timeout" do
+    alias ReplEvaluatorTest.RestartLanguage, as: RT
+
+    defp rt_pass(book, ids, restart) do
+      Evaluator.run_pass(book, "pass1",
+        cwd: ".",
+        call_ids: ids,
+        sender: RT.Sender,
+        launch_module: RT.Launch,
+        eval_template_module: RT.EvalTemplate,
+        scan_module: ReplEvaluatorTest.ToyLanguage.Scan,
+        field_drip_module: RT.FieldDrip,
+        launch_opts: [restart: restart]
+      )
+    end
+
+    defp rt_book(calls) do
+      Enum.reduce(calls, Book.new() |> Core.put_node("n1", pure_node("f")), fn {id, args}, book ->
+        Core.add_call(book, id, %{node: "n1", args: args})
+      end)
+    end
+
+    test "after a timeout the rest runs in a new session; earlier values handed over as exact text, or the row skipped" do
+      book =
+        rt_book([
+          {"c0", ["unsup"]},
+          {"c1", ["1"]},
+          {"c2", ["spin"]},
+          # an exact value from the old session: embedded as its text
+          {"c3", ["⟦c1⟧"]},
+          # the timed-out row, and what depends on it: skipped
+          {"c4", ["⟦c2⟧"]},
+          {"c5", ["⟦c4⟧"]},
+          # within the new session: the binding as usual
+          {"c6", ["⟦c7⟧"]},
+          {"c7", ["7"]},
+          # an unsupported value from the old session can't be handed over
+          {"c8", ["⟦c0⟧"]}
+        ])
+
+      ids = ~w(c0 c1 c2 c3 c4 c5 c6 c7 c8)
+      assert {:ok, new_book, results} = rt_pass(book, ids, true)
+      r = Map.new(results, &{&1.call_id, &1})
+
+      assert r["c1"].outcome == {:ok, %{repr: "exact", type: "toy", display: "s1:1", bin: nil}}
+      assert r["c1"].session_gen == "pass1"
+      assert r["c2"].outcome == :timeout
+      assert r["c2"].session_gen == "pass1"
+      assert {:ok, %{display: "s2:s1:1"}} = r["c3"].outcome
+      assert r["c3"].session_gen == "pass1/2"
+      assert r["c4"].outcome == {:skipped, "c2"}
+      assert r["c5"].outcome == {:skipped, "c4"}
+      assert {:ok, %{display: "s2:xt_c7"}} = r["c6"].outcome
+      assert {:ok, %{display: "s2:7"}} = r["c7"].outcome
+      assert r["c8"].outcome == {:skipped, "c0"}
+      assert Book.get(new_book, :calls, "c3").session == "pass1/2"
+      assert_received {:rt_killed, 1}
+      refute_received {:rt_killed, 2}
+    end
+
+    test "without the declaration a timeout leaves the session as it was" do
+      book = rt_book([{"c1", ["spin"]}, {"c2", ["2"]}])
+      assert {:ok, _book, [r1, r2]} = rt_pass(book, ~w(c1 c2), false)
+      assert r1.outcome == :timeout
+      assert {:ok, %{display: "s1:2"}} = r2.outcome
+      assert r2.session_gen == "pass1"
+      refute_received {:rt_killed, _}
+    end
+
+    test "a timeout on the last entry ends the pass without a new session" do
+      book = rt_book([{"c1", ["1"]}, {"c2", ["spin"]}])
+      assert {:ok, _book, [_, r2]} = rt_pass(book, ~w(c1 c2), true)
+      assert r2.outcome == :timeout
+      refute_received {:rt_killed, _}
+    end
   end
 end

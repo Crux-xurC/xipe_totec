@@ -145,6 +145,7 @@ makes `xipe table generate` fill the surface table's `build_tool` column, which 
 | OCaml | dune | dependency libraries read from `dune ocaml top` (without the lines of its own `.cma`); aliases made for wrapped libraries |
 | Haskell | cabal, stack | `ghci` started under `cabal exec --offline --` (after `cabal build --offline all`) / `stack exec --` |
 | Python | uv, poetry, pip | none: the project's `.venv/bin/python` when it exists, else `python3` from its environment |
+| F# | dotnet | every `*.fsproj` built by `dotnet build` (into a temp dir, from an empty package source) before `dotnet fsi` starts, and `#r`-ed; `.fsx` scripts loaded as definitions-only copies |
 
 In every case Xipe Totec loads the project's own code from source (without side effects). Leaving everything to the build tool's REPL
 (`cabal repl` …) is not taken: embody cannot be added, components cannot load together.
