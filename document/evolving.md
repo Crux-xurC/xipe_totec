@@ -49,7 +49,7 @@ Nothing new in the design: every plan sits on the existing division of work.
 | Go | a driver | `embody.go` | map + evaluation | planned |
 | F# | `dotnet fsi` | `embody.fsx` | map + evaluation | **done** 2026-11-20 ([D-fsharp-adapter](verification/lib-repl-language-fsharp.exs.md#d-fsharp-adapter)) |
 | Scala | Scala's REPL | `embody.scala` | map + evaluation | **done** 2026-11-20 ([D-scala-adapter](verification/lib-repl-language-scala.exs.md#d-scala-adapter)); sbt and scala-cli, mill later |
-| C# (F# as the window, a seam `embody.cs`) | `dotnet fsi` | `embody.fsx` + `embody.cs` | map + evaluation | **next** (§4.4); a first attempt without the seam is on a local branch `csharp-via-fsi` |
+| C# (F# as the window, a seam `embody.cs`) | `dotnet fsi` | `embody.fsx` + `embody.cs` | map + evaluation | **next**: checked and decided 2026-11-20, the work listed (§4.4); a first attempt without the seam is on a local branch `csharp-via-fsi` |
 | Java (Scala as the window, a seam `embody.java`) | Scala's REPL | `embody.scala` + `embody.java` | map + evaluation | after C# (§4.6) |
 | PHP | a driver | `embody.php` | mostly map | planned; the map first |
 | Rust alone | — | — | — | **set aside** (§6) |
@@ -137,6 +137,61 @@ the first case of §2, 7:
 - Not decided: type arguments (a generic method whose type appears in no argument)
 - The first attempt (C# alone through fsi, a text scanner, 2026-11-19) is on the branch `csharp-via-fsi`; its scanner and tests can be
   taken from there
+
+Checked 2026-11-20 for the seam (.NET 8 SDK 8.0.419 from xipe_totec's pin; a C# target with records, `async`, overloads, generics,
+`out`, optional and `params` parameters, and a seam project `XtSeam` beside it):
+
+| Item | What happened |
+|---|---|
+| Building the seam | A C# class library in the temp dir referencing the target's `Target.dll` by `HintPath`, built with an empty package source: 1.7 s, nothing fetched; its `obj/` in the temp dir only. Both dlls `#r`-ed into fsi |
+| Overloads of one parameter count | F# picks by the arguments' types: `Over(1)` the `int` one, `Over("a")` the `string` one, `Over(1.0)` the `double` one; `int` widens to `long` (`Wide(1)`). `Over(null)` silently picks the `string` one |
+| `async` | `Seam.Settle` (`GetAwaiter().GetResult()`, then `Result`) gives `Task<int>`'s value; a plain `Task` gives `null` |
+| Records | `ToString` `Point { X = 2, Y = 3 }`; F# builds one with its constructor (`Sample.Point(2.0, 3.0)`) and `=` compares values. A record holding a `List<int>` is not `=` to an equal one (the list by reference). An anonymous type prints `{ N = 1, S = 1 }` |
+| Generic methods | `Id(1)` infers `int`; `Twice("a")` gives a `List<string>`. **`Make<T>()`, whose type parameter is in no parameter, called without a type argument is silently `Make<obj>()`**: a wrong value, no error |
+| `out`, optional, `params` | `Out(3)` returns the tuple `(3, 6)` (the caller does not write the `out` argument); `Opt(1)` and `Opt(1, 2)`; `Params(1, 2, 3)` and `Params([|1; 2|])` |
+| Failures | A C# exception is its own text (`System.ArgumentException: bad a (Parameter 'a')`); a C# value tuple shows as F#'s `struct (3, "3")` |
+
+Decided 2026-11-20 (crux), from these checks:
+
+1. **Reading a C# value back is `embody.cs`'s work.** It writes a record as an F# expression of its primary constructor
+   (`Sample.Point(2.0, 3.0)`, a later row takes it as it is), reads that text back itself, compares by the properties (a `List` inside
+   element by element), and says why a call failed in C#'s terms (not `public static`, an instance method, the overloads' C#
+   signatures). `embody.fsx` gets one language-neutral entry and nothing of C#: before judging a value its own writer does not cover,
+   it asks a helper registered at the start (`embody.cs` registers itself), and it hands the helper its own reader and writer for the
+   nested values (numbers, strings, lists inside a record). The seam works by reflection, so it needs no reference to the target: one
+   small project built in the pass's temp dir (§2, 7 said "referencing the target"; not needed)
+2. **Overloads of one parameter count**: the call gives each argument its parameter's type, from `anykey`, C#'s type names mapped to
+   F#'s (`Over((null : string))`; `double` is `float`, `long` `int64`, `List<int>` `List<int>`, `int[]` `int[]`). Other calls as they are
+3. **A type parameter in no parameter** (`Make<T>()`): `row/add` refuses the method with the reason until type arguments are decided
+   (called without one it would run as `obj`, silently: P9). A method whose type parameters all appear in its parameters is called as
+   it is
+4. **The shape**: an `out` parameter is not written by the caller (out of the shape; in `anykey` as `out int`); optional parameters as
+   Elixir's default arguments (the shape counts all of them, `arity/set` allows fewer); a `params` array counts as one
+5. **`async`**: the scanner marks a method returning `Task`, `Task<T>`, `ValueTask` or `ValueTask<T>`, and the call is wrapped in
+   `Seam.Await(…)`, typed: a later row gets the `T`
+6. **F#'s static members of types become nodes**, with the sequence of types as `anykey` (as C#'s methods); F#'s module functions keep
+   their curried count
+
+The work, in order (one commit each where it stands alone):
+
+1. **F#'s static members**: `scan.fsx` reads `static member` of types (and their overloads) as nodes, `anykey` the parameters' types
+   from the syntax tree in one form, the shape one list (tupled) per parameter group; the call `Ns.Type.Member((a), (b))`. Tests on the
+   F# fixture, the live fsi test
+2. **C#'s scanner on main**: `Scanner.CSharp` taken from `csharp-via-fsi`, `anykey` the parameters' types (normalized from its tokens:
+   spacing does not move an id; `int` against `System.Int32` stays as written), the shape (rule 4), marks for `async` (rule 5) and for a
+   type parameter in no parameter (rule 3, `row/add` refuses). Unit tests on the fixture, extended with records, `async`, overloads of
+   one count, generics, `out`, optional, `params`
+3. **`embody.fsx`'s helper entry** (rule 1), language-neutral; embody's ReadMe
+4. **`embody.cs`**: `Await`, the helper (records, anonymous types `unsupported` with their display, equality by properties), the
+   diagnosis in C#'s terms; built in the temp dir with an empty package source; the protocol as `embody.scala`'s
+5. **C#'s declaration and launch on F#'s**: `csharp` (`cs`), REPL `fsi`, build tool dotnet (`*.csproj`, `*.sln`, `*.slnx`): the target
+   and the seam built, both `#r`-ed, the seam registered; the call template with the type annotations of rule 2 and `Seam.Await` of
+   rule 5; `info.json` (`refresh -l -r`)
+6. **Tests and the record**: `test/csharp_adapter_test.exs`, `test/live/repl_csharp_test.exs` (or the fsi one), the CLI on a copy;
+   D-csharp-adapter in `verification/`, `scope.md`, `how-to-use.md` §9, README, this §3; the live tests of the other languages before
+   committing
+
+Then Java (§4.6) the same way on Scala's adapter.
 
 ### 4.5 Scala — the window's own language
 
