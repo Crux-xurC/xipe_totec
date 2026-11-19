@@ -463,6 +463,18 @@ defmodule CoreTest do
       assert Core.node_label(%{module: "M", name: "f", anykey: 2}) == "M.f/2"
     end
 
+    test "a sequence of types follows the name (D-anykey-shape)" do
+      assert Core.node_label(%{module: "calc.Calc", name: "add", anykey: "(Int, Int)"}) == "calc.Calc.add(Int, Int)"
+    end
+
+    test "accepted_arities: declared arities, else the shape's sum, else an integer anykey" do
+      assert Core.accepted_arities(%{anykey: "(Int)(Int)", shape: [1, 1]}) == [2]
+      assert Core.accepted_arities(%{anykey: "()", shape: [0]}) == [0]
+      assert Core.accepted_arities(%{anykey: 2, shape: [2], arities: [1, 2]}) == [1, 2]
+      assert Core.accepted_arities(%{anykey: 2}) == [2]
+      assert Core.accepted_arities(%{anykey: "x"}) == nil
+    end
+
     test "nil for an unknown call id" do
       assert Core.call_label(Book.new(), "nonexistent") == nil
     end

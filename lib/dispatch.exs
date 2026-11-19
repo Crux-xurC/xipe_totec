@@ -501,11 +501,16 @@ defmodule XipeTotec.Dispatch do
       node[:visibility] == "private" ->
         {:error, invalid_params("#{method}: #{Core.node_label(node)} is private; the REPL can't call it")}
 
-      # only an integer anykey is an argument count (Scanner.Elixir's arity);
-      # another scanner's anykey says nothing about how many args to expect.
-      # Default arguments: the counts a person declared (arity/set)
+      # the node's shape (one count per parameter list, D-anykey-shape), else
+      # an integer anykey (Scanner.Elixir's arity); another scanner's anykey
+      # says nothing about how many args to expect. Default arguments: the
+      # counts a person declared (arity/set)
       is_list(Core.accepted_arities(node)) and length(args) not in Core.accepted_arities(node) ->
-        takes = node |> Core.accepted_arities() |> Core.arities_text()
+        takes =
+          case node[:shape] do
+            [_, _ | _] = shape -> "#{Enum.sum(shape)} (#{Enum.join(shape, " + ")}, one count per parameter list)"
+            _ -> node |> Core.accepted_arities() |> Core.arities_text()
+          end
 
         {:error,
          invalid_params("#{method}: #{Core.node_label(node)} takes #{takes} arg(s), got #{length(args)}: #{inspect(args)}" <>

@@ -87,6 +87,11 @@ defmodule ScannerTest do
     refute_received :should_not_run
   end
 
+  test "a node's shape is its arity as one parameter list (D-anykey-shape)" do
+    {book, ids} = Scanner.scan_defs(Book.new(), "s1", "defmodule XipeShapeA do\n  def f(x, y), do: x + y\nend\n")
+    assert %{anykey: 2, shape: [2]} = Book.get(book, :nodes, ids[{"XipeShapeA", "f", 2}])
+  end
+
   test "scan_defs/3 then scan_links/3 across two sheets resolves a cross-file call" do
     a = """
     defmodule XipeScanA do

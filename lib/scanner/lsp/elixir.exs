@@ -63,6 +63,7 @@ defmodule XipeTotec.Scanner.Lsp.Elixir do
           module: Enum.join(containers, "."),
           name: fun,
           anykey: String.to_integer(arity),
+          shape: [String.to_integer(arity)],
           visibility: if(detail == "defp", do: "private", else: "public")
         }
 

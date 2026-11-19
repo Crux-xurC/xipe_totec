@@ -130,7 +130,8 @@ defmodule XipeTotec.Scanner.Elixir do
     do: scan_defs(book, sheet_id, Code.string_to_quoted!(source, columns: true))
 
   def scan_defs(book, sheet_id, quoted) do
-    defs = for def <- extract_defs(quoted), do: %{def | anykey: def.arity} |> Map.delete(:arity)
+    # the shape is the arity as one parameter list (D-anykey-shape)
+    defs = for def <- extract_defs(quoted), do: def |> Map.merge(%{anykey: def.arity, shape: [def.arity]}) |> Map.delete(:arity)
     XipeTotec.Scanner.put_defs(book, sheet_id, defs)
   end
 

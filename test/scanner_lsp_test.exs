@@ -203,7 +203,8 @@ defmodule ScannerLspTest do
 
   test "the Elixir dialect reads elixir-ls names" do
     assert Dialect.definition(%{"kind" => 12, "detail" => "def", "name" => "add/2"}, ["Calc", "Inner"]) ==
-             %{module: "Calc.Inner", name: "add", anykey: 2, visibility: "public"}
+             %{module: "Calc.Inner", name: "add", anykey: 2,
+               shape: [2], visibility: "public"}
 
     assert %{visibility: "private"} = Dialect.definition(%{"kind" => 12, "detail" => "defp", "name" => "mul/2"}, ["Calc"])
     assert %{visibility: "public"} = Dialect.definition(%{"kind" => 12, "detail" => "defdelegate", "name" => "m/1"}, ["Calc"])

@@ -98,7 +98,8 @@ defmodule XipeTotec.Core do
   @doc """
   A node's display label: `"Module.name/anykey"` -- `"Calc.add/2"` for
   Elixir, whose scanner puts the arity in `anykey` -- or just
-  `"Module.name"` when the node has no `anykey`. A node whose arities a
+  `"Module.name"` when the node has no `anykey`; an `anykey` that is a
+  sequence of types follows the name as it is (`"calc.Calc.add(Int, Int)"`). A node whose arities a
   person declared (`arity/set`) shows them: `"M.scale/1..2"`, `"M.f/1,3"`.
   """
   @spec node_label(map()) :: String.t()
@@ -106,6 +107,8 @@ defmodule XipeTotec.Core do
     case {node[:anykey], node[:arities]} do
       {nil, _} -> "#{module}.#{name}"
       {_key, [_, _ | _] = as} -> "#{module}.#{name}/#{arities_text(as)}"
+      # a sequence of types (D-anykey-shape): `calc.Calc.curried(Int)(Int)`
+      {"(" <> _ = key, _} -> "#{module}.#{name}#{key}"
       {key, _} -> "#{module}.#{name}/#{key}"
     end
   end
@@ -122,14 +125,17 @@ defmodule XipeTotec.Core do
   @doc """
   The argument counts a node can be called with: what a person declared
   (`arity/set`, for a function with default arguments: `def f(x, k \\\\ 2)`
-  is `f/1` and `f/2`), else its integer anykey alone; `nil` when the node's
-  anykey is no argument count (another language's scanner).
+  is `f/1` and `f/2`), else the sum of its shape (the counts of its
+  parameter lists, D-anykey-shape), else its integer anykey alone; `nil`
+  when the node tells no argument count (another language's scanner).
   """
   @spec accepted_arities(map()) :: [non_neg_integer()] | nil
   def accepted_arities(node) do
-    case {node[:anykey], node[:arities]} do
-      {key, [_ | _] = as} when is_integer(key) -> as
-      {key, _} when is_integer(key) -> [key]
+    case {node[:anykey], node[:arities], node[:shape]} do
+      {key, [_ | _] = as, _} when is_integer(key) -> as
+      # the shape: one count per parameter list, all of them given (D-anykey-shape)
+      {_, _, [_ | _] = shape} -> [Enum.sum(shape)]
+      {key, _, _} when is_integer(key) -> [key]
       _ -> nil
     end
   end
@@ -504,6 +510,9 @@ defmodule XipeTotec.Core do
       module: node.module,
       name: node.name,
       anykey: node.anykey,
+      # the argument count per parameter list, for an adapter that splits
+      # the args into lists (Scala's `f(a, b)(c)`); nil where none is known
+      shape: node[:shape],
       args: args,
       inputs: Enum.uniq(inputs),
       basis: basis,
