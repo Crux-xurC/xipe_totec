@@ -34,7 +34,7 @@ defmodule InfoTest do
       %{"name" => "npm", "markers" => ["package-lock.json", "package.json"]}
     ]
 
-    assert refreshed["languages"] == ["elixir", "fsharp", "haskell", "javascript", "ocaml", "python", "typescript"]
+    assert refreshed["languages"] == ["elixir", "fsharp", "haskell", "javascript", "ocaml", "python", "scala", "typescript"]
 
     assert refreshed["extensions"] == %{
              "ex" => ["elixir"],
@@ -44,6 +44,8 @@ defmodule InfoTest do
              "hs" => ["haskell"],
              "ml" => ["ocaml"],
              "py" => ["python"],
+             "scala" => ["scala"],
+             "sc" => ["scala"],
              "js" => ["javascript"],
              "mjs" => ["javascript"],
              "cjs" => ["javascript"],
@@ -61,6 +63,7 @@ defmodule InfoTest do
              "haskell" => "ghci",
              "ocaml" => "ocaml",
              "python" => "python",
+             "scala" => "scala",
              "javascript" => nil,
              "typescript" => nil
            }
@@ -78,6 +81,7 @@ defmodule InfoTest do
                %{"name" => "poetry", "markers" => ["poetry.lock"]},
                %{"name" => "pip", "markers" => ["pyproject.toml", "requirements.txt", "setup.py"]}
              ],
+             "scala" => [%{"name" => "sbt", "markers" => ["build.sbt"]}, %{"name" => "scala-cli", "markers" => ["project.scala"]}],
              "javascript" => js_tools,
              "typescript" => js_tools
            }
@@ -140,7 +144,8 @@ defmodule InfoTest do
              %{"transport" => "direct", "repl" => "ghci"},
              %{"transport" => "direct", "repl" => "iex"},
              %{"transport" => "direct", "repl" => "ocaml"},
-             %{"transport" => "direct", "repl" => "python"}
+             %{"transport" => "direct", "repl" => "python"},
+             %{"transport" => "direct", "repl" => "scala"}
            ]
     assert refreshed["languages"] == ["placeholder"]
   end

@@ -36,8 +36,8 @@ Nothing new in the design: every plan sits on the existing division of work.
    for (C#, Java) comes after, adding a **seam**: a small project in that language, built in the pass's temp dir next to the target's
    build (never written into the target), referencing the target and loaded into the REPL with it. The seam works only **on the side
    that receives the result**: it brings the language's meaning to the window's language — values (records, futures awaited), and
-   failure reasons in the language's own terms. The arguments stay the window's literals. What is not decided for both pairs: type
-   arguments and `anykey` for overloads sharing a parameter count
+   failure reasons in the language's own terms. The arguments stay the window's literals. `anykey` is the parameters' types and the
+   argument count a node's shape ([D-anykey-shape](verification/lib-identity.exs.md#d-anykey-shape)); type arguments are not decided for either pair
 
 ## 3. Where each language stands
 
@@ -48,8 +48,8 @@ Nothing new in the design: every plan sits on the existing division of work.
 | JavaScript / TypeScript | — | — | **map only** (decided 2026-11-17, §4.1) | **done** 2026-11-17 ([D-map-only-language](verification/lib-repl-language.exs.md#d-map-only-language)) |
 | Go | a driver | `embody.go` | map + evaluation | planned |
 | F# | `dotnet fsi` | `embody.fsx` | map + evaluation | **done** 2026-11-20 ([D-fsharp-adapter](verification/lib-repl-language-fsharp.exs.md#d-fsharp-adapter)) |
-| Scala | Scala's REPL | `embody.scala` | map + evaluation | **next** (§4.5) |
-| C# (F# as the window, a seam `embody.cs`) | `dotnet fsi` | `embody.fsx` + `embody.cs` | map + evaluation | after Scala (§4.4); a first attempt without the seam is on a local branch `csharp-via-fsi` |
+| Scala | Scala's REPL | `embody.scala` | map + evaluation | **done** 2026-11-20 ([D-scala-adapter](verification/lib-repl-language-scala.exs.md#d-scala-adapter)); sbt and scala-cli, mill later |
+| C# (F# as the window, a seam `embody.cs`) | `dotnet fsi` | `embody.fsx` + `embody.cs` | map + evaluation | **next** (§4.4); a first attempt without the seam is on a local branch `csharp-via-fsi` |
 | Java (Scala as the window, a seam `embody.java`) | Scala's REPL | `embody.scala` + `embody.java` | map + evaluation | after C# (§4.6) |
 | PHP | a driver | `embody.php` | mostly map | planned; the map first |
 | Rust alone | — | — | — | **set aside** (§6) |
@@ -66,7 +66,7 @@ after Scala).
 2. Python: done
 3. JavaScript / TypeScript, map only: done; the pattern for Java's and PHP's maps
 4. F#: done — `embody.fsx` F#'s own
-5. Scala: `embody.scala` Scala's own (§4.5); the second window
+5. Scala: done — `embody.scala` Scala's own; the second window
 6. C#: on F#'s adapter, with a seam `embody.cs` (§4.4): the first pair of a language and another language's REPL
 7. Java: on Scala's adapter, with a seam `embody.java` (§4.6): the same pattern
 8. PHP, then Go: the drivers; the map first
@@ -129,27 +129,30 @@ the first case of §2, 7:
   receives the result**: a `Task` awaited (`async` methods), values (C# records, anonymous types, what F# cannot read back), and failure
   reasons in C#'s terms (`public static`, overloads). `out` / `ref` are left to F#
 - Calls: `Ns.Class.Method(a, b)`; the arguments stay F# expressions (C# text cannot be evaluated: Roslyn's scripting is not in the SDK)
-- Not decided: type arguments (a generic method whose type appears in no argument), together with `anykey` for overloads sharing a
-  parameter count (today one node, the first)
+- `anykey` (crux, 2026-11-20, [D-anykey-shape](verification/lib-identity.exs.md#d-anykey-shape)): always the sequence of the parameters' types, so overloads are nodes of their
+  own, also when they share a parameter count (the first attempt made them one node, the first). The argument count is the node's
+  shape (`[2]` for `Method(a, b)`), and `row/add` checks the arguments against it. **The first work of C#** (crux, 2026-11-20): the
+  attempt on `csharp-via-fsi` still has the parameter count as `anykey`; it moves to the sequence of types, and F#'s static members of
+  types with it, on the shape that Scala's adapter put in. The types are written out from the syntax tree in one form, as Scala's
+- Not decided: type arguments (a generic method whose type appears in no argument)
 - The first attempt (C# alone through fsi, a text scanner, 2026-11-19) is on the branch `csharp-via-fsi`; its scanner and tests can be
   taken from there
 
 ### 4.5 Scala — the window's own language
 
-Next (2026-11-20, crux), as F# was for C#. Nothing below is checked yet beyond §5; the checks come first (`extending.md` §2.2).
+**Done 2026-11-20** as [D-scala-adapter](verification/lib-repl-language-scala.exs.md#d-scala-adapter): Scala 3 only; the REPL at the
+project's own Scala version, its compiler and class path from sbt (temporary tasks `set` and `print`ed in one run) or scala-cli, one
+module per build tool; nothing fetched; the build writing into the project as an IDE's; sbt not started while an sbt server runs on the
+build; one entry as three REPL inputs, the arguments split by the node's shape
+([D-anykey-shape](verification/lib-identity.exs.md#d-anykey-shape)); scripts as definitions-only copies. The checks on the real REPL
+(`extending.md` §2.2), the decisions of 2026-11-20 and what was not chosen are in that record.
 
-- Declaration: language `scala` (`scala`, `sc`), REPL `scala`, build tools sbt (`build.sbt`), scala-cli (`project.scala`), mill
-  (`build.mill` / `build.sc`) — which of them, and how the class path is had without fetching, to be checked
-- Launch: the project compiled by its build tool (into a temp dir if it allows) and its class path given to `scala repl`; a slow JVM
-  start, a longer `boot_timeout`. Scripts (`.sc`) loaded with their definitions only, as F#'s `.fsx` (Scala's own parser, from the
-  compiler the REPL already has, as F#'s came with the SDK)
-- `embody.scala`: Scala's own literals for `exact` (case classes, collections, `Option`, tuples), a failure reason in Scala's terms;
-  calls `pkg.Obj.f(a)(b)` with `anykey` the parameter lists' arguments (to be decided as for F#'s curried arguments)
-- **An unclosed call makes the REPL wait silently** (§5): check the arguments before sending (as `fsi`'s `check/1`), or evaluate the
-  call as a string inside
-- Time: no way to stop a thread safely, and SIGINT ends the REPL (`interruptible: false`): the limit runs the call on a thread of its
-  own; `restart_after_timeout: true` ([D-restart-after-timeout](verification/lib-repl-evaluator.exs.md#d-restart-after-timeout))
-- Scan: Scala's own parser inside the REPL's process (as F#'s), or Metals; to be compared
+Left for later: mill (one more `Repl.Scala.BuildTool` module: `show <module>.runClasspath` prints JSON, checked); Scala 2; two projects
+of one sbt build depending on different versions of a library (not checked).
+
+For Java (§4.6): a Java project has no Scala version, so its REPL is the pinned `scala` on `PATH` (Scala 3.3.6 today) — the second of
+the two routes. That route's ScriptEngine sees only the compiler's own class path, not the target's (checked): reading Java values back
+needs the target on the JVM's class path there too.
 
 ### 4.6 Java — Scala as the window, through a seam
 
@@ -162,7 +165,7 @@ Decided 2026-11-20 (crux), on top of Scala's adapter, the second case of §2, 7:
   `CompletableFuture` awaited, Java collections as Scala's; `Serializable` through Java serialization as `binary`), and failure reasons in
   Java's terms (not `static`, overloads, checked exceptions)
 - Calls: static methods `com.foo.Bar.baz(1, 2)`; the arguments stay Scala expressions
-- Not decided: type arguments and `anykey` for overloads, together with C#'s
+- `anykey` the parameters' types, the argument count the shape, as C#'s ([D-anykey-shape](verification/lib-identity.exs.md#d-anykey-shape)). Not decided: type arguments, with C#'s
 - Time: as Scala's. Scan: jdtls, or a text scanner; the map alone is worth having
 
 ### 4.7 PHP — mostly the map
@@ -229,7 +232,7 @@ What follows from it:
 One language at a time; checks recorded before code.
 
 1. Read: this document, `extending.md`, `repl-adapter-guide.md`, embody's `ReadMe.md`, the existing adapters (`lib/repl/language/`,
-   `lib/repl/ocaml/`, `lib/repl/haskell/`, `lib/repl/python/`)
+   `lib/repl/ocaml/`, `lib/repl/haskell/`, `lib/repl/python/`, `lib/repl/fsharp/`, `lib/repl/scala/`)
 2. Before implementing, check `extending.md` §2.2 on the real REPL and keep the result as a table in the language's record in
    `verification/`. Where this document's estimates disagree, trust the real REPL
 3. Do not touch the generic layer (`sender*.exs`, `session.exs`, `evaluator.exs`, `eval/*.exs`). If it seems needed, stop and ask crux

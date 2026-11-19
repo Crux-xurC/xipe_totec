@@ -908,6 +908,44 @@ written per language and not converted yet) ([D-languages-per-pass](verification
 - Links: names of the same file, relative imports (`import { f } from "./m"`, default and `* as ns`, `require("./m")`). Calls through a
   global or a package are not links
 
+
+### 9.6 Scala 3 (2026-11-20)
+
+([D-scala-adapter](verification/lib-repl-language-scala.exs.md#d-scala-adapter))
+
+- Evaluation uses Scala 3's REPL with `embody.scala` (from embody, as above), at the project's own Scala version: sbt (1.4 or later,
+  `build.sbt`) or scala-cli (`project.scala`) gives the compiler and the class path, and builds the project as your IDE does
+  (`target/`, `.scala-build/` appear in it). **Nothing is fetched: build the project once yourself, online, before the first
+  evaluation** — `sbt compile` (sbt itself, the Scala version and the dependencies go into the coursier cache) or `scala-cli compile .`.
+  Otherwise the rows `crash` with `Error downloading <module>`.
+  **Close an sbt shell (or Metals' sbt connection) before evaluating**: while an sbt server runs on the build, sbt is not started and
+  the rows `crash` saying so. A project without a build tool (scripts alone) is evaluated in `scala` on `PATH`
+- Each `.sc` script is loaded with only its definitions: `def`s, values that run nothing (literals, names, collections of them,
+  lambdas), classes, objects, imports; `println(…)`, `val n = f()` do not run, and `//> using dep` is not followed. Its module is its
+  path without `.sc`: `module=scripts/tool name=sq` (a script at the root: `module=tool`). An `object`'s body in the project runs when
+  the object is first used
+- A node is a `def` of an `object` (`sample.Calc`, nested `sample.Geo.Inner`) or of a package (`sample` for a top-level `def`).
+  `anykey` is the parameters' types as written, lists kept apart: `add(a: Int, b: Int)` is `(Int, Int)`, `curried(a: Int)(b: Int)` is
+  `(Int)(Int)`, written out in one form whatever the spacing; overloads are separate cards, addressed by `anykey`
+  (`node/resolve module=sample.Calc name=overload anykey=(String)`). The card's label shows it (`sample.Calc.add(Int, Int)`). Extension
+  methods are not cards
+- A row's arguments are written in Scala, all parameter lists in order (`args=[2,3]` for `curried(2)(3)`; `row/add` checks the count per
+  list: `takes 2 (1 + 1, one count per parameter list)`); a case class as its constructor (`args=[sample.Point(1.0, 2.0)]`)
+- `repr`: Scala literals read back equal are `exact`: numbers (`1L`, `1.5f`), strings, `Option`, `Either`, tuples, `List`, `Vector`,
+  `Set`, `Map`, arrays, case classes (`sample.Point(2.0, 3.0)`), enums (`sample.Color.Red`) — a later row takes them as they are.
+  Otherwise `binary` (Java serialization, when it reads back equal) or `unsupported` (functions, `LazyList`). `type=` is the running
+  value's (`List[Int]`)
+- Failures: an exception is `crash java.lang.IllegalStateException: boom 1`; a call that does not compile is `crash the call did not
+  compile: …` in Scala's terms (no object — with the build's first error, an sbt server, projects left out, scripts that did not load —,
+  no such function, private, `takes 2 argument(s), got 1`, the signature); the compiler's own message is in the REPL's output. An
+  argument with an unclosed bracket, string or comment is not sent (`crash the call was not sent: an unclosed (`). A timeout is
+  `timeout`, and the rest of the pass runs in a new session (the build is not run again)
+- Scanning (`Scanner.Scala`) uses the project's own Scala compiler's parser, had from sbt or scala-cli without building; without a
+  build tool (or while an sbt server runs) the `scala` on `PATH`. `scan` says which (its `describe`), and reports a function defined
+  twice with the same key instead of merging it silently
+- Not supported: Scala 2, sbt before 1.4, mill (later), methods of classes and traits, values as rows, scripts whose functions use a
+  value their top level computes
+
 ---
 
 ## 10. Environment variables
