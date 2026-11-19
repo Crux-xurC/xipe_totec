@@ -99,5 +99,5 @@ embody's `embody.fsx`; tests `test/fsharp_adapter_test.exs`, `test/live/repl_fsi
   script fails to compile as a whole. Its rows are `crash` naming the script; a script that `#load`s it fails with it
 - A chain of names is kept as a value that runs nothing (`let now = System.DateTime.Now` is kept, and its property runs when the copy
   loads), as Python keeps an alias
-- C# comes next, on top of this adapter, with a seam project (`embody.cs`) for `Task`, values and failure reasons; the earlier attempt
-  (C# alone through fsi) is on the branch `csharp-via-fsi`
+- C# comes on top of this adapter, after Scala, with a seam (`embody.cs`) for `Task`, values and failure reasons
+  ([`evolving.md`](../evolving.md) §2, 7 and §4.4); the earlier attempt (C# alone through fsi) is on a local branch `csharp-via-fsi`

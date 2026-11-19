@@ -213,7 +213,7 @@ Several projects can be handled. Once `xipe choice project` chooses the target, 
 (`tables/project/<id>_<name>/book.jsonl`).
 
 **What is in progress is more languages.** The table that decides language, REPL and build tool (`SurfaceTable`) is in place, with
-Elixir (+ mix), OCaml (+ dune), Haskell (+ stack, cabal), Python (+ uv, poetry, pip) and F# (+ dotnet). JavaScript and TypeScript are in it as a map only (scanned, not evaluated). Where the others stand (C# next, then Scala, Java, PHP, Go) is [`document/evolving.md`](document/evolving.md).
+Elixir (+ mix), OCaml (+ dune), Haskell (+ stack, cabal), Python (+ uv, poetry, pip) and F# (+ dotnet). JavaScript and TypeScript are in it as a map only (scanned, not evaluated). Where the others stand (Scala next, then C#, Java, PHP, Go) is [`document/evolving.md`](document/evolving.md).
 
 ---
 

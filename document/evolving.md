@@ -31,6 +31,13 @@ Nothing new in the design: every plan sits on the existing division of work.
    `row/add`, as Elixir's `defp` is, and shown by the visibility column
 6. **Arguments are written as literals of the REPL's language.** A C# function evaluated in `fsi` takes an array as `[|1;2|]`. The same
    kind of effort as Nanahuatzin's "values are written as the back end's literals"
+7. **The window's own language first, then the other language through a seam** (decided 2026-11-20, crux). A REPL is first made to
+   serve its own language (F# in `fsi`, Scala in Scala's REPL), and its embody stays that language's alone. The language it is a window
+   for (C#, Java) comes after, adding a **seam**: a small project in that language, built in the pass's temp dir next to the target's
+   build (never written into the target), referencing the target and loaded into the REPL with it. The seam works only **on the side
+   that receives the result**: it brings the language's meaning to the window's language — values (records, futures awaited), and
+   failure reasons in the language's own terms. The arguments stay the window's literals. What is not decided for both pairs: type
+   arguments and `anykey` for overloads sharing a parameter count
 
 ## 3. Where each language stands
 
@@ -41,9 +48,9 @@ Nothing new in the design: every plan sits on the existing division of work.
 | JavaScript / TypeScript | — | — | **map only** (decided 2026-11-17, §4.1) | **done** 2026-11-17 ([D-map-only-language](verification/lib-repl-language.exs.md#d-map-only-language)) |
 | Go | a driver | `embody.go` | map + evaluation | planned |
 | F# | `dotnet fsi` | `embody.fsx` | map + evaluation | **done** 2026-11-20 ([D-fsharp-adapter](verification/lib-repl-language-fsharp.exs.md#d-fsharp-adapter)) |
-| C# (F# as the window, a seam `embody.cs`) | `dotnet fsi` | `embody.fsx` + `embody.cs` | map + evaluation | next; a first attempt without the seam is on the branch `csharp-via-fsi` |
-| Scala | Scala's REPL | `embody.scala` | map + evaluation | planned (before Java, as F# before C#) |
-| Java (Scala as the window) | Scala's REPL (or jshell) | `embody.scala` (+ a seam) | map, then some evaluation | planned; the map first |
+| Scala | Scala's REPL | `embody.scala` | map + evaluation | **next** (§4.5) |
+| C# (F# as the window, a seam `embody.cs`) | `dotnet fsi` | `embody.fsx` + `embody.cs` | map + evaluation | after Scala (§4.4); a first attempt without the seam is on a local branch `csharp-via-fsi` |
+| Java (Scala as the window, a seam `embody.java`) | Scala's REPL | `embody.scala` + `embody.java` | map + evaluation | after C# (§4.6) |
 | PHP | a driver | `embody.php` | mostly map | planned; the map first |
 | Rust alone | — | — | — | **set aside** (§6) |
 | TypeScript's logic evaluated | — | — | — | **set aside** (§6) |
@@ -51,15 +58,18 @@ Nothing new in the design: every plan sits on the existing division of work.
 ### Order
 
 Cheapest checks first; each step makes the pattern the next one uses. Changed 2026-11-20 (crux): a window's own language comes before
-the language it is a window for — aiming at C# and Java first made one embody carry two languages at once.
+the language it is a window for (§2, 7) — aiming at C# and Java first made one embody carry two languages at once. Both windows' own
+languages come first: Scala before C#, so the two seams are made knowing both windows (and the running `xipe start` is restarted once,
+after Scala).
 
 1. Rust through Rustler: already evaluates (§5). Add embody's opt-in convention (§4.2) when a project needs `ResourceArc`'s contents
 2. Python: done
 3. JavaScript / TypeScript, map only: done; the pattern for Java's and PHP's maps
 4. F#: done — `embody.fsx` F#'s own
-5. C#: on F#'s adapter, with a seam project `embody.cs` (§4.4): the first pair of a language and another language's REPL
-6. Scala, then Java on it with a seam: the pattern of 4 and 5
-7. PHP, then Go: the drivers; the map first
+5. Scala: `embody.scala` Scala's own (§4.5); the second window
+6. C#: on F#'s adapter, with a seam `embody.cs` (§4.4): the first pair of a language and another language's REPL
+7. Java: on Scala's adapter, with a seam `embody.java` (§4.6): the same pattern
+8. PHP, then Go: the drivers; the map first
 
 ## 4. Per language
 
@@ -110,7 +120,8 @@ the target — a special case no other language has, and a distortion of Xipe To
 
 ### 4.4 C# — F# as the window, through a seam
 
-Decided 2026-11-20 (crux), on top of F#'s adapter ([D-fsharp-adapter](verification/lib-repl-language-fsharp.exs.md#d-fsharp-adapter)):
+Decided 2026-11-20 (crux), on top of F#'s adapter ([D-fsharp-adapter](verification/lib-repl-language-fsharp.exs.md#d-fsharp-adapter)),
+the first case of §2, 7:
 
 - Declaration: language `csharp` (`cs`), REPL `fsi`, build tool dotnet (`*.csproj`, `*.sln`): the project built and `#r`-ed as F#'s is
 - The seam: `embody.cs`, a small C# project **built in the temp dir** next to the target's build (never written into the project),
@@ -123,19 +134,38 @@ Decided 2026-11-20 (crux), on top of F#'s adapter ([D-fsharp-adapter](verificati
 - The first attempt (C# alone through fsi, a text scanner, 2026-11-19) is on the branch `csharp-via-fsi`; its scanner and tests can be
   taken from there
 
-### 4.5 Java — Scala as the window
+### 4.5 Scala — the window's own language
 
-- Declaration: language `java`, REPL `scala` (or jshell; compare both), build tools maven (`pom.xml`), gradle (`build.gradle*`)
-- Launch: the class path from the build (`mvn dependency:build-classpath` …) given to the REPL; a slow JVM start, a longer `boot_timeout`
-- Calls: static methods `com.foo.Bar.baz(1, 2)`
-- repr: no JSON in the JDK; `Serializable` through Java serialization as `binary`, else `unsupported`; `exact` for primitives, strings
-  and what moves into Scala's collections. Many classes do not override `equals`
-- **An unclosed call makes the REPL wait silently** (Scala, jshell): the call must be passed as a string and evaluated inside, or
-  checked before sending (§5)
-- Time: no way to stop a thread; SIGINT ends the REPL (`interruptible: false`)
-- Scan: jdtls. The map alone is worth having: the map stage first
+Next (2026-11-20, crux), as F# was for C#. Nothing below is checked yet beyond §5; the checks come first (`extending.md` §2.2).
 
-### 4.6 PHP — mostly the map
+- Declaration: language `scala` (`scala`, `sc`), REPL `scala`, build tools sbt (`build.sbt`), scala-cli (`project.scala`), mill
+  (`build.mill` / `build.sc`) — which of them, and how the class path is had without fetching, to be checked
+- Launch: the project compiled by its build tool (into a temp dir if it allows) and its class path given to `scala repl`; a slow JVM
+  start, a longer `boot_timeout`. Scripts (`.sc`) loaded with their definitions only, as F#'s `.fsx` (Scala's own parser, from the
+  compiler the REPL already has, as F#'s came with the SDK)
+- `embody.scala`: Scala's own literals for `exact` (case classes, collections, `Option`, tuples), a failure reason in Scala's terms;
+  calls `pkg.Obj.f(a)(b)` with `anykey` the parameter lists' arguments (to be decided as for F#'s curried arguments)
+- **An unclosed call makes the REPL wait silently** (§5): check the arguments before sending (as `fsi`'s `check/1`), or evaluate the
+  call as a string inside
+- Time: no way to stop a thread safely, and SIGINT ends the REPL (`interruptible: false`): the limit runs the call on a thread of its
+  own; `restart_after_timeout: true` ([D-restart-after-timeout](verification/lib-repl-evaluator.exs.md#d-restart-after-timeout))
+- Scan: Scala's own parser inside the REPL's process (as F#'s), or Metals; to be compared
+
+### 4.6 Java — Scala as the window, through a seam
+
+Decided 2026-11-20 (crux), on top of Scala's adapter, the second case of §2, 7:
+
+- Declaration: language `java`, REPL `scala`, build tools maven (`pom.xml`), gradle (`build.gradle*`): the class path from the build,
+  given to the REPL as Scala's
+- The seam: `embody.java`, a small Java source compiled in the temp dir against the target's class path (never written into the
+  project) and put on the REPL's class path. It works on the side that receives the result: values (records, `Optional`,
+  `CompletableFuture` awaited, Java collections as Scala's; `Serializable` through Java serialization as `binary`), and failure reasons in
+  Java's terms (not `static`, overloads, checked exceptions)
+- Calls: static methods `com.foo.Bar.baz(1, 2)`; the arguments stay Scala expressions
+- Not decided: type arguments and `anykey` for overloads, together with C#'s
+- Time: as Scala's. Scan: jdtls, or a text scanner; the map alone is worth having
+
+### 4.7 PHP — mostly the map
 
 - Declaration: language `php`, a driver `embody.php`, build tool composer (`composer.json`)
 - Driver: reads stdin and `eval()`s; catches `ParseError` and `Throwable`; `register_shutdown_function` prints the marker on a fatal
