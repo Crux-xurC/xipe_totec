@@ -11,6 +11,7 @@ Code.require_file("card_table.exs", __DIR__)
 Code.require_file("project_config.exs", __DIR__)
 Code.require_file("project_env.exs", __DIR__)
 Code.require_file("scanner/elixir.exs", __DIR__)
+Code.require_file("repl/language.exs", __DIR__)
 
 defmodule XipeTotec.Dispatch do
   @moduledoc """
@@ -66,14 +67,13 @@ defmodule XipeTotec.Dispatch do
     # and the args have to match its arity -- checked here rather than left
     # to the REPL, where an arity mismatch would only surface as a crash at
     # eval time.
-    case check_args(book, node_id, args, "row/add", ctx[:root]) do
-      :ok ->
-        id = Id.ulid()
-        new_book = Core.add_call(book, id, %{node: node_id, args: args})
-        {:ok, new_book, %{"id" => id, "row" => Book.get(new_book, :calls, id)}}
-
-      {:error, error} ->
-        {:error, book, error}
+    with :ok <- check_args(book, node_id, args, "row/add", ctx[:root]),
+         :ok <- check_evaluated(book, node_id, "row/add", ctx) do
+      id = Id.ulid()
+      new_book = Core.add_call(book, id, %{node: node_id, args: args})
+      {:ok, new_book, %{"id" => id, "row" => Book.get(new_book, :calls, id)}}
+    else
+      {:error, error} -> {:error, book, error}
     end
   end
 
@@ -513,6 +513,23 @@ defmodule XipeTotec.Dispatch do
 
       true ->
         :ok
+    end
+  end
+
+  # a calc row of a map-only language (Repl.Language) would never be
+  # evaluated: refused when made. The language is the file's extension's
+  # (info.json); refused only when every language of that extension is
+  # map-only. `ctx.info` (tests) or info.json
+  defp check_evaluated(book, node_id, method, ctx) do
+    info = ctx[:info] || XipeTotec.Info.load()
+
+    with %{sheet: sheet_id} = node <- Book.get(book, :nodes, node_id),
+         %{path: path} <- Book.get(book, :sheets, sheet_id),
+         [_ | _] = languages <- Map.get(info["extensions"] || %{}, path |> Path.extname() |> String.trim_leading("."), []),
+         true <- Enum.all?(languages, &XipeTotec.Info.map_only?(&1, info)) do
+      {:error, invalid_params("#{method}: #{Core.node_label(node)} -- " <> XipeTotec.Repl.Language.map_only_reason(hd(languages)))}
+    else
+      _ -> :ok
     end
   end
 

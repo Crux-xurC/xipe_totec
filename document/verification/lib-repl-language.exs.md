@@ -3,7 +3,7 @@
 The behaviour of a language's self-declaration (`lib/repl/language/<name>.exs`, the file name is the language's name): its extensions,
 its REPL, its build tools, its scanners, its REPL adapter, and how to boot the REPL for a project.
 
-**Decisions homed here**: [D-language-adapter](#d-language-adapter)
+**Decisions homed here**: [D-language-adapter](#d-language-adapter), [D-map-only-language](#d-map-only-language)
 **Takes part in**: D-surface-table ([`lib/surface_table.exs`](lib-surface_table.exs.md)), D-scanners
 ([`lib/scanner/lsp.exs`](lib-scanner-lsp.exs.md)), D-languages-per-pass ([`lib/runner.exs`](lib-runner.exs.md))
 
@@ -35,6 +35,41 @@ files; a table of extensions inside `SurfaceTable` (the stopgap it replaced).
 
 **Files**: `lib/repl/language.exs`, `lib/repl/language/{elixir,ocaml,haskell}.exs`, `lib/info.exs` (`refresh_languages`,
 `language_module`), `lib/repl/evaluator.exs`; tests `test/repl_evaluator_test.exs` (a toy language), `test/info_test.exs`.
+
+<a id="d-map-only-language"></a>
+
+## D-map-only-language — a language declared without a REPL is scanned, never evaluated
+
+**Decided** (2026-11-17, crux; JavaScript and TypeScript the first):
+
+- **The declaration leaves out `repl/0`, `adapter/0` and `launch_opts/3`** (optional callbacks; `Repl.Language.evaluated?/1`).
+  `xipe refresh -l` records its REPL as `null` in `info.json`'s `language_repls`; `Info.map_only?/2` reads that
+- **Its files are scanned** like any other's: cards, links, `search`, `graph/*`, the surface table (`repl` empty)
+- **`row/add` refuses its functions** (`invalid_params`, "… is a map-only language: its functions are scanned (cards, links), not
+  evaluated"): the language is the file's extension's, and the row is refused only when every language declaring that extension is
+  map-only. **`eval` leaves a row of it `not_run`** with the same reason (a row made before its language became map-only), and the other
+  languages of the project evaluate as usual. `Runner` also refuses to boot a REPL for such a language (`map_only`)
+- JavaScript and TypeScript (`lib/repl/language/{javascript,typescript}.exs`) share `Scanner.JavaScript`, a text scanner: modules are
+  paths without their extension; top-level `function`s and functions bound to `const` / `let` / `var`; a file that is one function
+  expression called at once (`(function (root) { … })(this);`, the browser-script pattern) has its body read as the top level; links
+  from same-module names, relative ES imports (named, aliased, default, namespace) and `require`. Build tools pnpm, yarn, bun, npm
+
+**Why**: `document/evolving.md` §2.4 — the map is worth having on its own, and for JavaScript / TypeScript evaluation is set aside
+(§4.1, §6): loading a module without its top level would need TypeScript's compiler API taken from the target, a special case on Xipe
+Totec's side for the language of the surface. Refusing at `row/add` says it when the row is made, not at evaluation.
+
+**Alternatives**: `repl/0` returning `nil` with stub adapters (a language would look evaluable until a pass failed); refusing only at
+`eval` (rows that can never run would pile up); a separate list of map-only languages in `info.json` (a second place for what the
+declaration already says); typescript-language-server as the scanner (kept for later as a `Scanner.Lsp` dialect, D-scanners: the text
+scanner needs nothing installed).
+
+**Files**: `lib/repl/language.exs`, `lib/info.exs` (`map_only?/2`), `lib/dispatch.exs` (`row/add`), `lib/runner.exs` (`place`,
+`repl_opts`), `lib/repl/language/{javascript,typescript}.exs`, `lib/scanner/javascript.exs`; tests `test/map_only_language_test.exs`,
+`test/javascript_scanner_test.exs`, `test/info_test.exs`; fixture `test/fixtures/js_sample/`.
+
+**Seen on tezcatl's own code** (2026-11-17, a copy of its tree, a copy of Xipe Totec with its own `tables/`): 1664 nodes, 1218 links
+(Elixir and JavaScript; Elixir alone was 496 and 533). Before the wrapper rule, `lib/` (141 files wrapped in one function) gave
+nothing. Calls between wrapped files go through globals (`Tezcatl.config.load(…)`) and are not links.
 
 ## Notes
 

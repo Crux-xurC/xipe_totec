@@ -163,7 +163,9 @@ As of 2026-11-16, all 51 files and 579 cases of `./test/run.sh` pass. Apart from
 stack projects GHCi is started under `cabal exec` / `stack exec` so dependency packages are visible
 ([D-haskell-adapter](document/verification/lib-repl-language-haskell.exs.md#d-haskell-adapter)). So does Python (`.py`), each file imported
 without its top-level statements through `embody.py`
-([D-python-adapter](document/verification/lib-repl-language-python.exs.md#d-python-adapter)). Both the mix layout (`iex -S mix`)
+([D-python-adapter](document/verification/lib-repl-language-python.exs.md#d-python-adapter)). JavaScript and TypeScript are scanned
+only — cards and links, no evaluation
+([D-map-only-language](document/verification/lib-repl-language.exs.md#d-map-only-language)). Both the mix layout (`iex -S mix`)
 and the script layout are supported. In the script layout only the `defmodule` parts of each file are compiled, with the original
 file's path and line numbers (the loading script of `Repl.SourceSanitize`; top-level side effects are not run; error positions and
 `__DIR__` point at the original file).
@@ -209,8 +211,7 @@ Several projects can be handled. Once `xipe choice project` chooses the target, 
 (`tables/project/<id>_<name>/book.jsonl`).
 
 **What is in progress is more languages.** The table that decides language, REPL and build tool (`SurfaceTable`) is in place, with
-Elixir (+ mix), OCaml (+ dune), Haskell (+ stack, cabal) and Python (+ uv, poetry, pip). Where the others stand (JavaScript / TypeScript next, as a map
-only; Go, C#, Java, PHP planned) is [`document/evolving.md`](document/evolving.md).
+Elixir (+ mix), OCaml (+ dune), Haskell (+ stack, cabal) and Python (+ uv, poetry, pip). JavaScript and TypeScript are in it as a map only (scanned, not evaluated). Where the others stand (Go, C#, Java, PHP planned) is [`document/evolving.md`](document/evolving.md).
 
 ---
 

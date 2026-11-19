@@ -19,6 +19,12 @@ defmodule XipeTotec.Repl.Language do
   Each language has one REPL, fixed here (Elixir → `iex`, Haskell →
   GHCi, ...). A build tool changes how that REPL is booted
   (`launch_opts/3`), never which adapter modules read it.
+
+  **A map-only language** declares no REPL: it leaves out `repl/0`,
+  `adapter/0` and `launch_opts/3`. Its files are scanned (cards, links,
+  `search`, `graph/*`) but its functions are not evaluated: `row/add`
+  refuses them and `eval` leaves such rows `not_run`
+  ([D-map-only-language](../../document/verification/lib-repl-language.exs.md#d-map-only-language)).
   """
 
   @typedoc "The four per-REPL modules `Repl.Evaluator.run_pass/3` takes (`:launch_module` etc.)."
@@ -59,4 +65,18 @@ defmodule XipeTotec.Repl.Language do
   over (e.g. removing a temp dir the boot needed).
   """
   @callback launch_opts(root :: String.t(), build_tool :: String.t() | nil, files :: [String.t()]) :: {keyword(), (-> any())}
+
+  @optional_callbacks repl: 0, adapter: 0, launch_opts: 3
+
+  @doc "Whether the declaration `mod` has a REPL (`false`: a map-only language)."
+  @spec evaluated?(module()) :: boolean()
+  def evaluated?(mod) do
+    Code.ensure_loaded(mod)
+    function_exported?(mod, :repl, 0) and function_exported?(mod, :adapter, 0) and function_exported?(mod, :launch_opts, 3)
+  end
+
+  @doc "The reason a map-only language's row is not evaluated (`row/add`'s refusal, `eval`'s `not_run`)."
+  @spec map_only_reason(String.t()) :: String.t()
+  def map_only_reason(language),
+    do: "#{language} is a map-only language: its functions are scanned (cards, links), not evaluated"
 end

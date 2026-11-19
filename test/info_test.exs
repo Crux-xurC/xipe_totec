@@ -27,10 +27,40 @@ defmodule InfoTest do
     info = %{"languages" => [], "repls" => ["placeholder"], "project" => nil}
     refreshed = Info.refresh_languages(info)
 
-    assert refreshed["languages"] == ["elixir", "haskell", "ocaml", "python"]
-    assert refreshed["extensions"] == %{"ex" => ["elixir"], "exs" => ["elixir"], "hs" => ["haskell"], "ml" => ["ocaml"], "py" => ["python"]}
-    # each language's REPL and build-tool priority list
-    assert refreshed["language_repls"] == %{"elixir" => "iex", "haskell" => "ghci", "ocaml" => "ocaml", "python" => "python"}
+    js_tools = [
+      %{"name" => "pnpm", "markers" => ["pnpm-lock.yaml"]},
+      %{"name" => "yarn", "markers" => ["yarn.lock"]},
+      %{"name" => "bun", "markers" => ["bun.lockb", "bun.lock"]},
+      %{"name" => "npm", "markers" => ["package-lock.json", "package.json"]}
+    ]
+
+    assert refreshed["languages"] == ["elixir", "haskell", "javascript", "ocaml", "python", "typescript"]
+
+    assert refreshed["extensions"] == %{
+             "ex" => ["elixir"],
+             "exs" => ["elixir"],
+             "hs" => ["haskell"],
+             "ml" => ["ocaml"],
+             "py" => ["python"],
+             "js" => ["javascript"],
+             "mjs" => ["javascript"],
+             "cjs" => ["javascript"],
+             "jsx" => ["javascript"],
+             "ts" => ["typescript"],
+             "tsx" => ["typescript"],
+             "mts" => ["typescript"],
+             "cts" => ["typescript"]
+           }
+
+    # each language's REPL (none: a map-only language) and build-tool priority list
+    assert refreshed["language_repls"] == %{
+             "elixir" => "iex",
+             "haskell" => "ghci",
+             "ocaml" => "ocaml",
+             "python" => "python",
+             "javascript" => nil,
+             "typescript" => nil
+           }
 
     assert refreshed["build_tools"] == %{
              "elixir" => [%{"name" => "mix", "markers" => ["mix.exs"]}],
@@ -43,7 +73,9 @@ defmodule InfoTest do
                %{"name" => "uv", "markers" => ["uv.lock"]},
                %{"name" => "poetry", "markers" => ["poetry.lock"]},
                %{"name" => "pip", "markers" => ["pyproject.toml", "requirements.txt", "setup.py"]}
-             ]
+             ],
+             "javascript" => js_tools,
+             "typescript" => js_tools
            }
 
     assert refreshed["repls"] == ["placeholder"]

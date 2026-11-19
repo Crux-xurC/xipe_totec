@@ -38,7 +38,7 @@ Nothing new in the design: every plan sits on the existing division of work.
 |---|---|---|---|---|
 | Python | `python -i` | `embody.py` | map + evaluation | **done** 2026-11-16 ([D-python-adapter](verification/lib-repl-language-python.exs.md#d-python-adapter)); applied to toolz 2026-11-17 |
 | Rust through Rustler | iex (as today) | an opt-in convention on the Elixir side | map (Elixir side) + evaluation | works today without a new adapter (§5); the convention is not made |
-| JavaScript / TypeScript | — | — | **map only** (decided 2026-11-17, §4.1) | next |
+| JavaScript / TypeScript | — | — | **map only** (decided 2026-11-17, §4.1) | **done** 2026-11-17 ([D-map-only-language](verification/lib-repl-language.exs.md#d-map-only-language)) |
 | Go | a driver | `embody.go` | map + evaluation | planned |
 | C# (F# as the window) | `dotnet fsi` | `embody.fsx` | map + evaluation | planned |
 | Java (Scala as the window) | Scala's REPL (or jshell) | `embody.scala` | map, then some evaluation | planned; the map first |
@@ -52,7 +52,7 @@ Cheapest checks first; each step makes the pattern the next one uses.
 
 1. Rust through Rustler: already evaluates (§5). Add embody's opt-in convention (§4.2) when a project needs `ResourceArc`'s contents
 2. Python: done
-3. **JavaScript / TypeScript, map only**: the first language at the map stage; the pattern for Java's and PHP's maps
+3. JavaScript / TypeScript, map only: done; the pattern for Java's and PHP's maps
 4. Go: the first driver; the pattern for PHP
 5. C# with `fsi`: the first pair of a language and another language's REPL
 6. Java (Scala) and PHP: from 5 and 4; the map first
@@ -72,9 +72,10 @@ the target — a special case no other language has, and a distortion of Xipe To
   like Python's for when no server is installed (D-scanners)
 - Nodes: top-level functions and `export`ed ones (`function f`, `export function f`, `const f = (…) =>`); whether class methods and
   object members become nodes is decided when the scanner is made
-- **To check first**: that `Info`, `SurfaceTable` and the methods accept a language with no REPL — a calc row of such a language refused
-  with a clear reason (`row/add`, `eval`), the rest (cards, links, `search`, `graph/*`) working
-- A demonstration: tezcatl's `lib/*.js` mapped
+- Done 2026-11-17 as D-map-only-language: a declaration without a REPL; `row/add` refuses, `eval` leaves `not_run`. The text scanner
+  came first; typescript-language-server as a `Scanner.Lsp` dialect is left for later
+- tezcatl's own code mapped: 1664 nodes, 1218 links with its Elixir; its `lib/` is wrapped in one function per file, which the scanner
+  reads through
 
 ### 4.2 Rust through Rustler
 

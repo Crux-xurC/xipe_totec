@@ -43,6 +43,7 @@ decisions are listed in [decisions.md](decisions.md).
 | `lib/scanner/ocaml.exs` | OCaml read as text. | D-scanners |
 | `lib/scanner/haskell.exs` | Haskell read as text. | D-scanners |
 | `lib/scanner/python.exs` | Python read as text (module names from paths). | D-scanners, D-python-adapter |
+| `lib/scanner/javascript.exs` | JavaScript and TypeScript read as text (modules are paths; IIFE bodies as the top level; ES imports, `require`). | D-scanners, D-map-only-language |
 | `lib/lsp/transport.exs` | How a language server is reached: the behaviour. | D-scanners |
 | `lib/lsp/transport/relay.exs` | Through tezcatl's `/lsp` relay. | D-scanners |
 | `lib/lsp/transport/stdio.exs` | Started by Xipe Totec itself, in the project's environment. | D-scanners, D-project-env |
@@ -60,7 +61,8 @@ decisions are listed in [decisions.md](decisions.md).
 | [`lib/repl/sender_direct.exs`](lib-repl-sender_direct.exs.md) | The bundled Sender (erlexec, a process group). | **D-sender-contract** |
 | [`lib/repl/session.exs`](lib-repl-session.exs.md) | Waiting until a REPL is ready; closing it. | **D-ready-probe** |
 | [`lib/repl/source_sanitize.exs`](lib-repl-source_sanitize.exs.md) | Loading scripts without their top-level code. | **D-source-sanitize** |
-| [`lib/repl/language.exs`](lib-repl-language.exs.md) | A language's declaration (the behaviour). | **D-language-adapter** |
+| [`lib/repl/language.exs`](lib-repl-language.exs.md) | A language's declaration (the behaviour); a map-only language leaves the REPL out. | **D-language-adapter, D-map-only-language** |
+| `lib/repl/language/javascript.exs`, `lib/repl/language/typescript.exs` | JavaScript (`js` `mjs` `cjs` `jsx`), TypeScript (`ts` `tsx` `mts` `cts`): map-only, `Scanner.JavaScript`, pnpm / yarn / bun / npm. | D-map-only-language |
 | `lib/repl/language/elixir.exs` | Elixir: `ex`/`exs`, `iex`, `mix`, its scanners and adapter. | D-language-adapter, D-source-sanitize |
 | [`lib/repl/language/ocaml.exs`](lib-repl-language-ocaml.exs.md) | OCaml: `ml`, `ocaml` + embody, `dune`. | **D-ocaml-adapter** |
 | [`lib/repl/language/haskell.exs`](lib-repl-language-haskell.exs.md) | Haskell: `hs`, GHCi + embody, `stack` / `cabal`. | **D-haskell-adapter** |
@@ -134,6 +136,7 @@ guard their decisions.
 | `test/fixtures/ocaml_sample/`, `test/fixtures/ocaml_dune/` | OCaml: plain files with top-level effects; a dune project with a wrapped library. |
 | `test/fixtures/haskell_sample/` | Haskell: an export list hiding a function, a module importing another, a `main`. |
 | `test/fixtures/python_sample/` | Python: a top level that writes files, a src-layout package with relative and aliased imports. |
+| `test/fixtures/js_sample/` | JavaScript / TypeScript: ES imports of every form, `require`, a directory's `index`, a declaration file, an IIFE-wrapped file. |
 | `test/fixtures/fake_lsp_server.exs` | A language server stand-in for the stdio transport. |
 
 ## Documents

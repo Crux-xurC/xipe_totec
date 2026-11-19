@@ -5,6 +5,7 @@ Code.require_file("surface_table.exs", __DIR__)
 Code.require_file("pipeline.exs", __DIR__)
 Code.require_file("repl/evaluator.exs", __DIR__)
 Code.require_file("info.exs", __DIR__)
+Code.require_file("repl/language.exs", __DIR__)
 Code.require_file("project_env.exs", __DIR__)
 Code.require_file("project_config.exs", __DIR__)
 Code.require_file("passes.exs", __DIR__)
@@ -115,7 +116,7 @@ defmodule XipeTotec.Runner do
   # current two names here: the whole point of the registry file is that
   # this call site doesn't need editing when a third method is added to it.
   defp run_one(book, root, %{"method" => method, "params" => params}, opts) do
-    ctx = %{root: root, project_dir: Keyword.get(opts, :project_dir)}
+    ctx = %{root: root, project_dir: Keyword.get(opts, :project_dir), info: Keyword.get(opts, :info)}
 
     if Pipeline.handles?(method) do
       # the "eval" stage comes back into this module's own "eval" with these opts
@@ -211,7 +212,7 @@ defmodule XipeTotec.Runner do
 
         {placed, unplaced} =
           Enum.reduce(call_ids, {[], []}, fn id, {placed, unplaced} ->
-            case place(book, id, language_of) do
+            case place(book, id, language_of, info) do
               {:ok, language} -> {[{language, id} | placed], unplaced}
               {:not_run, reason} -> {placed, [%{"id" => id, "reason" => reason} | unplaced]}
             end
@@ -226,7 +227,7 @@ defmodule XipeTotec.Runner do
     end
   end
 
-  defp place(book, id, language_of) do
+  defp place(book, id, language_of, info) do
     case language_of.(id) do
       nil ->
         {:not_run, Core.exclusion_reason(book, id) || "its language can't be told (no file of a registered language holds its function)"}
@@ -237,9 +238,17 @@ defmodule XipeTotec.Runner do
           call -> Core.refs_in_args(call.args)
         end
 
-        case Enum.find_value(refs, fn ref -> (l = language_of.(ref)) && l != language && {ref, l} end) do
-          nil -> {:ok, language}
-          {ref, other} -> {:not_run, "⟦#{ref}⟧ is a #{other} row -- a reference across languages isn't supported yet"}
+        cond do
+          # a row made before its language became map-only (row/add refuses new ones)
+          Info.map_only?(language, info) ->
+            {:not_run, XipeTotec.Repl.Language.map_only_reason(language)}
+
+          other = Enum.find_value(refs, fn ref -> (l = language_of.(ref)) && l != language && {ref, l} end) ->
+            {ref, other_language} = other
+            {:not_run, "⟦#{ref}⟧ is a #{other_language} row -- a reference across languages isn't supported yet"}
+
+          true ->
+            {:ok, language}
         end
     end
   end
@@ -416,7 +425,8 @@ defmodule XipeTotec.Runner do
   defp repl_opts(root, rows, name, opts) do
     project_dir = Keyword.get(opts, :project_dir)
 
-    with {:ok, mod} <- language_module(name, opts) do
+    with {:ok, mod} <- language_module(name, opts),
+         :ok <- evaluated(mod, name) do
       build_tool = Enum.find_value(rows, &(&1["language"] == name && &1["build_tool"]))
 
       {launch_opts, cleanup} =
@@ -442,6 +452,12 @@ defmodule XipeTotec.Runner do
 
       {:ok, opts, cleanup, env_status}
     end
+  end
+
+  defp evaluated(mod, name) do
+    if XipeTotec.Repl.Language.evaluated?(mod),
+      do: :ok,
+      else: {:error, %{"code" => "map_only", "message" => XipeTotec.Repl.Language.map_only_reason(name)}}
   end
 
   # `:language_modules` (tests) maps a language name straight to its module

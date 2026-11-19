@@ -105,6 +105,13 @@ defmodule XipeTotec.Info do
     |> Map.put("build_tools", Map.new(declared, fn {name, mod} -> {name, declared_or(mod, :build_tools, [])} end))
   end
 
+  @doc """
+  Whether `name` is a registered language with no REPL (a map-only
+  language, `Repl.Language`): `info["language_repls"]` has it as `nil`.
+  """
+  @spec map_only?(String.t(), t()) :: boolean()
+  def map_only?(name, info), do: name in (info["languages"] || []) and Map.get(info["language_repls"] || %{}, name, :none) == nil
+
   defp declared_or(mod, fun, default), do: if(function_exported?(mod, fun, 0), do: apply(mod, fun, []), else: default)
 
   @doc """

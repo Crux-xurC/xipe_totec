@@ -869,6 +869,19 @@ written per language and not converted yet) ([D-languages-per-pass](verification
   module, `from … import` (aliased, relative), and `module.f` of imported project modules
 - Not supported: methods as rows, awaiting `async` functions
 
+### 9.4 JavaScript and TypeScript — the map only (2026-11-17)
+
+([D-map-only-language](verification/lib-repl-language.exs.md#d-map-only-language))
+
+- `.js` `.mjs` `.cjs` `.jsx` and `.ts` `.tsx` `.mts` `.cts` are scanned: cards, links, `search`, `graph/*`. They are **not evaluated**:
+  `row/add` refuses their functions ("… is a map-only language …"), and nothing of them runs
+- A module is the file's path without its extension (`lib/core/commands`); address a function as `module=lib/core/commands name=load`
+- Nodes: top-level `function`s and functions bound to `const` / `let` / `var`; a file wrapped in one function called at once
+  (`(function (root) { … })(this);`) is read one level in. `visibility` is `public` when exported (`export`, `module.exports`, or, in a
+  wrapped file, assigned to a property such as `App.loader = { load: load }`)
+- Links: names of the same file, relative imports (`import { f } from "./m"`, default and `* as ns`, `require("./m")`). Calls through a
+  global or a package are not links
+
 ---
 
 ## 10. Environment variables
