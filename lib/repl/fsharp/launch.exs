@@ -130,7 +130,9 @@ defmodule XipeTotec.Repl.FSharp.Launch do
     references =
       Enum.map_join(opts[:assemblies], "", fn name ->
         dll = Path.join(out, name <> ".dll")
-        "  [ -f #{sh(dll)} ] && printf '%s\\n' #{sh("#r " <> string(dll) <> ";;")} >> #{sh(init)}\n"
+        # Embody.reference: a call that does not compile before any other has run still finds the dll's types
+        lines = ["#r " <> string(dll) <> ";;", "Embody.reference " <> string(dll) <> ";;"]
+        "  [ -f #{sh(dll)} ] && printf '%s\\n' #{Enum.map_join(lines, " ", &sh/1)} >> #{sh(init)}\n"
       end)
 
     """

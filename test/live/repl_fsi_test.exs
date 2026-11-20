@@ -329,6 +329,11 @@ defmodule ReplLiveFsiTest do
     assert out =~ "XT_ERROR_e7 crash the call did not compile: no module Nope in what was loaded"
   end
 
+  test "a pass whose only row does not compile: the dll fsi has not loaded yet is still looked in (Embody.reference)", %{dir: dir} do
+    {_book, r} = run(dir, [{"e", "Sample.Calc.secret", ["1"]}])
+    assert {:error, "the call did not compile: Sample.Calc.secret is private or internal"} = r["e"].outcome
+  end
+
   test "a timeout: the rest of the pass in a new session, fsi started again without building; an earlier exact value handed over", %{dir: dir} do
     {_book, r} =
       run(dir, [

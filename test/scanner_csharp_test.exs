@@ -70,7 +70,10 @@ defmodule ScannerCSharpTest do
                {"Out", "(int, out int)", [1], [], false},
                {"Opt", "(int, int)", [2], [], false},
                {"Params", "(params int[])", [1], [], false},
-               {"Use", "()", [0], [], false}
+               {"Use", "()", [0], [], false},
+               {"Fill", "(string, int)", [2], [], false},
+               {"Mark", "(string)", [1], [], false},
+               {"Anon", "(int)", [1], [], false}
              ]
 
       make = Enum.find(defs("src/Calls.cs"), &(&1.name == "Make"))

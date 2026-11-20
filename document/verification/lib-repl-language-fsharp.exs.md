@@ -66,6 +66,10 @@ D-restart-after-timeout ([`lib/repl/evaluator.exs`](lib-repl-evaluator.exs.md))
 - **Helpers** (2026-11-20, for C#'s seam, `evolving.md` §4.4 rule 1): `embody.fsx` asks a registered `Helper` (`Embody.register`)
   only where its own writer, reader, equality and diagnosis have no answer; a covered value is written as its constructor's call
   (`Sample.Point(2.0, 3.0)`), its arguments by embody's own writer. Checked by the live test with a helper written in F#
+- **`Embody.reference`** (2026-11-20): the init file names each `#r`-ed dll to embody after referencing it. fsi loads a referenced
+  assembly only when a submission first uses it, so a pass whose first row does not compile found "no module" for a module that is
+  there; `finish` now loads the named dlls (the same assembly fsi loads, by path) before diagnosing. Checked by the live test (a pass
+  of one private function's row)
 - **Time**: `call` runs the thunk on a thread of its own under `ControlledExecution.Run` with the limit; a native wait is stopped waiting
   for at the limit + 0.5 s. The launch declares `restart_after_timeout` ([D-restart-after-timeout](lib-repl-evaluator.exs.md#d-restart-after-timeout))
 - **Scanning**: `Scanner.FSharp.begin/3` runs `lib/scanner/fsharp/scan.fsx` once in `dotnet fsi` over every F# file (FSharp.Compiler.Service,

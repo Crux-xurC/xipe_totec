@@ -189,7 +189,9 @@ The work, in order (one commit each where it stands alone):
    arguments, `Make` one from them — and embody.fsx writes, reads back and compares the arguments itself, with a covered value inside
    another written the same way; `Diagnose` answers first for a call that did not compile. The same division as rule 1: the knowledge
    of C# in the helper, the F# literals in embody.fsx)
-4. **`embody.cs`**: `Await`, the helper (records, anonymous types `unsupported` with their display, equality by properties), the
+4. **`embody.cs`** (done 2026-11-20; embody's ReadMe "C# through F# Interactive"; `embody.fsx` gained `registerType`, and
+   `reference` so a call that fails before any other has run still finds the dll's types — F#'s adapter writes it too; checked by
+   `test/live/repl_csharp_test.exs`, which builds the seam and the fixture by hand until 5): `Await`, the helper (records, anonymous types `unsupported` with their display, equality by properties), the
    diagnosis in C#'s terms; built in the temp dir with an empty package source; the protocol as `embody.scala`'s
 5. **C#'s declaration and launch on F#'s**: `csharp` (`cs`), REPL `fsi`, build tool dotnet (`*.csproj`, `*.sln`, `*.slnx`): the target
    and the seam built, both `#r`-ed, the seam registered; the call template with the type annotations of rule 2 and `Seam.Await` of

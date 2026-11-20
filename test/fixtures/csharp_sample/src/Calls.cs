@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 
 namespace Sample;
@@ -33,4 +34,19 @@ public static class Calls
     public static int Params(params int[] xs) { var s = 0; foreach (var x in xs) { s += x; } return s; }
 
     public static int Use() => Over(1).Length + Opt(1) + Params(1, 2, 3);
+
+    public static Bag Fill(string name, int n) => new Bag(name, new List<int>(Enumerable.Range(0, n)));
+
+    public static Tag Mark(string text) => new Tag { Text = text };
+
+    public static object Anon(int n) => new { N = n, S = n.ToString() };
+}
+
+/// A positional record holding a list: compared element by element.
+public record Bag(string Name, List<int> Items);
+
+/// A record whose state is set outside a primary constructor: not written as a call.
+public record Tag
+{
+    public string Text { get; init; } = "";
 }

@@ -128,7 +128,7 @@ defmodule FSharpAdapterTest do
       assert text =~ ~S|dotnet build '/p/it'\''s/B.fsproj'|
       assert text =~ ~s|Embody.Load.write "/p" "/t/fsx" ["scripts/tool.fsx"]|
       assert text =~ "dotnet fsi --quiet --exec '/t/prep.fsx' >> '/t/build.log' 2>&1\n"
-      assert text =~ ~s|[ -f '/t/out/Bee.dll' ] && printf '%s\\n' '#r "/t/out/Bee.dll";;' >> '/t/init.fsx'\n|
+      assert text =~ ~s|[ -f '/t/out/Bee.dll' ] && printf '%s\\n' '#r "/t/out/Bee.dll";;' 'Embody.reference "/t/out/Bee.dll";;' >> '/t/init.fsx'\n|
       # the copies are loaded over stdin (Launch.build's ready_probe), not by the init file
       refute text =~ "/t/fsx/scripts/tool.fsx"
       assert text =~ "  : > '/t/done'\nfi\n"

@@ -157,7 +157,7 @@ Hex packages it uses (cowboy, gun, erlexec …) come from `nix/relay-packages.ni
 ## How far it works now
 
 As of 2026-11-20, all 55 files and 630 cases of `./test/run.sh` pass. Apart from them there are tests that start real REPLs
-(`test/live/`: `iex` 12, `ocaml` 6, `ghci` 7, `python3` 5, `dotnet fsi` 10, Scala's REPL 10; the OCaml, Haskell, Python, F# and Scala ones are skipped when their system is not on PATH).
+(`test/live/`: `iex` 12, `ocaml` 6, `ghci` 7, `python3` 5, `dotnet fsi` 11, C# through `dotnet fsi` 4, Scala's REPL 10; the OCaml, Haskell, Python, F#, C# and Scala ones are skipped when their system is not on PATH).
 
 **From the CLI, scan → making calc rows → real evaluation → persisting the results works end to end for Elixir projects.** OCaml
 (`.ml`) works the same way; for dune projects the libraries depended on are loaded from `dune ocaml top`

@@ -139,6 +139,7 @@ guard their decisions.
 |---|---|
 | `test/run.sh` | Runs the suite. |
 | `test/live/repl_iex_test.exs`, `repl_ocaml_test.exs`, `repl_haskell_test.exs`, `repl_python_test.exs` | Against real `iex`, `ocaml` (+ dune), `ghci` (+ cabal, stack), `python3`; skipped when the tool is not on PATH. |
+| `test/live/repl_csharp_test.exs` | C# through `dotnet fsi` with embody's seam `embody.cs` (built by hand until C#'s launch); skipped without `dotnet`. |
 | `test/fixtures/calc_sample/` | A small script-mode Elixir project (also used by tezcatl's E2E). |
 | `test/fixtures/ocaml_sample/`, `test/fixtures/ocaml_dune/` | OCaml: plain files with top-level effects; a dune project with a wrapped library. |
 | `test/fixtures/haskell_sample/` | Haskell: an export list hiding a function, a module importing another, a `main`. |
