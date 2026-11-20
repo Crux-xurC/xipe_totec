@@ -68,8 +68,13 @@ defmodule XipeTotec.Repl.FSharp.EvalTemplate do
     if name =~ ~r/\A[A-Za-z_][A-Za-z0-9_']*\z/ or name =~ ~r/\A\(\|.*\|\)\z/, do: name, else: "``#{name}``"
   end
 
-  @spec build(map()) :: String.t()
-  def build(%{call_id: call_id, module: module, name: name, args: args, limits: %{timeout: timeout_ms}} = entry) do
+  @doc """
+  The three submissions for `entry`. `call` writes the call expression
+  from the entry (its args already kept on one line): `call_expression/1`
+  for F#, C#'s own for C# (the same window, `Repl.CSharp.EvalTemplate`).
+  """
+  @spec build(map(), (map() -> String.t())) :: String.t()
+  def build(%{call_id: call_id, module: module, name: name, args: args, limits: %{timeout: timeout_ms}} = entry, call \\ &call_expression/1) do
     # Core's own binding name (`binding_name/1`)
     var = "xt_" <> String.replace(call_id, ~r/[^A-Za-z0-9_]/, "_")
     # a newline inside an argument would only be part of the submission,
@@ -86,7 +91,7 @@ defmodule XipeTotec.Repl.FSharp.EvalTemplate do
             _ -> "None"
           end
 
-        call = call_expression(%{entry | args: args})
+        call = call.(%{entry | args: args})
 
         """
         Embody.start #{id} #{timeout_ms} #{basis};;

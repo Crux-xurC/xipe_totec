@@ -46,6 +46,7 @@ decisions are listed in [decisions.md](decisions.md).
 | `lib/scanner/fsharp.exs`, `lib/scanner/fsharp/scan.fsx` | F# read by F#'s own parser (FSharp.Compiler.Service in `dotnet fsi`, once per scan); names resolved as F# looks them up. | D-scanners, D-fsharp-adapter |
 | `lib/scanner/scala.exs`, `lib/scanner/scala/scan.scala` | Scala read by the Scala 3 compiler's parser (`scala`, once per scan); `anykey` the parameters' types, the shape per list; names resolved through objects, packages, imports. | D-scanners, D-scala-adapter, D-anykey-shape |
 | `lib/scanner/csharp.exs` | C# read as text (comments, strings, `#if` branches blanked; namespaces, types and methods by their braces); `anykey` the parameters' types, the shape, the marks (`async`) and a refusal (a type parameter in no parameter). On main ahead of C#'s adapter (`evolving.md` §4.4). | D-scanners, D-anykey-shape, D-node-marks |
+| `lib/repl/language/csharp.exs`, `lib/repl/csharp/launch.exs`, `lib/repl/csharp/eval_template.exs`, `lib/repl/eval/field_drip/csharp.exs` | C# evaluated in F# Interactive with `embody.fsx` and C#'s seam `embody.cs` (built in the temp dir; its protocol checked first); the call typed and awaited by the node's marks. On F#'s launch and template (`evolving.md` §4.4; the record D-csharp-adapter comes with §4.4, 6). | D-node-marks, D-anykey-shape |
 | `lib/scanner/javascript.exs` | JavaScript and TypeScript read as text (modules are paths; IIFE bodies as the top level; ES imports, `require`). | D-scanners, D-map-only-language |
 | `lib/lsp/transport.exs` | How a language server is reached: the behaviour. | D-scanners |
 | `lib/lsp/transport/relay.exs` | Through tezcatl's `/lsp` relay. | D-scanners |
@@ -139,7 +140,7 @@ guard their decisions.
 |---|---|
 | `test/run.sh` | Runs the suite. |
 | `test/live/repl_iex_test.exs`, `repl_ocaml_test.exs`, `repl_haskell_test.exs`, `repl_python_test.exs` | Against real `iex`, `ocaml` (+ dune), `ghci` (+ cabal, stack), `python3`; skipped when the tool is not on PATH. |
-| `test/live/repl_csharp_test.exs` | C# through `dotnet fsi` with embody's seam `embody.cs` (built by hand until C#'s launch); skipped without `dotnet`. |
+| `test/live/repl_csharp_test.exs` | C# through `dotnet fsi` with embody's seam `embody.cs`, through C#'s launch; an `embody.cs` of another protocol; skipped without `dotnet`. |
 | `test/fixtures/calc_sample/` | A small script-mode Elixir project (also used by tezcatl's E2E). |
 | `test/fixtures/ocaml_sample/`, `test/fixtures/ocaml_dune/` | OCaml: plain files with top-level effects; a dune project with a wrapped library. |
 | `test/fixtures/haskell_sample/` | Haskell: an export list hiding a function, a module importing another, a `main`. |

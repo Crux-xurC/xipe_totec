@@ -54,9 +54,9 @@ defmodule ScannerCSharpTest do
 
       assert got == [
                # overloads sharing a count: each a node of its own
-               {"Over", "(int)", [1], [], false},
-               {"Over", "(string)", [1], [], false},
-               {"Over", "(double)", [1], [], false},
+               {"Over", "(int)", [1], ["typed"], false},
+               {"Over", "(string)", [1], ["typed"], false},
+               {"Over", "(double)", [1], ["typed"], false},
                {"Wide", "(long)", [1], [], false},
                # Task<T>, Task, ValueTask<T>: awaited
                {"LaterAsync", "(int)", [1], ["async"], false},

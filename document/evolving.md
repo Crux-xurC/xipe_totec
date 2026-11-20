@@ -193,7 +193,12 @@ The work, in order (one commit each where it stands alone):
    `reference` so a call that fails before any other has run still finds the dll's types — F#'s adapter writes it too; checked by
    `test/live/repl_csharp_test.exs`, which builds the seam and the fixture by hand until 5): `Await`, the helper (records, anonymous types `unsupported` with their display, equality by properties), the
    diagnosis in C#'s terms; built in the temp dir with an empty package source; the protocol as `embody.scala`'s
-5. **C#'s declaration and launch on F#'s**: `csharp` (`cs`), REPL `fsi`, build tool dotnet (`*.csproj`, `*.sln`, `*.slnx`): the target
+5. **C#'s declaration and launch on F#'s** (done 2026-11-20: `lib/repl/language/csharp.exs`, `lib/repl/csharp/launch.exs` and
+   `eval_template.exs` on F#'s `build`, F#'s `assembly_name`; the start script checks `embody.fsx`, `embody.cs` and its
+   `EmbodyCs.Seam.Protocol` first and ends at once naming them, as Scala's; `#r` and `Embody.reference` for every dll, the seam's too.
+   Rule 2 needs to know that another overload shares the count, which only the scanner sees: it marks such overloads `"typed"`
+   (D-node-marks), and the template annotates an argument when C#'s type has an F# name without doubt — a project's type or a type
+   parameter is left to fsi. Checked by the live test through the launch and on a copy through the CLI): `csharp` (`cs`), REPL `fsi`, build tool dotnet (`*.csproj`, `*.sln`, `*.slnx`): the target
    and the seam built, both `#r`-ed, the seam registered; the call template with the type annotations of rule 2 and `Seam.Await` of
    rule 5; `info.json` (`refresh -l -r`)
 6. **Tests and the record**: `test/csharp_adapter_test.exs`, `test/live/repl_csharp_test.exs` (or the fsi one), the CLI on a copy;

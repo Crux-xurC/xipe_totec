@@ -34,11 +34,12 @@ defmodule InfoTest do
       %{"name" => "npm", "markers" => ["package-lock.json", "package.json"]}
     ]
 
-    assert refreshed["languages"] == ["elixir", "fsharp", "haskell", "javascript", "ocaml", "python", "scala", "typescript"]
+    assert refreshed["languages"] == ["csharp", "elixir", "fsharp", "haskell", "javascript", "ocaml", "python", "scala", "typescript"]
 
     assert refreshed["extensions"] == %{
              "ex" => ["elixir"],
              "exs" => ["elixir"],
+             "cs" => ["csharp"],
              "fs" => ["fsharp"],
              "fsx" => ["fsharp"],
              "hs" => ["haskell"],
@@ -59,6 +60,8 @@ defmodule InfoTest do
     # each language's REPL (none: a map-only language) and build-tool priority list
     assert refreshed["language_repls"] == %{
              "elixir" => "iex",
+             # C#'s window is F#'s (evolving.md §4.4)
+             "csharp" => "fsi",
              "fsharp" => "fsi",
              "haskell" => "ghci",
              "ocaml" => "ocaml",
@@ -70,6 +73,7 @@ defmodule InfoTest do
 
     assert refreshed["build_tools"] == %{
              "elixir" => [%{"name" => "mix", "markers" => ["mix.exs"]}],
+             "csharp" => [%{"name" => "dotnet", "markers" => ["*.csproj", "*.sln", "*.slnx"]}],
              "fsharp" => [%{"name" => "dotnet", "markers" => ["*.fsproj", "*.sln", "*.slnx"]}],
              "haskell" => [
                %{"name" => "stack", "markers" => ["stack.yaml"]},

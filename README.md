@@ -8,7 +8,7 @@ new skins.
 
 Written in Elixir. Application `:xipe_totec`, module `XipeTotec`, CLI command `xipe`. It works on its own from the command line;
 [tezcatl](https://github.com/Crux-xurC/tezcatl), a browser-side development environment in a separate repository, can be its window
-(see "With tezcatl" below). OCaml, Haskell, Python, F# and Scala evaluation use [embody](https://github.com/Crux-xurC/embody), also a separate repository.
+(see "With tezcatl" below). OCaml, Haskell, Python, F#, C# and Scala evaluation use [embody](https://github.com/Crux-xurC/embody), also a separate repository.
 
 ---
 
@@ -69,11 +69,11 @@ What is promised to work, and what happens outside the promise, is in [`document
 
 - **Nix** with flakes, on `x86_64-linux`. `nix develop` gives Elixir 1.18 / OTP 27 and the Erlang packages it uses (cowboy, gun,
   erlexec). There is no build without Nix yet.
-- For **OCaml**, **Haskell**, **Python**, **F#** and **Scala 3** projects: `ocaml` / `ghci` / `python3` (or the project's `.venv`) / `dotnet` / `scala` with `sbt` or `scala-cli` in the target's environment (a flake, direnv or mise declared in
+- For **OCaml**, **Haskell**, **Python**, **F#**, **C#** and **Scala 3** projects: `ocaml` / `ghci` / `python3` (or the project's `.venv`) / `dotnet` (F# and C#; C# is evaluated in F# Interactive) / `scala` with `sbt` or `scala-cli` in the target's environment (a flake, direnv or mise declared in
   `project_env.json`, or on `PATH`), and [embody](https://github.com/Crux-xurC/embody) cloned next to this repository (or
-  `XIPE_TOTEC_EMBODY_DIR` pointing at it). Update the two together: an adapter speaks to its embody file by a protocol, and a Scala
-  evaluation started with an `embody.scala` of another protocol (`Embody.protocol`; this xipe_totec: 1) ends at once saying embody must
-  be updated.
+  `XIPE_TOTEC_EMBODY_DIR` pointing at it). Update the two together: an adapter speaks to its embody file by a protocol, and an
+  evaluation started with an embody file of another protocol ends at once saying embody must be updated — Scala's `embody.scala`
+  (`Embody.protocol`; this xipe_totec: 1) and C#'s seam `embody.cs` (`EmbodyCs.Seam.Protocol`; this xipe_totec: 1).
 - Optional: **elixir-ls** for scanning Elixir (without it, Xipe Totec's own scanner is used).
 
 ---
@@ -82,7 +82,7 @@ What is promised to work, and what happens outside the promise, is in [`document
 
 ```
 git clone https://github.com/Crux-xurC/xipe_totec.git
-git clone https://github.com/Crux-xurC/embody.git        # only for OCaml / Haskell / Python / F# / Scala; update it with xipe_totec
+git clone https://github.com/Crux-xurC/embody.git        # only for OCaml / Haskell / Python / F# / C# / Scala; update it with xipe_totec
 cd xipe_totec
 nix develop                                             # gives the `xipe` command
 

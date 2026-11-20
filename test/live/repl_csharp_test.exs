@@ -1,150 +1,193 @@
-# Live verification of C# through `dotnet fsi`: embody.fsx with C#'s seam embody.cs (evolving.md §4.4).
-# NOT swept into test/run.sh. Needs `dotnet` (the .NET 8 SDK, which builds net8.0 without fetching
-# anything) on PATH and embody (../embody next to this checkout, or $XIPE_TOTEC_EMBODY_DIR); without
-# `dotnet` every test is excluded. For example:
+# Live verification of C# through `dotnet fsi`: C#'s adapter (Repl.Language.CSharp) with embody.fsx and
+# C#'s seam embody.cs (evolving.md §4.4). NOT swept into test/run.sh. Needs `dotnet` (the .NET 8 SDK,
+# which builds net8.0 without fetching anything) on PATH and embody (../embody next to this checkout, or
+# $XIPE_TOTEC_EMBODY_DIR); without `dotnet` every test is excluded. For example:
 #
 #     nix shell github:NixOS/nixpkgs/<xipe_totec's pin>#dotnet-sdk_8 -c elixir test/live/repl_csharp_test.exs
 #
-# Until C#'s launch exists (§4.4, 5), the seam and a copy of test/fixtures/csharp_sample/ are built here
-# by hand, as the launch will: each a project of its own, from an empty package source, into the temp dir.
+# Target is a copy of test/fixtures/csharp_sample/ (one project, Sample.dll).
 dotnet? = System.find_executable("dotnet") != nil
 ExUnit.start(exclude: if(dotnet?, do: [], else: [:dotnet]), timeout: 300_000)
 unless dotnet?, do: IO.puts("repl_csharp_test: no `dotnet` on PATH -- every test excluded")
 
-Code.require_file(Path.expand("../../lib/repl/embody.exs", __DIR__))
+Code.require_file(Path.expand("../../lib/repl/evaluator.exs", __DIR__))
+Code.require_file(Path.expand("../../lib/repl/language/csharp.exs", __DIR__))
 
 defmodule ReplLiveCSharpTest do
   use ExUnit.Case
 
-  alias XipeTotec.Repl.Embody
+  alias XipeTotec.{Book, Core}
+  alias XipeTotec.Repl.Evaluator
+  alias XipeTotec.Repl.Language.CSharp
 
   @moduletag :dotnet
   @fixture_dir Path.expand("../fixtures/csharp_sample", __DIR__)
-  @env [{"DOTNET_CLI_TELEMETRY_OPTOUT", "1"}, {"DOTNET_NOLOGO", "1"}, {"DOTNET_SKIP_FIRST_TIME_EXPERIENCE", "1"}]
 
-  setup_all do
+  setup do
     dir = Path.join(System.tmp_dir!(), "xipe_totec_cs_live_#{System.unique_integer([:positive])}")
-    File.mkdir_p!(Path.join(dir, "empty"))
-    File.cp_r!(@fixture_dir, Path.join(dir, "target"))
-    File.mkdir_p!(Path.join(dir, "seam"))
-
-    File.write!(Path.join(dir, "seam/EmbodyCs.csproj"), """
-    <Project Sdk="Microsoft.NET.Sdk">
-      <PropertyGroup>
-        <TargetFramework>net8.0</TargetFramework>
-        <AssemblyName>EmbodyCs</AssemblyName>
-        <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
-        <Nullable>enable</Nullable>
-      </PropertyGroup>
-      <ItemGroup><Compile Include="#{Embody.path("embody.cs")}" /></ItemGroup>
-    </Project>
-    """)
-
-    for {project, out} <- [{"seam", "seam_out"}, {"target", "target_out"}] do
-      {log, status} =
-        System.cmd("dotnet", ["build", project, "--source", Path.join(dir, "empty"), "-o", Path.join(dir, out)],
-          cd: dir, env: @env, stderr_to_stdout: true)
-
-      assert status == 0, log
-    end
-
+    File.cp_r!(@fixture_dir, dir)
     on_exit(fn -> File.rm_rf!(dir) end)
     {:ok, dir: dir}
   end
 
-  # run `body` (F#) in fsi after embody.fsx, both dlls and the seam's registration; the output
-  defp fsi(dir, body) do
-    script = Path.join(dir, "t#{System.unique_integer([:positive])}.fsx")
+  # one pass over `calls`: {id, "Ns.Type.Method", args} or {id, "Ns.Type.Method", args, anykey, marks}
+  # (the node as C#'s scanner gives it); the results by call id. A row already in `book` keeps its value.
+  defp run(dir, calls, book \\ Book.new()) do
+    book =
+      Enum.reduce(calls, book, fn call, book ->
+        {id, node, args, key, marks} =
+          case call do
+            {id, node, args} -> {id, node, args, "(#{length(args)})", []}
+            {_, _, _, _, _} = c -> c
+          end
 
-    File.write!(script, """
-    #load #{inspect(Embody.path("embody.fsx"))}
-    #r #{inspect(Path.join(dir, "seam_out/EmbodyCs.dll"))}
-    #r #{inspect(Path.join(dir, "target_out/Sample.dll"))}
-    Embody.reference #{inspect(Path.join(dir, "target_out/Sample.dll"))}
-    Embody.registerType typeof<EmbodyCs.Seam>
-    let entry id (m: string) (n: string) k basis (f: unit -> 'T) =
-        Embody.start id 5000 basis
-        let _ = Embody.call f
-        Embody.finish id m n k
-    #{body}
-    """)
+        parts = String.split(node, ".")
+        {module, name} = {parts |> Enum.drop(-1) |> Enum.join("."), List.last(parts)}
+        node_id = "n_#{node}#{key}"
 
-    {out, 0} = System.cmd("dotnet", ["fsi", "--quiet", "--exec", script], cd: dir, env: @env, stderr_to_stdout: true)
-    out
+        book =
+          Core.put_node(book, node_id, %{
+            module: module, name: name, anykey: key, shape: [length(args)], marks: marks, effect: "pure", effect_source: "user"
+          })
+
+        if Book.get(book, :calls, id), do: book, else: Core.add_call(book, id, %{node: node_id, args: args})
+      end)
+
+    {launch_opts, cleanup} = CSharp.launch_opts(dir, "dotnet", ["src/Calc.cs"])
+
+    try do
+      Evaluator.run_pass(book, "pass1",
+          cwd: dir,
+          call_ids: Enum.map(calls, &elem(&1, 0)),
+          launch_opts: launch_opts,
+          boot_timeout_ms: 90_000,
+          launch_module: XipeTotec.Repl.CSharp.Launch,
+          eval_template_module: XipeTotec.Repl.CSharp.EvalTemplate,
+          scan_module: XipeTotec.Repl.Eval.Scan.Direct.Fsi,
+          field_drip_module: XipeTotec.Repl.Eval.FieldDrip.CSharp
+      )
+      |> case do
+        {:ok, book, results} -> {book, Map.new(results, &{&1.call_id, &1})}
+        # a start that ended before ready: the pass's own error
+        error -> error
+      end
+    after
+      cleanup.()
+    end
   end
 
-  defp record(out, id) do
-    out |> String.split("\n") |> Enum.drop_while(&(&1 != "XT_BEGIN_" <> id)) |> Enum.drop(1) |> Enum.take_while(&(&1 != "XT_END_" <> id))
-    |> Map.new(fn line -> line |> String.split("=", parts: 2) |> List.to_tuple() end)
+  # the build wrote only obj/ into the project (bin/ goes to the temp dir; the seam is built there too)
+  defp untouched!(dir), do: assert(File.ls!(dir) |> Enum.sort() == ["CsharpSample.csproj", "obj", "src"])
+
+  test "C#'s static methods with F# arguments: values, overloads by count and by type, async awaited, references within the pass", %{dir: dir} do
+    {book, r} =
+      run(dir, [
+        {"a", "Sample.Calc.Add", ["2", "3"], "(int, int)", []},
+        {"a3", "Sample.Calc.Add", ["⟦a⟧", "1", "1"], "(int, int, int)", []},
+        {"h", "Sample.Calc.Half", ["1.0"]},
+        {"r", "Sample.Calc.Range", ["3"]},
+        {"l", "Sample.Calc.RangeList", ["⟦a⟧"]},
+        {"p", "Sample.Calc.Pair", ["4"]},
+        {"g", "Sample.Calc.Greet", [~s|"x"|]},
+        # overloads of one count: the argument given its parameter's type (null picks the string one by the type, not by luck)
+        {"oi", "Sample.Calls.Over", ["1"], "(int)", ["typed"]},
+        {"os", "Sample.Calls.Over", ["null"], "(string)", ["typed"]},
+        {"od", "Sample.Calls.Over", ["1"], "(double)", ["typed"]},
+        {"w", "Sample.Calls.Wide", ["1"], "(long)", []},
+        # Task<T>, Task, ValueTask<T>
+        {"la", "Sample.Calls.LaterAsync", ["1"], "(int)", ["async"]},
+        {"dn", "Sample.Calls.Done", [], "()", ["async"]},
+        {"sn", "Sample.Calls.Soon", [~s|"s"|], "(string)", ["async"]},
+        {"id", "Sample.Calls.Id", ["5"], "(T)", []},
+        {"op", "Sample.Calls.Opt", ["1"], "(int, int)", []},
+        {"pa", "Sample.Calls.Params", ["1", "2", "3"], "(params int[])", []}
+      ])
+
+    assert {:ok, %{repr: "exact", type: "int", display: "5"}} = r["a"].outcome
+    assert {:ok, %{display: "7"}} = r["a3"].outcome
+    assert {:ok, %{type: "float", display: "0.5"}} = r["h"].outcome
+    assert {:ok, %{type: "int[]", display: "[|0; 1; 2|]"}} = r["r"].outcome
+    assert {:ok, %{display: "ResizeArray [0; 1; 2; 3; 4]"}} = r["l"].outcome
+    assert {:ok, %{type: "struct (int * string)", display: ~s|struct (4, "4")|}} = r["p"].outcome
+    assert {:ok, %{display: ~s|"hello, x {not a brace}"|}} = r["g"].outcome
+    assert {:ok, %{display: ~s|"int 1"|}} = r["oi"].outcome
+    assert {:ok, %{display: ~s|"string "|}} = r["os"].outcome
+    assert {:ok, %{display: ~s|"double 1"|}} = r["od"].outcome
+    assert {:ok, %{type: "int64", display: "2L"}} = r["w"].outcome
+    assert {:ok, %{type: "int", display: "2"}} = r["la"].outcome
+    assert {:ok, %{type: "unit", display: "()"}} = r["dn"].outcome
+    assert {:ok, %{type: "string", display: ~s|"s"|}} = r["sn"].outcome
+    assert {:ok, %{display: "5"}} = r["id"].outcome
+    assert {:ok, %{display: "11"}} = r["op"].outcome
+    assert {:ok, %{display: "6"}} = r["pa"].outcome
+    assert Book.get(book, :calls, "a").result == "5"
+    untouched!(dir)
   end
 
-  test "the seam's protocol is a constant the launch can read" do
-    assert File.read!(Embody.path("embody.cs")) =~ ~r/public const int Protocol = 1;/
+  test "records written as their constructor's call: a later row's argument; compare same, changed; others binary or unsupported", %{dir: dir} do
+    calls = [
+      {"m", "Sample.Geo.Shapes.Mid", ["Sample.Geo.Point(1.0, 2.0)", "Sample.Geo.Point(3.0, 4.0)"], "(Point, Point)", []},
+      {"b", "Sample.Calls.Fill", [~s|"x"|, "2"], "(string, int)", []},
+      {"t", "Sample.Calls.Mark", [~s|"m"|], "(string)", []},
+      {"n", "Sample.Calls.Anon", ["1"], "(int)", []}
+    ]
+
+    {book, r} = run(dir, calls)
+    assert {:ok, %{repr: "exact", type: "Sample.Geo.Point", display: "Sample.Geo.Point(2.0, 3.0)"}} = r["m"].outcome
+    assert {:ok, %{repr: "exact", display: ~s|Sample.Bag("x", ResizeArray [0; 1])|}} = r["b"].outcome
+    assert {:ok, %{repr: "binary", display: "Tag { Text = m }"}} = r["t"].outcome
+    assert {:ok, %{repr: "unsupported", display: "{ N = 1, S = 1 }"}} = r["n"].outcome
+
+    # again: the same values (the Bag's list element by element)
+    {book, r} = run(dir, calls, book)
+    for id <- ~w(m b), do: assert(r[id].compare == "same", id)
+
+    book = Book.put(book, :calls, "b", %{Book.get(book, :calls, "b") | args: [~s|"x"|, "3"]})
+    {book, r} = run(dir, [{"b", "Sample.Calls.Fill", [~s|"x"|, "3"], "(string, int)", []}], book)
+    assert r["b"].compare == "changed"
+
+    # the stored record, embedded as its literal into another row
+    {_book, r} = run(dir, [{"m2", "Sample.Geo.Shapes.Mid", ["⟦m⟧", "⟦m⟧"], "(Point, Point)", []}], book)
+    assert {:ok, %{display: "Sample.Geo.Point(2.0, 3.0)"}} = r["m2"].outcome
   end
 
-  test "Await: Task<T>, Task and ValueTask<T> give their value (a later row gets the T)", %{dir: dir} do
-    out =
-      fsi(dir, """
-      entry "a1" "Sample.Calls" "LaterAsync" 1 None (fun () -> EmbodyCs.Seam.Await(Sample.Calls.LaterAsync(1)))
-      entry "a2" "Sample.Calls" "Done" 0 None (fun () -> EmbodyCs.Seam.Await(Sample.Calls.Done()))
-      entry "a3" "Sample.Calls" "Soon" 1 None (fun () -> EmbodyCs.Seam.Await(Sample.Calls.Soon("s")))
-      """)
-
-    assert %{"repr" => "exact", "type" => "int", "display" => "2"} = record(out, "a1")
-    assert %{"repr" => "exact", "type" => "unit", "display" => "()"} = record(out, "a2")
-    assert %{"repr" => "exact", "type" => "string", "display" => ~s|"s"|} = record(out, "a3")
-  end
-
-  test "records: a positional one written as its constructor's call, read back, compared property by property; others not", %{dir: dir} do
-    mid = "Sample.Geo.Shapes.Mid(Sample.Geo.Point(1.0, 2.0), Sample.Geo.Point(3.0, 4.0))"
-
-    out =
-      fsi(dir, """
-      entry "r1" "Sample.Geo.Shapes" "Mid" 2 None (fun () -> #{mid})
-      entry "r2" "Sample.Geo.Shapes" "Mid" 2 (Some ("exact", "Sample.Geo.Point(2.0, 3.0)")) (fun () -> #{mid})
-      entry "r3" "Sample.Geo.Shapes" "Mid" 2 (Some ("exact", "Sample.Geo.Point(2.0, 3.5)")) (fun () -> #{mid})
-      // the literal is a later call's argument as it is
-      entry "r4" "Sample.Geo.Shapes" "Area" 1 None (fun () -> Sample.Geo.Shapes.Area(Sample.Geo.Circle(1.0)))
-      entry "r5" "Sample.Geo.Shapes" "Mid" 2 None (fun () -> Sample.Geo.Shapes.Mid(Sample.Geo.Point(2.0, 3.0), Sample.Geo.Point(2.0, 3.0)))
-      // a List inside: equal element by element (C#'s own == compares the list by reference)
-      entry "b1" "Sample.Calls" "Fill" 2 (Some ("exact", "Sample.Bag(\\"x\\", ResizeArray [0; 1])")) (fun () -> Sample.Calls.Fill("x", 2))
-      entry "b2" "Sample.Calls" "Fill" 2 (Some ("exact", "Sample.Bag(\\"x\\", ResizeArray [0; 2])")) (fun () -> Sample.Calls.Fill("x", 2))
-      // a record set outside a primary constructor; an anonymous type
-      entry "t1" "Sample.Calls" "Mark" 1 None (fun () -> Sample.Calls.Mark("m"))
-      entry "n1" "Sample.Calls" "Anon" 1 None (fun () -> Sample.Calls.Anon(1))
-      """)
-
-    assert %{"repr" => "exact", "type" => "Sample.Geo.Point", "display" => "Sample.Geo.Point(2.0, 3.0)", "compare" => "none"} = record(out, "r1")
-    assert %{"compare" => "same"} = record(out, "r2")
-    assert %{"compare" => "changed"} = record(out, "r3")
-    assert %{"display" => "3.14159265358979" <> _} = record(out, "r4")
-    assert %{"display" => "Sample.Geo.Point(2.0, 3.0)"} = record(out, "r5")
-    assert %{"repr" => "exact", "display" => ~s|Sample.Bag("x", ResizeArray [0; 1])|, "compare" => "same"} = record(out, "b1")
-    assert %{"compare" => "changed"} = record(out, "b2")
-    assert %{"repr" => "binary", "display" => "Tag { Text = m }"} = record(out, "t1")
-    assert %{"repr" => "unsupported", "display" => "{ N = 1, S = 1 }"} = record(out, "n1")
-  end
-
-  test "why a call did not compile, in C#'s terms; F#'s for what is no C# type", %{dir: dir} do
-    out =
-      fsi(dir, """
-      for (id, m, n, k) in [ ("d1", "Sample.Counter", "Step", 1); ("d2", "Sample.Calc", "Hidden", 1); ("d3", "Sample.Calls", "Over", 3)
-                             ("d4", "Sample.Calls", "Nope", 1); ("d5", "Sample.Geo.Point", "X", 0); ("d6", "Sample.Calls", "Over", 1)
-                             ("d7", "Sample.Nope", "f", 1) ] do
-          Embody.start id 5000 None
-          Embody.finish id m n k
-      """)
+  test "failures each row's own, in C#'s terms: an exception, an instance method, internal, the overloads' counts and signatures", %{dir: dir} do
+    {_book, r} =
+      run(dir, [
+        # first: nothing has loaded Sample.dll yet (Embody.reference)
+        {"e1", "Sample.Calc.Hidden", ["1"], "(int)", []},
+        {"e2", "Sample.Calc.Boom", ["1"], "(int)", []},
+        {"e3", "Sample.Counter.Step", ["1"], "(int)", []},
+        {"e4", "Sample.Calls.Over", ["1", "2", "3"], "(int)", []},
+        {"e5", "Sample.Calc.Add", ["1", ~s|"x"|], "(int, int)", []},
+        {"e6", "Sample.Nope.F", ["1"], "(int)", []},
+        {"ok", "Sample.Calc.Add", ["2", "2"], "(int, int)", []}
+      ])
 
     head = "the call did not compile: "
-    assert out =~ "XT_ERROR_d1 crash #{head}Sample.Counter.Step is an instance method: only public static methods are called (int Step(int by))\n"
-    assert out =~ "XT_ERROR_d2 crash #{head}Sample.Calc.Hidden is internal: only public static methods are called\n"
+    assert {:error, ^head <> "Sample.Calc.Hidden is internal: only public static methods are called"} = r["e1"].outcome
+    assert {:error, "System.InvalidOperationException: boom: 1"} = r["e2"].outcome
+    assert {:error, ^head <> "Sample.Counter.Step is an instance method: only public static methods are called (int Step(int by))"} = r["e3"].outcome
+    assert {:error, ^head <> "Sample.Calls.Over takes 1 argument(s), got 3: static string Over(int x); " <> _} = r["e4"].outcome
+    assert {:error, ^head <> "the arguments do not fit static int Add(int a, int b); static int Add(int a, int b, int c)" <> _} = r["e5"].outcome
+    assert {:error, ^head <> "no module Sample.Nope in what was loaded"} = r["e6"].outcome
+    assert {:ok, %{display: "4"}} = r["ok"].outcome
+  end
 
-    assert out =~
-             "XT_ERROR_d3 crash #{head}Sample.Calls.Over takes 1 argument(s), got 3: static string Over(int x); static string Over(string s); static string Over(double d)\n"
+  test "an embody whose embody.cs speaks another protocol: the start ends at once, naming it", %{dir: dir} do
+    old = Path.join(dir, "old_embody")
+    File.mkdir_p!(old)
+    real = XipeTotec.Repl.Embody.dir()
+    File.cp!(Path.join(real, "embody.fsx"), Path.join(old, "embody.fsx"))
+    File.write!(Path.join(old, "embody.cs"), String.replace(File.read!(Path.join(real, "embody.cs")), "Protocol = 1;", "Protocol = 0;"))
+    before = System.get_env("XIPE_TOTEC_EMBODY_DIR")
+    System.put_env("XIPE_TOTEC_EMBODY_DIR", old)
 
-    assert out =~ "XT_ERROR_d4 crash #{head}Sample.Calls has no method Nope\n"
-    assert out =~ "XT_ERROR_d5 crash #{head}Sample.Geo.Point.X is a property, not a method\n"
-    assert out =~ "XT_ERROR_d6 crash #{head}the arguments do not fit static string Over(int x); static string Over(string s); static string Over(double d) (fsi's message is in the REPL output)\n"
-    assert out =~ "XT_ERROR_d7 crash #{head}no module Sample.Nope in what was loaded"
+    try do
+      assert {:error, {:boot_failed, {:exited_before_ready, "1", reason}}} = run(dir, [{"a", "Sample.Calc.Add", ["1", "2"], "(int, int)", []}])
+      assert reason == "embody.cs at #{old}/embody.cs does not speak protocol 1 (EmbodyCs.Seam.Protocol): update embody (git pull) to the one this Xipe Totec was made with"
+    after
+      if before, do: System.put_env("XIPE_TOTEC_EMBODY_DIR", before), else: System.delete_env("XIPE_TOTEC_EMBODY_DIR")
+    end
   end
 end

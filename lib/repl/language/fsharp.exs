@@ -97,14 +97,14 @@ defmodule XipeTotec.Repl.Language.FSharp do
     |> Enum.sort()
   end
 
-  @doc "The assembly a project file builds: its `<AssemblyName>`, else the file's name."
+  @doc "The assembly a project file (`*.fsproj`, also C#'s `*.csproj`) builds: its `<AssemblyName>`, else the file's name."
   @spec assembly_name(String.t()) :: String.t()
   def assembly_name(project) do
     with {:ok, text} <- File.read(project),
          [_, name] <- Regex.run(~r{<AssemblyName>\s*([^<$]+?)\s*</AssemblyName>}, text) do
       name
     else
-      _ -> Path.basename(project, ".fsproj")
+      _ -> Path.basename(project, Path.extname(project))
     end
   end
 end

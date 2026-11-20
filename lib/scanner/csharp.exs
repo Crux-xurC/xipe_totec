@@ -22,8 +22,10 @@ defmodule XipeTotec.Scanner.CSharp do
   shape is the number of arguments a caller writes, one list (`out`
   parameters left out, optional ones counted, a `params` array one)
   ([D-anykey-shape](../../document/verification/lib-identity.exs.md#d-anykey-shape)).
-  `marks` is `["async"]` for a method returning `Task`, `Task<T>`,
-  `ValueTask` or `ValueTask<T>` (the call is awaited); `refusal` the
+  `marks` holds `"async"` for a method returning `Task`, `Task<T>`,
+  `ValueTask` or `ValueTask<T>` (the call is awaited) and `"typed"` for an
+  overload whose argument count another overload shares (the call writes
+  the arguments' types); `refusal` the
   reason `row/add` refuses a method whose type parameter appears in no
   parameter (`Make<T>()`: without a type argument it would run as `obj`)
   ([D-node-marks](../../document/verification/lib-identity.exs.md#d-node-marks)). `visibility`
@@ -118,6 +120,17 @@ defmodule XipeTotec.Scanner.CSharp do
       }
     end)
     |> Enum.uniq_by(&{&1.module, &1.name, &1.anykey})
+    |> typed()
+  end
+
+  # §4.4 rule 2: overloads sharing an argument count are marked "typed" --
+  # the call gives each argument its parameter's type, so fsi picks this one
+  defp typed(defs) do
+    counts = Enum.frequencies_by(defs, &{&1.module, &1.name, &1.shape})
+
+    Enum.map(defs, fn d ->
+      if counts[{d.module, d.name, d.shape}] > 1, do: %{d | marks: d.marks ++ ["typed"]}, else: d
+    end)
   end
 
   # Walk the blanked text by its braces and semicolons. `seg` is where the

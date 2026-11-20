@@ -87,7 +87,8 @@ the shape), `lib/core.exs` (`accepted_arities/1`, `node_label/1`, the entry's `s
 
 - **A def may carry `marks`**, a list of words the language adapter reads when it writes the call, and the entry carries them to it
   (`[]` when none). C#'s scanner marks a method returning `Task`, `Task<T>`, `ValueTask` or `ValueTask<T>` `"async"`: its call is
-  awaited (C#'s adapter, through the seam)
+  awaited (C#'s adapter, through the seam); and an overload whose argument count another overload shares `"typed"`: its call gives each
+  argument its parameter's type, so fsi picks this overload (`Over((null) : string)`)
 - **A def may carry `refusal`**, the reason a calc row cannot be made for it: `row/add` (and `row/update`'s check) refuses with it
   (`row/add: N.T.Make() can't be a row: its type parameter T appears in no parameter: …`). C#'s scanner gives one to a method whose type
   parameter appears in no parameter (`Make<T>()`): fsi would call it as `Make<obj>()`, a wrong value without an error (P9), until type
