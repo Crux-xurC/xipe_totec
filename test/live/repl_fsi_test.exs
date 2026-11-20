@@ -266,6 +266,69 @@ defmodule ReplLiveFsiTest do
     assert {:error, "the call did not compile: Sample.Conv has no static member Nope"} = r["e6"].outcome
   end
 
+  # embody.fsx's helper entry (D-embody; the seam's side of evolving.md §4.4 rule 1), driven by a helper
+  # written in F# for a plain class, which embody's own writer does not cover
+  test "a registered helper: a covered value written as its constructor's call, read back, compared argument by argument; its diagnosis first", %{dir: dir} do
+    script = Path.join(dir, "helper.fsx")
+
+    File.write!(script, """
+    #load #{inspect(XipeTotec.Repl.Embody.path("embody.fsx"))}
+    open System
+    open System.Collections.Generic
+
+    type Pt(x: float, tag: string, xs: List<int>) =
+        member _.X = x
+        member _.Tag = tag
+        member _.Xs = xs
+
+    // a class whose value cannot be split: not written as a call
+    type Opaque() = class end
+
+    Embody.register
+        { Embody.Helper.Covers = Func<Type, bool>(fun t -> t = typeof<Pt> || t = typeof<Opaque>)
+          Head = Func<Type, string>(fun _ -> "Pt")
+          Parts = Func<Type, Type[]>(fun _ -> [| typeof<float>; typeof<string>; typeof<List<int>> |])
+          Split = Func<obj, obj[]>(fun v -> match v with :? Pt as p -> [| box p.X; box p.Tag; box p.Xs |] | _ -> null)
+          Make = Func<Type, obj[], obj>(fun _ a -> box (Pt(unbox a.[0], unbox a.[1], unbox a.[2])))
+          Diagnose = Func<string, string, int, string>(fun m n k -> if m = "Seam.T" then sprintf "seam: %s.%s/%d" m n k else null) }
+
+    let mk () = Pt(1.5, "a\\"b", List<int>([ 1; 2 ]))
+    Embody.start "e1" 5000 None
+    let xt_e1 = Embody.call (fun () -> mk ())
+    Embody.finish "e1" "M" "mk" 1
+    Embody.start "e2" 5000 (Some ("exact", "Pt(1.5, \\"a\\\\\\"b\\", ResizeArray [1; 2])"))
+    let xt_e2 = Embody.call (fun () -> mk ())
+    Embody.finish "e2" "M" "mk" 1
+    Embody.start "e3" 5000 (Some ("exact", "Pt(1.5, \\"a\\\\\\"b\\", ResizeArray [1; 3])"))
+    let xt_e3 = Embody.call (fun () -> mk ())
+    Embody.finish "e3" "M" "mk" 1
+    // nested inside F#'s own list
+    Embody.start "e4" 5000 None
+    let xt_e4 = Embody.call (fun () -> [ mk (); mk () ])
+    Embody.finish "e4" "M" "mk" 1
+    Embody.start "e5" 5000 None
+    let xt_e5 = Embody.call (fun () -> Opaque())
+    Embody.finish "e5" "M" "op" 1
+    // calls that did not run: the helper's diagnosis for its module, F#'s otherwise
+    Embody.start "e6" 5000 None
+    Embody.finish "e6" "Seam.T" "M" 2
+    Embody.start "e7" 5000 None
+    Embody.finish "e7" "Nope" "f" 1
+    """)
+
+    {out, 0} = System.cmd("dotnet", ["fsi", "--quiet", "--exec", script], stderr_to_stdout: true)
+    record = fn id -> out |> String.split("\n") |> Enum.drop_while(&(&1 != "XT_BEGIN_" <> id)) |> Enum.take_while(&(&1 != "XT_END_" <> id)) end
+
+    assert ["XT_BEGIN_e1", "repr=exact", "type=FSI_" <> _, "compare=none", ~s|display=Pt(1.5, "a\\"b", ResizeArray [1; 2])|] = record.("e1")
+    assert "compare=same" in record.("e2")
+    assert "compare=changed" in record.("e3")
+    assert ~s|display=[Pt(1.5, "a\\"b", ResizeArray [1; 2]); Pt(1.5, "a\\"b", ResizeArray [1; 2])]| in record.("e4")
+    # a covered value the helper cannot split is not written: embody's other ways as before (binary, its JSON round trip holds)
+    assert "repr=binary" in record.("e5")
+    assert out =~ "XT_ERROR_e6 crash seam: Seam.T.M/2\n"
+    assert out =~ "XT_ERROR_e7 crash the call did not compile: no module Nope in what was loaded"
+  end
+
   test "a timeout: the rest of the pass in a new session, fsi started again without building; an earlier exact value handed over", %{dir: dir} do
     {_book, r} =
       run(dir, [

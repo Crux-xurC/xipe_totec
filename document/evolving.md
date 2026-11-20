@@ -183,7 +183,12 @@ The work, in order (one commit each where it stands alone):
    spacing does not move an id; `int` against `System.Int32` stays as written), the shape (rule 4), marks for `async` (rule 5) and for a
    type parameter in no parameter (rule 3, `row/add` refuses). Unit tests on the fixture, extended with records, `async`, overloads of
    one count, generics, `out`, optional, `params`
-3. **`embody.fsx`'s helper entry** (rule 1), language-neutral; embody's ReadMe
+3. **`embody.fsx`'s helper entry** (rule 1), language-neutral; embody's ReadMe (done 2026-11-20: `Embody.register` takes a `Helper`
+   of `Func`s over .NET's own types. embody's reader keeps its place in the text and is private to the script, so instead of handing it
+   over, the helper describes a value as its constructor's call — `Head`, the parameter types `Parts`, `Split` a value into its
+   arguments, `Make` one from them — and embody.fsx writes, reads back and compares the arguments itself, with a covered value inside
+   another written the same way; `Diagnose` answers first for a call that did not compile. The same division as rule 1: the knowledge
+   of C# in the helper, the F# literals in embody.fsx)
 4. **`embody.cs`**: `Await`, the helper (records, anonymous types `unsupported` with their display, equality by properties), the
    diagnosis in C#'s terms; built in the temp dir with an empty package source; the protocol as `embody.scala`'s
 5. **C#'s declaration and launch on F#'s**: `csharp` (`cs`), REPL `fsi`, build tool dotnet (`*.csproj`, `*.sln`, `*.slnx`): the target

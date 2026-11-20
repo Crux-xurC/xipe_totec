@@ -63,6 +63,9 @@ D-restart-after-timeout ([`lib/repl/evaluator.exs`](lib-repl-evaluator.exs.md))
   field qualified by the type) and **unions** (`Sample.Shape.Rect (2.0, 3.0)`, `Sample.Shape.Empty`) with public representations. The
   text is F# source, so a later row takes it as an argument as it is. A union value's type is its union, not the case's class; a function
   value's type is `int -> int` (`unsupported`). Otherwise `binary` through System.Text.Json, or `unsupported`, as before
+- **Helpers** (2026-11-20, for C#'s seam, `evolving.md` §4.4 rule 1): `embody.fsx` asks a registered `Helper` (`Embody.register`)
+  only where its own writer, reader, equality and diagnosis have no answer; a covered value is written as its constructor's call
+  (`Sample.Point(2.0, 3.0)`), its arguments by embody's own writer. Checked by the live test with a helper written in F#
 - **Time**: `call` runs the thunk on a thread of its own under `ControlledExecution.Run` with the limit; a native wait is stopped waiting
   for at the limit + 0.5 s. The launch declares `restart_after_timeout` ([D-restart-after-timeout](lib-repl-evaluator.exs.md#d-restart-after-timeout))
 - **Scanning**: `Scanner.FSharp.begin/3` runs `lib/scanner/fsharp/scan.fsx` once in `dotnet fsi` over every F# file (FSharp.Compiler.Service,
