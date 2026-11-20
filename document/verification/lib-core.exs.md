@@ -141,7 +141,9 @@ nothing was the next problem (2026-09-24), hence the reasons.
 declared by a person with `arity/set id=<node> arities=[1,2]`, as with `effect/set`; the scanner never writes it.
 
 - `arities` must include the anykey (the defined arity) and nothing above it; just the anykey clears it; nodes whose anykey is not a number
-  (OCaml, Haskell) are refused. The anykey and the id do not change, so rows and the Book stay as they are; a rescan carries it over
+  (OCaml, Haskell) are refused. A node whose `anykey` is a sequence of types and whose shape is one parameter list (C#'s methods with
+  optional parameters, a Scala `def` of one list; 2026-11-20, `evolving.md` §4.4 rule 4) takes it the same way, its shape's count as
+  the defined arity, and is labelled `N.T.Opt(int, int)/1..2`; a shape of several lists is refused (not decided, D-anykey-shape). The anykey and the id do not change, so rows and the Book stay as they are; a rescan carries it over
 - Used by: `row/add` and `row/update`'s check (`accepted_arities/1`), link matching (`Scanner.node_for` finds a node of the same module and
   name whose `arities` contain the call's arity), labels (`M.scale/1..2` for the node, `M.scale/1` for a row)
 - Shown when it is needed: when `row/add` refuses for the arity, Elixir's own parser reads the file and says "has default arguments,

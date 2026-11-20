@@ -167,7 +167,10 @@ stack projects GHCi is started under `cabal exec` / `stack exec` so dependency p
 without its top-level statements through `embody.py`
 ([D-python-adapter](document/verification/lib-repl-language-python.exs.md#d-python-adapter)). So does F# (`.fs`, `.fsx`): projects built by
 `dotnet build`, scripts loaded with their definitions only, evaluated in F# Interactive through `embody.fsx` and read by F#'s own parser
-([D-fsharp-adapter](document/verification/lib-repl-language-fsharp.exs.md#d-fsharp-adapter)). So does Scala 3 (`.scala`, `.sc`): the class path and
+([D-fsharp-adapter](document/verification/lib-repl-language-fsharp.exs.md#d-fsharp-adapter)). So does C# (`.cs`): projects built by
+`dotnet build`, public static methods called in F# Interactive (F#'s window: the arguments are F#) through `embody.fsx` and C#'s seam
+`embody.cs` (`Task`s awaited, records written as their constructor's call, failures in C#'s terms), read as text
+([D-csharp-adapter](document/verification/lib-repl-language-csharp.exs.md#d-csharp-adapter)). So does Scala 3 (`.scala`, `.sc`): the class path and
 the compiler of the project's own version from sbt or scala-cli, nothing fetched, scripts loaded with their definitions only, evaluated
 in Scala's REPL through `embody.scala` and read by Scala's own parser
 ([D-scala-adapter](document/verification/lib-repl-language-scala.exs.md#d-scala-adapter)). JavaScript and TypeScript are scanned
@@ -218,7 +221,7 @@ Several projects can be handled. Once `xipe choice project` chooses the target, 
 (`tables/project/<id>_<name>/book.jsonl`).
 
 **What is in progress is more languages.** The table that decides language, REPL and build tool (`SurfaceTable`) is in place, with
-Elixir (+ mix), OCaml (+ dune), Haskell (+ stack, cabal), Python (+ uv, poetry, pip), F# (+ dotnet) and Scala 3 (+ sbt, scala-cli). JavaScript and TypeScript are in it as a map only (scanned, not evaluated). Where the others stand (C# next, then Java, PHP, Go) is [`document/evolving.md`](document/evolving.md).
+Elixir (+ mix), OCaml (+ dune), Haskell (+ stack, cabal), Python (+ uv, poetry, pip), F# (+ dotnet), C# (+ dotnet, evaluated in F# Interactive) and Scala 3 (+ sbt, scala-cli). JavaScript and TypeScript are in it as a map only (scanned, not evaluated). Where the others stand (Java next, then PHP, Go) is [`document/evolving.md`](document/evolving.md).
 
 ---
 
@@ -273,7 +276,8 @@ changes how it starts. Elixir, OCaml (the plain `ocaml` toplevel + `embody.ml`,
 [D-ocaml-adapter](document/verification/lib-repl-language-ocaml.exs.md#d-ocaml-adapter)), Haskell (GHCi + `embody.hs`,
 [D-haskell-adapter](document/verification/lib-repl-language-haskell.exs.md#d-haskell-adapter)), Python (`python -i` + `embody.py`,
 [D-python-adapter](document/verification/lib-repl-language-python.exs.md#d-python-adapter)), F# (`dotnet fsi` + `embody.fsx`,
-[D-fsharp-adapter](document/verification/lib-repl-language-fsharp.exs.md#d-fsharp-adapter)) and Scala 3 (Scala's REPL + `embody.scala`,
+[D-fsharp-adapter](document/verification/lib-repl-language-fsharp.exs.md#d-fsharp-adapter)), C# (`dotnet fsi` + `embody.fsx` + `embody.cs`,
+[D-csharp-adapter](document/verification/lib-repl-language-csharp.exs.md#d-csharp-adapter)) and Scala 3 (Scala's REPL + `embody.scala`,
 [D-scala-adapter](document/verification/lib-repl-language-scala.exs.md#d-scala-adapter)) are declared. embody is a separate
 repository ([Crux-xurC/embody](https://github.com/Crux-xurC/embody)).
 

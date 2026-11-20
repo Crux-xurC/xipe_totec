@@ -146,6 +146,7 @@ makes `xipe table generate` fill the surface table's `build_tool` column, which 
 | Haskell | cabal, stack | `ghci` started under `cabal exec --offline --` (after `cabal build --offline all`) / `stack exec --` |
 | Python | uv, poetry, pip | none: the project's `.venv/bin/python` when it exists, else `python3` from its environment |
 | F# | dotnet | every `*.fsproj` built by `dotnet build` (into a temp dir, from an empty package source) before `dotnet fsi` starts, and `#r`-ed; `.fsx` scripts loaded as definitions-only copies |
+| C# | dotnet | as F#'s: every `*.csproj` built by `dotnet build` (temp dir, empty package source) and `#r`-ed into `dotnet fsi`, with C#'s seam `embody.cs` built beside it; embody's protocol checked first |
 | Scala 3 | sbt, scala-cli | the build tool builds the project and gives the compiler of its Scala version and the class path (sbt: temporary tasks printed in one run; scala-cli: `--print-class-path`), offline; the REPL is `java … dotty.tools.repl.Main` on them; `.sc` scripts loaded as definitions-only copies. One module per build tool (`lib/repl/scala/build_tool.exs`) |
 
 In every case Xipe Totec loads the project's own code from source (without side effects). Leaving everything to the build tool's REPL

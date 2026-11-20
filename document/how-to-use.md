@@ -950,6 +950,32 @@ written per language and not converted yet) ([D-languages-per-pass](verification
 
 ---
 
+### 9.7 C# — in F# Interactive, through a seam (2026-11-20)
+
+([D-csharp-adapter](verification/lib-repl-language-csharp.exs.md#d-csharp-adapter))
+
+- Evaluation uses F#'s window: F# Interactive (`dotnet fsi --quiet`) with `embody.fsx` and C#'s seam `embody.cs` (both from embody, as
+  above; an `embody.cs` of another protocol stops the start at once, saying embody must be updated). Each `*.csproj` is built by `dotnet
+  build` into a temp dir (nothing fetched: packages must already be in the NuGet cache) and referenced; the seam is built beside it.
+  `obj/` appears in the target
+- Rows are C#'s `public static` methods of public, non-generic types. A node is labelled with its parameters' types, so overloads are
+  nodes of their own (`Sample.Calls.Over(int)`, `Sample.Calls.Over(string)`); `row/add` takes as many arguments as a caller writes
+  (`out` parameters not written, optional ones may be left out with `arity/set`, a `params` array is one argument)
+- A row's arguments are written **in F#**, not C#: `args=[2,3]`, `args=[[|1; 2|]]`, `args=[Sample.Geo.Point(1.0, 2.0)]` (a record by its
+  constructor, without `new`; an argument containing `,` cannot be written on one `xipe do` line yet). The call is
+  `Ns.Type.Method((a), (b))`. For an overload whose argument count another one shares, each argument is given its parameter's type
+  (`null` reaches the `string` overload); a method returning a `Task` is awaited (the value is the `T`, `()` for a plain `Task`)
+- `repr`: what F# writes as a literal is `exact` (numbers, strings, arrays, `List<T>` as `ResizeArray [1; 2]`, a value tuple as
+  `struct (4, "4")` …), and a public positional record as its constructor's call (`Sample.Geo.Point(2.0, 3.0)`) — a later row takes it as
+  it is, and `compare` goes property by property. Other records are `binary` or `unsupported`; an anonymous type is `unsupported`
+- Failures in C#'s terms: `crash the call did not compile: Sample.Counter.Step is an instance method: only public static methods are
+  called (int Step(int by))`, `… is internal`, `… takes 1 argument(s), got 3: static string Over(int x); static string Over(string s)`;
+  an exception is its own text (`System.InvalidOperationException: boom: 1`); fsi's own message is in the REPL's output
+- Scanning (`Scanner.CSharp`) reads the text and needs nothing installed. Links: calls of project methods by name, `Type.Name(…)` and
+  `Ns.Type.Name(…)`; a call on a variable is not a link
+- Not supported: instance methods, `internal` / `private` methods, methods of generic types, a method whose type parameter appears in no
+  parameter (`Make<T>()`, refused by `row/add` with the reason), arguments written in C#
+
 ## 10. Environment variables
 
 | Variable | Meaning |

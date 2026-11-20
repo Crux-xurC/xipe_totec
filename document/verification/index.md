@@ -45,8 +45,7 @@ decisions are listed in [decisions.md](decisions.md).
 | `lib/scanner/python.exs` | Python read as text (module names from paths). | D-scanners, D-python-adapter |
 | `lib/scanner/fsharp.exs`, `lib/scanner/fsharp/scan.fsx` | F# read by F#'s own parser (FSharp.Compiler.Service in `dotnet fsi`, once per scan); names resolved as F# looks them up. | D-scanners, D-fsharp-adapter |
 | `lib/scanner/scala.exs`, `lib/scanner/scala/scan.scala` | Scala read by the Scala 3 compiler's parser (`scala`, once per scan); `anykey` the parameters' types, the shape per list; names resolved through objects, packages, imports. | D-scanners, D-scala-adapter, D-anykey-shape |
-| `lib/scanner/csharp.exs` | C# read as text (comments, strings, `#if` branches blanked; namespaces, types and methods by their braces); `anykey` the parameters' types, the shape, the marks (`async`) and a refusal (a type parameter in no parameter). On main ahead of C#'s adapter (`evolving.md` §4.4). | D-scanners, D-anykey-shape, D-node-marks |
-| `lib/repl/language/csharp.exs`, `lib/repl/csharp/launch.exs`, `lib/repl/csharp/eval_template.exs`, `lib/repl/eval/field_drip/csharp.exs` | C# evaluated in F# Interactive with `embody.fsx` and C#'s seam `embody.cs` (built in the temp dir; its protocol checked first); the call typed and awaited by the node's marks. On F#'s launch and template (`evolving.md` §4.4; the record D-csharp-adapter comes with §4.4, 6). | D-node-marks, D-anykey-shape |
+| `lib/scanner/csharp.exs` | C# read as text (comments, strings, `#if` branches blanked; namespaces, types and methods by their braces); `anykey` the parameters' types, the shape, the marks (`async`, `typed`) and a refusal (a type parameter in no parameter). | D-scanners, D-csharp-adapter, D-anykey-shape, D-node-marks |
 | `lib/scanner/javascript.exs` | JavaScript and TypeScript read as text (modules are paths; IIFE bodies as the top level; ES imports, `require`). | D-scanners, D-map-only-language |
 | `lib/lsp/transport.exs` | How a language server is reached: the behaviour. | D-scanners |
 | `lib/lsp/transport/relay.exs` | Through tezcatl's `/lsp` relay. | D-scanners |
@@ -78,10 +77,12 @@ decisions are listed in [decisions.md](decisions.md).
 | `lib/repl/fsharp/launch.exs`, `lib/repl/fsharp/eval_template.exs` | F#'s start script (build, scripts' definitions-only copies), init file and one entry (three fsi submissions). | D-fsharp-adapter |
 | [`lib/repl/language/scala.exs`](lib-repl-language-scala.exs.md) | Scala 3: `scala`, `sc`, Scala's REPL + embody, `sbt`, `scala-cli`; the sbt server check. | **D-scala-adapter** |
 | `lib/repl/scala/launch.exs`, `lib/repl/scala/build_tool.exs`, `lib/repl/scala/eval_template.exs` | Scala's start script (the build tool's class path and compiler, then the REPL), one module per build tool, one entry (three REPL inputs, the args split by the shape). | D-scala-adapter |
+| [`lib/repl/language/csharp.exs`](lib-repl-language-csharp.exs.md) | C#: `cs`, `dotnet fsi` (F#'s window) + `embody.fsx` + C#'s seam `embody.cs`, `dotnet`. | **D-csharp-adapter** |
+| `lib/repl/csharp/launch.exs`, `lib/repl/csharp/eval_template.exs` | C#'s start script (embody and its protocol checked, the seam and the target built, `#r` + `Embody.reference`, the seam registered) and one entry on F#'s (the call awaited and typed by the node's marks). | D-csharp-adapter, D-node-marks |
 | [`lib/repl/embody.exs`](lib-repl-embody.exs.md) | Where embody is. | **D-embody** |
 | [`lib/repl/eval/scan.exs`](lib-repl-eval-scan.exs.md) | Finding one id's markers in a cleaned buffer. | **D-markers** |
 | `lib/repl/eval/scan/direct/{iex,ocaml,ghci,python,fsi,scala}.exs` | Per transport and REPL: `XT_EXIT` removed (the others delegate to iex's). | D-markers, D-language-adapter |
-| `lib/repl/eval/field_drip.exs`, `lib/repl/eval/field_drip/{elixir,ocaml,haskell,python,fsharp,scala}.exs` | Reading the `key=value` body (the others delegate to Elixir's). | D-markers |
+| `lib/repl/eval/field_drip.exs`, `lib/repl/eval/field_drip/{elixir,ocaml,haskell,python,fsharp,csharp,scala}.exs` | Reading the `key=value` body (the others delegate to Elixir's). | D-markers |
 | `lib/repl/eval/result.exs` | A parsed body or error as a result for Core. | D-plan-run-apply |
 | `lib/repl/eval/parser.exs` | clean → scan → field_drip → result, in one step. | D-markers |
 

@@ -114,17 +114,20 @@ defmodule XipeTotec.Dispatch do
       node == nil ->
         {:error, book, not_found("node", node_id)}
 
-      not is_integer(node[:anykey]) ->
+      match?([_, _ | _], node[:shape]) ->
+        {:error, book, invalid_params("arity/set: #{Core.node_label(node)} has several parameter lists (fewer arguments for them are not decided)")}
+
+      declared_count(node) == nil ->
         {:error, book, invalid_params("arity/set: #{Core.node_label(node)} has no argument count (this language's node is not told apart by arity)")}
 
       as == [] or Enum.any?(as, &is_nil/1) ->
         {:error, book, invalid_params("arity/set needs arities (whole numbers, e.g. arities=[1,2])")}
 
-      node.anykey not in as ->
-        {:error, book, invalid_params("arity/set: arities must include #{node.anykey} (#{Core.node_label(node)} as defined)")}
+      declared_count(node) not in as ->
+        {:error, book, invalid_params("arity/set: arities must include #{declared_count(node)} (#{Core.node_label(node)} as defined)")}
 
-      Enum.any?(as, &(&1 > node.anykey)) ->
-        {:error, book, invalid_params("arity/set: #{Core.node_label(node)} takes at most #{node.anykey} arg(s)")}
+      Enum.any?(as, &(&1 > declared_count(node))) ->
+        {:error, book, invalid_params("arity/set: #{Core.node_label(node)} takes at most #{declared_count(node)} arg(s)")}
 
       true ->
         new_book = Core.set_arities(book, node_id, as)
@@ -478,6 +481,16 @@ defmodule XipeTotec.Dispatch do
 
   def handle(book, method, _params, _ctx),
     do: {:error, book, %{"code" => "unknown_method", "message" => method}}
+
+  # the arguments a node takes as defined: Elixir's integer anykey, else a
+  # shape of one parameter list (C#'s methods: optional parameters counted)
+  defp declared_count(node) do
+    case {node[:anykey], node[:shape]} do
+      {key, _} when is_integer(key) -> key
+      {_, [n]} -> n
+      _ -> nil
+    end
+  end
 
   @doc """
   Whether `args` can be a calc row's arguments for node `node_id`: a list of

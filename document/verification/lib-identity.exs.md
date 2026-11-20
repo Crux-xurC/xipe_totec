@@ -73,7 +73,7 @@ plus a disambiguating index (changes with the order in the file, so an id would 
 
 **Not decided**: the text of a type for Java (as written, or the name the compiler resolves; Scala's and C#'s are as written); the shape
 of the other languages' nodes (OCaml, Haskell, Python, F#'s module functions: no shape, their `anykey` the count or `nil` as before); how `arity/set`
-(D-arity-set) reads with a shape of several lists; type arguments of a generic method whose type appears in no parameter.
+(D-arity-set) reads with a shape of several lists (one list: as an integer anykey, 2026-11-20); type arguments of a generic method whose type appears in no parameter.
 
 **Files**: `lib/scanner.exs` (`put_defs/3`), `lib/scanner/elixir.exs`, `lib/scanner/lsp/elixir.exs`, `lib/scanner/scala.exs`, `lib/scanner/fsharp.exs`, `lib/scanner/csharp.exs` (filling
 the shape), `lib/core.exs` (`accepted_arities/1`, `node_label/1`, the entry's `shape`), `lib/dispatch.exs` (`check_args/5`); tests

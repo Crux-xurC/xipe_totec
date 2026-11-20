@@ -34,7 +34,8 @@ Nothing new in the design: every plan sits on the existing division of work.
 7. **The window's own language first, then the other language through a seam** (decided 2026-11-20, crux). A REPL is first made to
    serve its own language (F# in `fsi`, Scala in Scala's REPL), and its embody stays that language's alone. The language it is a window
    for (C#, Java) comes after, adding a **seam**: a small project in that language, built in the pass's temp dir next to the target's
-   build (never written into the target), referencing the target and loaded into the REPL with it. The seam works only **on the side
+   build (never written into the target) and loaded into the REPL with it; it works by reflection, so it needs no reference to the
+   target (C#'s, 2026-11-20). The seam works only **on the side
    that receives the result**: it brings the language's meaning to the window's language — values (records, futures awaited), and
    failure reasons in the language's own terms. The arguments stay the window's literals. `anykey` is the parameters' types and the
    argument count a node's shape ([D-anykey-shape](verification/lib-identity.exs.md#d-anykey-shape)); type arguments are not decided for either pair
@@ -49,8 +50,8 @@ Nothing new in the design: every plan sits on the existing division of work.
 | Go | a driver | `embody.go` | map + evaluation | planned |
 | F# | `dotnet fsi` | `embody.fsx` | map + evaluation | **done** 2026-11-20 ([D-fsharp-adapter](verification/lib-repl-language-fsharp.exs.md#d-fsharp-adapter)) |
 | Scala | Scala's REPL | `embody.scala` | map + evaluation | **done** 2026-11-20 ([D-scala-adapter](verification/lib-repl-language-scala.exs.md#d-scala-adapter)); sbt and scala-cli, mill later |
-| C# (F# as the window, a seam `embody.cs`) | `dotnet fsi` | `embody.fsx` + `embody.cs` | map + evaluation | **next**: checked and decided 2026-11-20, the work listed (§4.4); a first attempt without the seam is on a local branch `csharp-via-fsi` |
-| Java (Scala as the window, a seam `embody.java`) | Scala's REPL | `embody.scala` + `embody.java` | map + evaluation | after C# (§4.6) |
+| C# (F# as the window, a seam `embody.cs`) | `dotnet fsi` | `embody.fsx` + `embody.cs` | map + evaluation | **done** 2026-11-20 ([D-csharp-adapter](verification/lib-repl-language-csharp.exs.md#d-csharp-adapter)); reading C# by Roslyn's parser is a proposed revision (§4.4) |
+| Java (Scala as the window, a seam `embody.java`) | Scala's REPL | `embody.scala` + `embody.java` | map + evaluation | **next** (§4.6) |
 | PHP | a driver | `embody.php` | mostly map | planned; the map first |
 | Rust alone | — | — | — | **set aside** (§6) |
 | TypeScript's logic evaluated | — | — | — | **set aside** (§6) |
@@ -67,7 +68,7 @@ after Scala).
 3. JavaScript / TypeScript, map only: done; the pattern for Java's and PHP's maps
 4. F#: done — `embody.fsx` F#'s own
 5. Scala: done — `embody.scala` Scala's own; the second window
-6. C#: on F#'s adapter, with a seam `embody.cs` (§4.4): the first pair of a language and another language's REPL
+6. C#: done — on F#'s adapter, with a seam `embody.cs` (§4.4): the first pair of a language and another language's REPL
 7. Java: on Scala's adapter, with a seam `embody.java` (§4.6): the same pattern
 8. PHP, then Go: the drivers; the map first
 
@@ -125,7 +126,7 @@ the first case of §2, 7:
 
 - Declaration: language `csharp` (`cs`), REPL `fsi`, build tool dotnet (`*.csproj`, `*.sln`): the project built and `#r`-ed as F#'s is
 - The seam: `embody.cs`, a small C# project **built in the temp dir** next to the target's build (never written into the project),
-  referencing the target's assemblies, and `#r`-ed into fsi with them. Its one job is to bring C#'s meaning to F# **on the side that
+  `#r`-ed into fsi with the target's assemblies (it works by reflection: no reference to them, rule 1 below). Its one job is to bring C#'s meaning to F# **on the side that
   receives the result**: a `Task` awaited (`async` methods), values (C# records, anonymous types, what F# cannot read back), and failure
   reasons in C#'s terms (`public static`, overloads). `out` / `ref` are left to F#
 - Calls: `Ns.Class.Method(a, b)`; the arguments stay F# expressions (C# text cannot be evaluated: Roslyn's scripting is not in the SDK)
@@ -201,7 +202,7 @@ The work, in order (one commit each where it stands alone):
    parameter is left to fsi. Checked by the live test through the launch and on a copy through the CLI): `csharp` (`cs`), REPL `fsi`, build tool dotnet (`*.csproj`, `*.sln`, `*.slnx`): the target
    and the seam built, both `#r`-ed, the seam registered; the call template with the type annotations of rule 2 and `Seam.Await` of
    rule 5; `info.json` (`refresh -l -r`)
-6. **Tests and the record**: `test/csharp_adapter_test.exs`, `test/live/repl_csharp_test.exs` (or the fsi one), the CLI on a copy;
+6. **Tests and the record** (done 2026-11-20: [D-csharp-adapter](verification/lib-repl-language-csharp.exs.md#d-csharp-adapter)): `test/csharp_adapter_test.exs`, `test/live/repl_csharp_test.exs` (or the fsi one), the CLI on a copy;
    D-csharp-adapter in `verification/`, `scope.md`, `how-to-use.md` §9, README, this §3; the live tests of the other languages before
    committing
 

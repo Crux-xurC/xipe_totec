@@ -54,11 +54,13 @@ lib/repl/
   sender_direct.exs       (XipeTotec.Repl.Sender.Direct)       -- execution: over a plain pipe
   session.exs             (XipeTotec.Repl.Session)             -- generic: readiness, leaving
   language.exs            (XipeTotec.Repl.Language)            -- the behaviour of a declaration
-  language/{elixir,ocaml,haskell,python,fsharp}.exs            -- computing: each language's declaration
+  language/{elixir,ocaml,haskell,python,fsharp,csharp,scala,javascript,typescript}.exs
+                                                               -- computing: each language's declaration
   eval_template.exs       (XipeTotec.Repl.EvalTemplate)        -- computing: Elixir's call + safety wrapper
                                                                   + repr/compare + markers, all in one
   ocaml/{launch,eval_template}.exs, haskell/{launch,eval_template}.exs, python/{launch,eval_template}.exs,
-  fsharp/{launch,eval_template}.exs
+  fsharp/{launch,eval_template}.exs, csharp/{launch,eval_template}.exs (on F#'s),
+  scala/{launch,build_tool,eval_template}.exs
   embody.exs              (XipeTotec.Repl.Embody)              -- where embody is
   evaluator.exs           (XipeTotec.Repl.Evaluator)           -- generic: one plan through one session
   source_sanitize.exs     (XipeTotec.Repl.SourceSanitize)      -- Elixir only (see the note): defmodule-only
@@ -68,9 +70,9 @@ lib/repl/
     field_drip.exs        (XipeTotec.Repl.Eval.FieldDrip)      -- the behaviour
     result.exs            (XipeTotec.Repl.Eval.Result)         -- generic: to an Evaluator result
     parser.exs            (XipeTotec.Repl.Eval.Parser)         -- generic: the above in one step
-    scan/direct/{iex,ocaml,ghci,python,fsi}.exs               -- computing: per REPL over a plain pipe
+    scan/direct/{iex,ocaml,ghci,python,fsi,scala}.exs         -- computing: per REPL over a plain pipe
     scan/pty/             (empty: for a PTY Sender, when there is one)
-    field_drip/{elixir,ocaml,haskell,python,fsharp}.exs        -- computing: reading the body
+    field_drip/{elixir,ocaml,haskell,python,fsharp,csharp,scala}.exs -- computing: reading the body
 ```
 
 **A note on `source_sanitize.exs`**: outside the four computing modules — an Elixir-only helper used by Elixir's `launch_opts/3` for
@@ -117,7 +119,7 @@ A function returning a `%{String.t() => term()}` shaped like Elixir's `Repl.Laun
 | `ready_probe` | string \| null | sent after the banner; makes the REPL print `XT_READY`. Split the marker in the source, so a REPL echoing input is not mistaken for the answer | `"IO.puts(\"XT_\" <> \"READY\")\n"` |
 | `exit_input` | string | text to send for a normal end | `"System.halt()\n"` |
 | `interruptible` | boolean | whether `Sender.interrupt/1` (SIGINT to the process group) really reaches a handler in this REPL (see below) | `true` (checked) |
-| `restart_after_timeout` | boolean | the REPL stops a call at its time limit by raising inside it (SIGALRM, `ControlledExecution`), which may leave state half changed: after a `timeout` the rest of the pass runs in a new session started from the same message ([D-restart-after-timeout](verification/lib-repl-evaluator.exs.md#d-restart-after-timeout)). A start script that builds should do it once per pass | `false` (Python, F#: `true`) |
+| `restart_after_timeout` | boolean | the REPL stops a call at its time limit by raising inside it (SIGALRM, `ControlledExecution`), which may leave state half changed: after a `timeout` the rest of the pass runs in a new session started from the same message ([D-restart-after-timeout](verification/lib-repl-evaluator.exs.md#d-restart-after-timeout)). A start script that builds should do it once per pass | `false` (Python, F#, C#, Scala: `true`) |
 
 The eval_template is not in the launch message: `XipeTotec.Repl.EvalTemplate` builds it per entry from the plan; a new language writes its own
 module for it (below). How long the REPL may take to be ready is the project's `eval.boot_timeout` (default 15 s).

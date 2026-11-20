@@ -106,6 +106,8 @@ defmodule XipeTotec.Core do
   def node_label(%{module: module, name: name} = node) do
     case {node[:anykey], node[:arities]} do
       {nil, _} -> "#{module}.#{name}"
+      # a sequence of types with the counts declared (C#'s optional parameters): `N.T.Opt(int, int)/1..2`
+      {"(" <> _ = key, [_, _ | _] = as} -> "#{module}.#{name}#{key}/#{arities_text(as)}"
       {_key, [_, _ | _] = as} -> "#{module}.#{name}/#{arities_text(as)}"
       # a sequence of types (D-anykey-shape): `calc.Calc.curried(Int)(Int)`
       {"(" <> _ = key, _} -> "#{module}.#{name}#{key}"
@@ -125,14 +127,17 @@ defmodule XipeTotec.Core do
   @doc """
   The argument counts a node can be called with: what a person declared
   (`arity/set`, for a function with default arguments: `def f(x, k \\\\ 2)`
-  is `f/1` and `f/2`), else the sum of its shape (the counts of its
-  parameter lists, D-anykey-shape), else its integer anykey alone; `nil`
+  is `f/1` and `f/2`; with an integer anykey or a shape of one parameter
+  list, as C#'s optional parameters), else the sum of its shape (the
+  counts of its parameter lists, D-anykey-shape), else its integer anykey alone; `nil`
   when the node tells no argument count (another language's scanner).
   """
   @spec accepted_arities(map()) :: [non_neg_integer()] | nil
   def accepted_arities(node) do
     case {node[:anykey], node[:arities], node[:shape]} do
       {key, [_ | _] = as, _} when is_integer(key) -> as
+      # one parameter list: the counts declared with arity/set (C#'s optional parameters)
+      {_, [_ | _] = as, [_]} -> as
       # the shape: one count per parameter list, all of them given (D-anykey-shape)
       {_, _, [_ | _] = shape} -> [Enum.sum(shape)]
       {key, _, _} when is_integer(key) -> [key]
