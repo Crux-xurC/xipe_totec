@@ -34,7 +34,7 @@ defmodule InfoTest do
       %{"name" => "npm", "markers" => ["package-lock.json", "package.json"]}
     ]
 
-    assert refreshed["languages"] == ["csharp", "elixir", "fsharp", "haskell", "javascript", "ocaml", "python", "scala", "typescript"]
+    assert refreshed["languages"] == ["csharp", "elixir", "fsharp", "haskell", "java", "javascript", "ocaml", "python", "scala", "typescript"]
 
     assert refreshed["extensions"] == %{
              "ex" => ["elixir"],
@@ -43,6 +43,7 @@ defmodule InfoTest do
              "fs" => ["fsharp"],
              "fsx" => ["fsharp"],
              "hs" => ["haskell"],
+             "java" => ["java"],
              "ml" => ["ocaml"],
              "py" => ["python"],
              "scala" => ["scala"],
@@ -64,6 +65,8 @@ defmodule InfoTest do
              "csharp" => "fsi",
              "fsharp" => "fsi",
              "haskell" => "ghci",
+             # Java's window is Scala's (evolving.md §4.6)
+             "java" => "scala",
              "ocaml" => "ocaml",
              "python" => "python",
              "scala" => "scala",
@@ -79,6 +82,7 @@ defmodule InfoTest do
                %{"name" => "stack", "markers" => ["stack.yaml"]},
                %{"name" => "cabal", "markers" => ["*.cabal", "cabal.project"]}
              ],
+             "java" => [%{"name" => "maven", "markers" => ["pom.xml"]}],
              "ocaml" => [%{"name" => "dune", "markers" => ["dune-project"]}],
              "python" => [
                %{"name" => "uv", "markers" => ["uv.lock"]},

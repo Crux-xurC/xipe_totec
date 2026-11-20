@@ -1,0 +1,11 @@
+<!-- Xipe Totec's Java fixture: no dependencies, so it builds offline once maven's own plugins are in ~/.m2 -->
+<project xmlns="http://maven.apache.org/POM/4.0.0">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>sample</groupId>
+  <artifactId>sample</artifactId>
+  <version>1.0</version>
+  <properties>
+    <maven.compiler.release>21</maven.compiler.release>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+  </properties>
+</project>

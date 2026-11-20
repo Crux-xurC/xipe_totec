@@ -41,12 +41,17 @@ defmodule XipeTotec.Repl.Scala.Launch do
   alias XipeTotec.Repl.Scala.BuildTool
 
   # `Embody.protocol` in the embody.scala this adapter speaks to
-  @protocol 1
+  @protocol 2
+
+  @doc "The protocol this adapter speaks (`Embody.protocol`); Java's adapter checks it too."
+  @spec protocol() :: pos_integer()
+  def protocol, do: @protocol
 
   @doc """
   `opts`: `:cwd` (required), `:script` (the start script), `:root`,
   `:scripts_dir` (where the copies go), `:scripts` (`.sc` paths relative to
-  the root), `:log`, `:env`.
+  the root), `:log`, `:env`, `:after_setup` (REPL lines after
+  `Embody.setup`: Java's seam registered).
   """
   @spec build(keyword()) :: %{String.t() => term()}
   def build(opts) do
@@ -78,7 +83,7 @@ defmodule XipeTotec.Repl.Scala.Launch do
       # instead of every entry waiting for a record
       "ready_probe" =>
         ":load #{XipeTotec.Repl.Embody.path("embody.scala")}\nEmbody.setup(#{string(log)})\n" <>
-          loads <> "Embody.ready()\n",
+          Keyword.get(opts, :after_setup, "") <> loads <> "Embody.ready()\n",
       "exit_input" => ":quit\n",
       "interruptible" => false,
       "restart_after_timeout" => true

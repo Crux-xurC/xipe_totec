@@ -78,7 +78,7 @@ D-restart-after-timeout ([`lib/repl/evaluator.exs`](lib-repl-evaluator.exs.md))
   nothing (a literal, a name or chain of names, a tuple or standard collection of those, a lambda), classes, traits, objects, enums,
   types, givens, extensions, imports. `println(…)`, `val n = f()` do not run; a script whose functions use such a value does not
   compile, and its rows `crash` naming it. `//> using dep` is left out as F#'s `#r "nuget: …"`: nothing is fetched
-- **The start**: the start script checks that `embody.scala` exists and speaks the adapter's protocol (`val protocol = 1`; else it
+- **The start**: the start script checks that `embody.scala` exists and speaks the adapter's protocol (`val protocol = 2` since 2026-11-20, when the helper entry `registerType` came for Java's seam; else it
   ends at once naming where it looked, or that embody must be updated — Xipe Totec and embody are updated together), runs the build
   tool's part once per pass, and starts the REPL. Over stdin: `:load` of `embody.scala`, `Embody.setup(<log>)`, the scripts'
   copies, then `Embody.ready()` — embody prints the ready marker, so a REPL without embody never looks ready

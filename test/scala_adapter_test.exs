@@ -101,7 +101,7 @@ defmodule ScalaAdapterTest do
       script = Launch.start_script(root: "/p", dir: "/t", log: "/t/build.log", tool: BuildTool.Sbt, refusal: nil)
       assert script =~ "cd '/p' || exit 1"
       assert script =~ ~r{\A\[ -f '.*/embody\.scala' \] \|\| \{ echo 'no embody\.scala at }
-      assert script =~ ~r{grep -q 'val protocol = 1\$' '.*/embody\.scala' \|\| \{ echo '.*does not speak protocol 1}
+      assert script =~ ~r{grep -q 'val protocol = 2\$' '.*/embody\.scala' \|\| \{ echo '.*does not speak protocol 2}
       assert script =~ "if [ ! -f '/t/done' ]; then"
       assert script =~ "sbt -Dsbt.server.autostart=false"
       assert script =~ ~s|exec "$j" -cp "$(cat '/t/jars'):$(cat '/t/cp')" dotty.tools.repl.Main -usejavacp|

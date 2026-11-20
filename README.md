@@ -8,7 +8,7 @@ new skins.
 
 Written in Elixir. Application `:xipe_totec`, module `XipeTotec`, CLI command `xipe`. It works on its own from the command line;
 [tezcatl](https://github.com/Crux-xurC/tezcatl), a browser-side development environment in a separate repository, can be its window
-(see "With tezcatl" below). OCaml, Haskell, Python, F#, C# and Scala evaluation use [embody](https://github.com/Crux-xurC/embody), also a separate repository.
+(see "With tezcatl" below). OCaml, Haskell, Python, F#, C#, Scala and Java evaluation use [embody](https://github.com/Crux-xurC/embody), also a separate repository.
 
 ---
 
@@ -69,11 +69,12 @@ What is promised to work, and what happens outside the promise, is in [`document
 
 - **Nix** with flakes, on `x86_64-linux`. `nix develop` gives Elixir 1.18 / OTP 27 and the Erlang packages it uses (cowboy, gun,
   erlexec). There is no build without Nix yet.
-- For **OCaml**, **Haskell**, **Python**, **F#**, **C#** and **Scala 3** projects: `ocaml` / `ghci` / `python3` (or the project's `.venv`) / `dotnet` (F# and C#; C# is evaluated in F# Interactive) / `scala` with `sbt` or `scala-cli` in the target's environment (a flake, direnv or mise declared in
+- For **OCaml**, **Haskell**, **Python**, **F#**, **C#**, **Scala 3** and **Java** projects: `ocaml` / `ghci` / `python3` (or the project's `.venv`) / `dotnet` (F# and C#; C# is evaluated in F# Interactive) / `scala` with `sbt` or `scala-cli` / `java`, `javac`, `mvn` and `scala` (Java is evaluated in Scala's REPL) in the target's environment (a flake, direnv or mise declared in
   `project_env.json`, or on `PATH`), and [embody](https://github.com/Crux-xurC/embody) cloned next to this repository (or
   `XIPE_TOTEC_EMBODY_DIR` pointing at it). Update the two together: an adapter speaks to its embody file by a protocol, and an
   evaluation started with an embody file of another protocol ends at once saying embody must be updated — Scala's `embody.scala`
-  (`Embody.protocol`; this xipe_totec: 1) and C#'s seam `embody.cs` (`EmbodyCs.Seam.Protocol`; this xipe_totec: 1).
+  (`Embody.protocol`; this xipe_totec: 2), C#'s seam `embody.cs` (`EmbodyCs.Seam.Protocol`; this xipe_totec: 1) and Java's seam
+  `embody.java` (`embodyjava.embody.PROTOCOL`; this xipe_totec: 1).
 - Optional: **elixir-ls** for scanning Elixir (without it, Xipe Totec's own scanner is used).
 
 ---
@@ -82,7 +83,7 @@ What is promised to work, and what happens outside the promise, is in [`document
 
 ```
 git clone https://github.com/Crux-xurC/xipe_totec.git
-git clone https://github.com/Crux-xurC/embody.git        # only for OCaml / Haskell / Python / F# / C# / Scala; update it with xipe_totec
+git clone https://github.com/Crux-xurC/embody.git        # only for OCaml / Haskell / Python / F# / C# / Scala / Java; update it with xipe_totec
 cd xipe_totec
 nix develop                                             # gives the `xipe` command
 
@@ -157,7 +158,7 @@ Hex packages it uses (cowboy, gun, erlexec …) come from `nix/relay-packages.ni
 ## How far it works now
 
 As of 2026-11-20, all 55 files and 630 cases of `./test/run.sh` pass. Apart from them there are tests that start real REPLs
-(`test/live/`: `iex` 12, `ocaml` 6, `ghci` 7, `python3` 5, `dotnet fsi` 11, C# through `dotnet fsi` 4, Scala's REPL 10; the OCaml, Haskell, Python, F#, C# and Scala ones are skipped when their system is not on PATH).
+(`test/live/`: `iex` 12, `ocaml` 6, `ghci` 7, `python3` 5, `dotnet fsi` 11, C# through `dotnet fsi` 4, Scala's REPL 10, Java through Scala's REPL 7; the OCaml, Haskell, Python, F#, C#, Scala and Java ones are skipped when their system is not on PATH).
 
 **From the CLI, scan → making calc rows → real evaluation → persisting the results works end to end for Elixir projects.** OCaml
 (`.ml`) works the same way; for dune projects the libraries depended on are loaded from `dune ocaml top`
@@ -170,7 +171,10 @@ without its top-level statements through `embody.py`
 ([D-fsharp-adapter](document/verification/lib-repl-language-fsharp.exs.md#d-fsharp-adapter)). So does C# (`.cs`): projects built by
 `dotnet build`, public static methods called in F# Interactive (F#'s window: the arguments are F#) through `embody.fsx` and C#'s seam
 `embody.cs` (`Task`s awaited, records written as their constructor's call, failures in C#'s terms), read as text
-([D-csharp-adapter](document/verification/lib-repl-language-csharp.exs.md#d-csharp-adapter)). So does Scala 3 (`.scala`, `.sc`): the class path and
+([D-csharp-adapter](document/verification/lib-repl-language-csharp.exs.md#d-csharp-adapter)). So does Java (`.java`): maven projects
+compiled offline, public static methods called in Scala's REPL (Scala's window: the arguments are Scala) through `embody.scala` and
+Java's seam `embody.java` (futures awaited, records and `java.util` values written as their constructors, failures in Java's terms), read
+by the JDK's own parser ([D-java-adapter](document/verification/lib-repl-language-java.exs.md#d-java-adapter)). So does Scala 3 (`.scala`, `.sc`): the class path and
 the compiler of the project's own version from sbt or scala-cli, nothing fetched, scripts loaded with their definitions only, evaluated
 in Scala's REPL through `embody.scala` and read by Scala's own parser
 ([D-scala-adapter](document/verification/lib-repl-language-scala.exs.md#d-scala-adapter)). JavaScript and TypeScript are scanned
@@ -221,7 +225,7 @@ Several projects can be handled. Once `xipe choice project` chooses the target, 
 (`tables/project/<id>_<name>/book.jsonl`).
 
 **What is in progress is more languages.** The table that decides language, REPL and build tool (`SurfaceTable`) is in place, with
-Elixir (+ mix), OCaml (+ dune), Haskell (+ stack, cabal), Python (+ uv, poetry, pip), F# (+ dotnet), C# (+ dotnet, evaluated in F# Interactive) and Scala 3 (+ sbt, scala-cli). JavaScript and TypeScript are in it as a map only (scanned, not evaluated). Where the others stand (Java next, then PHP, Go) is [`document/evolving.md`](document/evolving.md).
+Elixir (+ mix), OCaml (+ dune), Haskell (+ stack, cabal), Python (+ uv, poetry, pip), F# (+ dotnet), C# (+ dotnet, evaluated in F# Interactive), Scala 3 (+ sbt, scala-cli) and Java (+ maven, evaluated in Scala's REPL). JavaScript and TypeScript are in it as a map only (scanned, not evaluated). Where the others stand (PHP and Go next, as maps) is [`document/evolving.md`](document/evolving.md).
 
 ---
 
@@ -277,7 +281,8 @@ changes how it starts. Elixir, OCaml (the plain `ocaml` toplevel + `embody.ml`,
 [D-haskell-adapter](document/verification/lib-repl-language-haskell.exs.md#d-haskell-adapter)), Python (`python -i` + `embody.py`,
 [D-python-adapter](document/verification/lib-repl-language-python.exs.md#d-python-adapter)), F# (`dotnet fsi` + `embody.fsx`,
 [D-fsharp-adapter](document/verification/lib-repl-language-fsharp.exs.md#d-fsharp-adapter)), C# (`dotnet fsi` + `embody.fsx` + `embody.cs`,
-[D-csharp-adapter](document/verification/lib-repl-language-csharp.exs.md#d-csharp-adapter)) and Scala 3 (Scala's REPL + `embody.scala`,
+[D-csharp-adapter](document/verification/lib-repl-language-csharp.exs.md#d-csharp-adapter)), Java (Scala's REPL + `embody.scala` + `embody.java`,
+[D-java-adapter](document/verification/lib-repl-language-java.exs.md#d-java-adapter)) and Scala 3 (Scala's REPL + `embody.scala`,
 [D-scala-adapter](document/verification/lib-repl-language-scala.exs.md#d-scala-adapter)) are declared. embody is a separate
 repository ([Crux-xurC/embody](https://github.com/Crux-xurC/embody)).
 

@@ -976,6 +976,33 @@ written per language and not converted yet) ([D-languages-per-pass](verification
 - Not supported: instance methods, `internal` / `private` methods, methods of generic types, a method whose type parameter appears in no
   parameter (`Make<T>()`, refused by `row/add` with the reason), arguments written in C#
 
+### 9.8 Java — in Scala's REPL, through a seam (2026-11-20)
+
+([D-java-adapter](verification/lib-repl-language-java.exs.md#d-java-adapter))
+
+- Evaluation uses Scala's window: Scala 3's REPL (the `scala` on `PATH`) with `embody.scala` and Java's seam `embody.java` (both from
+  embody, as above; an embody file of another protocol stops the start at once, saying embody must be updated). A maven project
+  (`pom.xml`) is compiled offline (`mvn -o`: maven's plugins and the dependencies must already be in its local repository — build it
+  once online), every module's classes and class path put on the REPL's; the seam is compiled beside it by `javac`. `target/` appears in
+  the target, as maven's own build does. A gradle build is not read yet
+- Rows are Java's `public static` methods of public types (nested `static` classes and interfaces' static methods too). A node is
+  labelled with its parameters' types (`sample.Calc.over(int)`, `sample.Calc.over(String)`, `sample.Calc.sum(int...)`)
+- A row's arguments are written **in Scala**, not Java: `args=[2,3]`, `args=[sample.Point(1.0, 2.0)]` (a record by its constructor,
+  without `new`), a varargs parameter as one array (`args=[Array(5)]`; an argument containing `,` cannot be written on one `xipe do` line
+  yet). For an overload whose argument count another one shares, each argument is given its parameter's type (`null` reaches the
+  `String` overload); a method returning a `CompletableFuture` or a `Future` is awaited (the value is the `T`)
+- `repr`: what Scala writes as a literal is `exact` (numbers, strings, arrays, Java enums …), and so are a public record
+  (`sample.Point(2.0, 3.0)`), `java.util` lists, sets, maps and `Optional`, written as their constructors
+  (`java.util.ArrayList[java.lang.Integer](java.util.List.of[java.lang.Integer](0, 1))`) — a later row takes them as they are, and
+  `compare` goes part by part. Other values are `binary` when `Serializable`, else `unsupported`
+- Failures in Java's terms: `crash the call did not compile: sample.Calc.step is an instance method: only public static methods are
+  called (int step(int))`, `… is package-private`, `… takes 1 argument(s), got 3: static String over(double); …`; an exception, checked
+  or not, is its own text (`java.io.IOException: io: 1`); a failed build is named (`the build failed: …Broken.java:[1,46] …`)
+- Scanning (`Scanner.Java`) uses the JDK's own parser (`java` must be in the target's environment). Links: calls of project methods by
+  name, `Type.name(…)` and `pkg.Type.name(…)`, through imports and static imports; a call on a variable is not a link
+- Not supported: instance methods, non-public methods, a method whose type parameter appears in no parameter (`<T> T make()`, refused
+  by `row/add` with the reason), arguments written in Java, gradle
+
 ## 10. Environment variables
 
 | Variable | Meaning |

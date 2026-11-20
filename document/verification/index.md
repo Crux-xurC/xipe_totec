@@ -46,6 +46,7 @@ decisions are listed in [decisions.md](decisions.md).
 | `lib/scanner/fsharp.exs`, `lib/scanner/fsharp/scan.fsx` | F# read by F#'s own parser (FSharp.Compiler.Service in `dotnet fsi`, once per scan); names resolved as F# looks them up. | D-scanners, D-fsharp-adapter |
 | `lib/scanner/scala.exs`, `lib/scanner/scala/scan.scala` | Scala read by the Scala 3 compiler's parser (`scala`, once per scan); `anykey` the parameters' types, the shape per list; names resolved through objects, packages, imports. | D-scanners, D-scala-adapter, D-anykey-shape |
 | `lib/scanner/csharp.exs` | C# read as text (comments, strings, `#if` branches blanked; namespaces, types and methods by their braces); `anykey` the parameters' types, the shape, the marks (`async`, `typed`) and a refusal (a type parameter in no parameter). | D-scanners, D-csharp-adapter, D-anykey-shape, D-node-marks |
+| `lib/scanner/java.exs`, `lib/scanner/java/scan.java` | Java read by the JDK's own parser (`java scan.java`, once per scan; nothing compiled); `anykey` the parameters' types, the shape, the marks (`async`, `varargs`, `typed`), a refusal (a type parameter in no parameter); names resolved through the package, imports and static imports. | D-scanners, D-java-adapter, D-anykey-shape, D-node-marks |
 | `lib/scanner/javascript.exs` | JavaScript and TypeScript read as text (modules are paths; IIFE bodies as the top level; ES imports, `require`). | D-scanners, D-map-only-language |
 | `lib/lsp/transport.exs` | How a language server is reached: the behaviour. | D-scanners |
 | `lib/lsp/transport/relay.exs` | Through tezcatl's `/lsp` relay. | D-scanners |
@@ -79,10 +80,12 @@ decisions are listed in [decisions.md](decisions.md).
 | `lib/repl/scala/launch.exs`, `lib/repl/scala/build_tool.exs`, `lib/repl/scala/eval_template.exs` | Scala's start script (the build tool's class path and compiler, then the REPL), one module per build tool, one entry (three REPL inputs, the args split by the shape). | D-scala-adapter |
 | [`lib/repl/language/csharp.exs`](lib-repl-language-csharp.exs.md) | C#: `cs`, `dotnet fsi` (F#'s window) + `embody.fsx` + C#'s seam `embody.cs`, `dotnet`. | **D-csharp-adapter** |
 | `lib/repl/csharp/launch.exs`, `lib/repl/csharp/eval_template.exs` | C#'s start script (embody and its protocol checked, the seam and the target built, `#r` + `Embody.reference`, the seam registered) and one entry on F#'s (the call awaited and typed by the node's marks). | D-csharp-adapter, D-node-marks |
+| [`lib/repl/language/java.exs`](lib-repl-language-java.exs.md) | Java: `java`, Scala's REPL (Scala's window) + `embody.scala` + Java's seam `embody.java`, maven. | **D-java-adapter** |
+| `lib/repl/java/launch.exs`, `lib/repl/java/eval_template.exs` | Java's start script (both embody files and their protocols checked, the seam compiled, maven offline, Scala's home, the REPL on the JVM's class path) and one entry on Scala's (awaited, spread and typed by the node's marks). | D-java-adapter, D-node-marks |
 | [`lib/repl/embody.exs`](lib-repl-embody.exs.md) | Where embody is. | **D-embody** |
 | [`lib/repl/eval/scan.exs`](lib-repl-eval-scan.exs.md) | Finding one id's markers in a cleaned buffer. | **D-markers** |
 | `lib/repl/eval/scan/direct/{iex,ocaml,ghci,python,fsi,scala}.exs` | Per transport and REPL: `XT_EXIT` removed (the others delegate to iex's). | D-markers, D-language-adapter |
-| `lib/repl/eval/field_drip.exs`, `lib/repl/eval/field_drip/{elixir,ocaml,haskell,python,fsharp,csharp,scala}.exs` | Reading the `key=value` body (the others delegate to Elixir's). | D-markers |
+| `lib/repl/eval/field_drip.exs`, `lib/repl/eval/field_drip/{elixir,ocaml,haskell,python,fsharp,csharp,scala,java}.exs` | Reading the `key=value` body (the others delegate to Elixir's). | D-markers |
 | `lib/repl/eval/result.exs` | A parsed body or error as a result for Core. | D-plan-run-apply |
 | `lib/repl/eval/parser.exs` | clean → scan → field_drip → result, in one step. | D-markers |
 
@@ -142,6 +145,7 @@ guard their decisions.
 | `test/run.sh` | Runs the suite. |
 | `test/live/repl_iex_test.exs`, `repl_ocaml_test.exs`, `repl_haskell_test.exs`, `repl_python_test.exs` | Against real `iex`, `ocaml` (+ dune), `ghci` (+ cabal, stack), `python3`; skipped when the tool is not on PATH. |
 | `test/live/repl_csharp_test.exs` | C# through `dotnet fsi` with embody's seam `embody.cs`, through C#'s launch; an `embody.cs` of another protocol; skipped without `dotnet`. |
+| `test/live/repl_java_test.exs` | Java through Scala's REPL with embody's seam `embody.java`, through Java's launch (maven offline); a failing build, a timeout, an `embody.java` of another protocol; skipped without `java`, `javac`, `mvn`, `scala`. |
 | `test/fixtures/calc_sample/` | A small script-mode Elixir project (also used by tezcatl's E2E). |
 | `test/fixtures/ocaml_sample/`, `test/fixtures/ocaml_dune/` | OCaml: plain files with top-level effects; a dune project with a wrapped library. |
 | `test/fixtures/haskell_sample/` | Haskell: an export list hiding a function, a module importing another, a `main`. |

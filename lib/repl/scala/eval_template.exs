@@ -45,6 +45,16 @@ defmodule XipeTotec.Repl.Scala.EvalTemplate do
   """
   @spec call_expression(map()) :: String.t()
   def call_expression(%{module: module, name: name, args: args} = entry) do
+    head(module, name) <> Enum.map_join(lists(args, Map.get(entry, :shape)), "", fn list -> "(" <> Enum.map_join(list, ", ", &"(#{&1})") <> ")" end)
+  end
+
+  @doc """
+  The called name as Scala writes it: `pkg.Obj.f`, a script's object in
+  backticks (`` `scripts/tool`.Text.shout ``), a name that is not an
+  identifier in backticks. Java's template writes its calls from it too.
+  """
+  @spec head(String.t(), String.t()) :: String.t()
+  def head(module, name) do
     path =
       case String.split(module, "/") do
         [_] ->
@@ -56,8 +66,7 @@ defmodule XipeTotec.Repl.Scala.EvalTemplate do
           [ident(Enum.join(dirs ++ [object], "/")) | Enum.map(inner, &ident/1)]
       end
 
-    head = Enum.join(path ++ [ident(name)], ".")
-    head <> Enum.map_join(lists(args, Map.get(entry, :shape)), "", fn list -> "(" <> Enum.map_join(list, ", ", &"(#{&1})") <> ")" end)
+    Enum.join(path ++ [ident(name)], ".")
   end
 
   # the args split by the shape; one list when the shape does not fit them
@@ -77,8 +86,13 @@ defmodule XipeTotec.Repl.Scala.EvalTemplate do
     if name =~ ~r/\A[A-Za-z_$][A-Za-z0-9_$]*\z/ and name not in @keywords, do: name, else: "`#{name}`"
   end
 
-  @spec build(map()) :: String.t()
-  def build(%{call_id: call_id, module: module, name: name, args: args, limits: %{timeout: timeout_ms}} = entry) do
+  @doc """
+  The three inputs for `entry`. `call` writes the call expression from the
+  entry (its args already kept on one line): `call_expression/1` for Scala,
+  Java's own for Java (the same window, `Repl.Java.EvalTemplate`).
+  """
+  @spec build(map(), (map() -> String.t())) :: String.t()
+  def build(%{call_id: call_id, module: module, name: name, args: args, limits: %{timeout: timeout_ms}} = entry, call \\ &call_expression/1) do
     # Core's own binding name (`binding_name/1`)
     var = "xt_" <> String.replace(call_id, ~r/[^A-Za-z0-9_]/, "_")
     # each input must be one line: the REPL reads a line as one input once it is complete
@@ -95,7 +109,7 @@ defmodule XipeTotec.Repl.Scala.EvalTemplate do
           end
 
         shape = Map.get(entry, :shape) || [length(args)]
-        call = call_expression(%{entry | args: args})
+        call = call.(%{entry | args: args})
 
         """
         Embody.start(#{id}, #{timeout_ms}, #{basis})

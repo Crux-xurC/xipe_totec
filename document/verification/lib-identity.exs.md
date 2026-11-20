@@ -69,9 +69,11 @@ plus a disambiguating index (changes with the order in the file, so an id would 
   element names dropped), with the modifiers C# tells overloads apart by (`(string, out int)`, `(ref double)`; `params` kept to be read);
   `int` and `System.Int32` stay two texts. The shape is one list: `out` parameters left out, optional ones counted, a `params` array one.
   A link from a call picks the overloads of the call's argument count, all of them when several share it
-- **Next**: Java starts on this form
+- **Java's scanner** (2026-11-20, `lib/scanner/java.exs`) is on this form: the types written out from the JDK's parser's tree in one
+  form (`List< Integer >` is `List<Integer>`, annotations dropped, varargs `int...`), as written (`List` and `java.util.List` stay two
+  texts); the shape is the parameter count, a varargs parameter one
 
-**Not decided**: the text of a type for Java (as written, or the name the compiler resolves; Scala's and C#'s are as written); the shape
+**Not decided**: the shape
 of the other languages' nodes (OCaml, Haskell, Python, F#'s module functions: no shape, their `anykey` the count or `nil` as before); how `arity/set`
 (D-arity-set) reads with a shape of several lists (one list: as an integer anykey, 2026-11-20); type arguments of a generic method whose type appears in no parameter.
 
@@ -88,7 +90,8 @@ the shape), `lib/core.exs` (`accepted_arities/1`, `node_label/1`, the entry's `s
 - **A def may carry `marks`**, a list of words the language adapter reads when it writes the call, and the entry carries them to it
   (`[]` when none). C#'s scanner marks a method returning `Task`, `Task<T>`, `ValueTask` or `ValueTask<T>` `"async"`: its call is
   awaited (C#'s adapter, through the seam); and an overload whose argument count another overload shares `"typed"`: its call gives each
-  argument its parameter's type, so fsi picks this overload (`Over((null) : string)`)
+  argument its parameter's type, so the window picks this overload (`Over((null) : string)`, Java's `over(((null): String))`); and Java's
+  `"varargs"`: the last argument, an array, passed as `(…)*`
 - **A def may carry `refusal`**, the reason a calc row cannot be made for it: `row/add` (and `row/update`'s check) refuses with it
   (`row/add: N.T.Make() can't be a row: its type parameter T appears in no parameter: …`). C#'s scanner gives one to a method whose type
   parameter appears in no parameter (`Make<T>()`): fsi would call it as `Make<obj>()`, a wrong value without an error (P9), until type
