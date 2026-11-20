@@ -17,7 +17,7 @@ turn. Referential transparency is asked of **the function evaluated**, not of wh
 a referentially transparent `f`, its record is valid for the value passed, even when B is not. A row made again gives the same value,
 so a row that lost its function after a rescan is simply made again.
 
-- No sandbox, no transaction, no undoing of side effects: a misclassified side effect really happens (README, "What it is not")
+- No sandbox, no transaction, no undoing of side effects: a misclassified side effect really happens (README.full.md, "What it is not")
 - What makes this safe enough is [D-effect-classes](#d-effect-classes): nothing unclassified runs
 
 **Why**: the tool started as a shortcut for trying functions in a REPL by hand; what is recorded is "this function, given this value,
@@ -29,7 +29,7 @@ something impure.
 **Files**: `lib/core.exs`; the consequences are in [D-named-rows-only](#d-named-rows-only) and D-one-pass-one-repl
 ([`lib/repl/evaluator.exs`](lib-repl-evaluator.exs.md)).
 
-**Earlier**: README P1.
+**Earlier**: README.full.md P1.
 
 <a id="d-named-rows-only"></a>
 
@@ -132,7 +132,7 @@ nothing was the next problem (2026-09-24), hence the reasons.
 **Files**: `lib/core.exs` (`set_effect/3`, `filter_by_effect/3`, `exclusion_reason/3`), `lib/runner.exs` (`not_run`), `main.exs`
 (`--include-writes`); tests `test/core_test.exs`, `test/runner_test.exs`.
 
-**Earlier**: README P1.
+**Earlier**: README.full.md P1.
 
 <a id="d-effect-approval"></a>
 

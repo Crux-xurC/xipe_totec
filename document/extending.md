@@ -37,8 +37,8 @@ Adding a language or a command does not change these. If one needs to change, th
 |---|---|---|
 | Only the named calc rows are evaluated | Upstream and downstream rows are never evaluated by themselves. The Book is a record in time | [D-named-rows-only](verification/lib-core.exs.md#d-named-rows-only) |
 | The Book is only appended to | `Store.persist_diff/4` appends the difference to `book.jsonl`; nothing is rewritten | [D-store](verification/lib-store.exs.md#d-store) |
-| Side-effect classes are trusted only when the user set them | A function without `effect/set` is not evaluated; `writes` only with `--include-writes` | [D-effect-classes](verification/lib-core.exs.md#d-effect-classes), README P1 |
-| The output contract | Between `XT_BEGIN_<id>` … `XT_END_<id>`: `repr=`, `type=`, `compare=`, `display=`; or `XT_ERROR_<id> timeout` / `crash <one line>`. The same in every language | [D-markers](verification/lib-repl-eval-scan.exs.md#d-markers), embody's `ReadMe.md` |
+| Side-effect classes are trusted only when the user set them | A function without `effect/set` is not evaluated; `writes` only with `--include-writes` | [D-effect-classes](verification/lib-core.exs.md#d-effect-classes), README.full.md P1 |
+| The output contract | Between `XT_BEGIN_<id>` … `XT_END_<id>`: `repr=`, `type=`, `compare=`, `display=`; or `XT_ERROR_<id> timeout` / `crash <one line>`. The same in every language | [D-markers](verification/lib-repl-eval-scan.exs.md#d-markers), embody's `ReadMe.full.md` |
 | The three words of `repr` | `exact` (evaluating its source gives the value back), `binary`, `unsupported`. Core reads them (embedding into `⟦id⟧`, comparing with the previous value), so their meaning does not change by language | [D-repr](verification/lib-repl-eval_template.exs.md#d-repr) |
 | Loading runs none of the target's side effects | A script's top level, `main`, … | [D-source-sanitize](verification/lib-repl-source_sanitize.exs.md#d-source-sanitize) |
 | Evaluating does not go to the network | localhost only; build tools get `--offline` or the like | [D-haskell-adapter](verification/lib-repl-language-haskell.exs.md#d-haskell-adapter) |
@@ -104,7 +104,7 @@ the REPL as stuck, sends SIGINT, then SIGKILL if that does not work, and makes t
 ### 2.4 Writing embody
 
 embody is a fixed module that knows no target. It is loaded into the REPL, takes the line (or lines) the caller sends, and prints in the
-output contract's form. embody's [ReadMe.md](https://github.com/Crux-xurC/embody/blob/main/ReadMe.md) has the shared contract and each language's content
+output contract's form. embody's [ReadMe.full.md](https://github.com/Crux-xurC/embody/blob/main/ReadMe.full.md) has the shared contract and each language's content
 ([D-embody](verification/lib-repl-embody.exs.md#d-embody)). The points when writing one:
 
 - **Depend on no target**. Which function to evaluate arrives as text; interpreting it is left to the REPL itself (OCaml's `Toploop`,
@@ -113,7 +113,7 @@ output contract's form. embody's [ReadMe.md](https://github.com/Crux-xurC/embody
   package fails to load where the target's environment does not have it
 - Values that cannot be fully shown (infinite structures, functions, cycles) still come back, with a finite display and `repr=unsupported`.
   Only values that read back are `exact`
-- After adding one, write the "Files" table and the language's section of `embody/ReadMe.md`, and commit to embody's repository (separate
+- After adding one, write the "Files" table and the language's section of `embody/ReadMe.full.md` (and the short `ReadMe.md`'s table), and commit to embody's repository (separate
   from Xipe Totec's; Xipe Totec finds it with `lib/repl/embody.exs`)
 
 Some languages hardly need embody (Racket, which has a round trip in its standard). Even then, something must build the output contract
@@ -178,7 +178,7 @@ In every case Xipe Totec loads the project's own code from source (without side 
 
 Xipe Totec is **what uses the target's environment, gathered** — language servers, REPLs (crux, 2026-10-11). Looking at what it fetches is
 each tool's job (the CLI, tezcatl's tables); query commands like SQL are not added. Looking at things simply, without opening a full
-environment each time, may still be possible. The same direction as README's P7 (the input experience is the client's) and P9 (states as
+environment each time, may still be possible. The same direction as README.full.md's P7 (the input experience is the client's) and P9 (states as
 columns). See [D-method-criteria](verification/lib-methods.exs.md#d-method-criteria).
 
 Only these four may be added:
@@ -237,7 +237,7 @@ started", "Ideas withdrawn").
 ### 3.4 Tests and writing down
 
 `test/dispatch_test.exs` (or a test of its own); `methods_test` and `help_test` passing; `test/serve_input_test.exs` when used from the
-window. The method table in `how-to-use.md` §3.2, the README's method table, the record (`document/verification/`).
+window. The method table in `how-to-use.md` §3.2, README.full.md's method table, the record (`document/verification/`).
 
 ---
 
@@ -245,11 +245,11 @@ window. The method table in `how-to-use.md` §3.2, the README's method table, th
 
 | To know | Look at |
 |---|---|
-| What it is for, what it is not | README |
+| What it is for, what it is not | README.md (short), README.full.md |
 | What is called in what order | `document/internals.md` |
 | Every decision, and why | `document/verification/decisions.md` and the records it links |
 | How the languages were added, and what was checked | [D-ocaml-adapter](verification/lib-repl-language-ocaml.exs.md#d-ocaml-adapter), [D-haskell-adapter](verification/lib-repl-language-haskell.exs.md#d-haskell-adapter), [D-embody](verification/lib-repl-embody.exs.md#d-embody) |
 | The REPL adapter's detailed contract (the marker protocol, hangs) | `document/repl-adapter-guide.md` |
-| embody's output contract and each language's content | embody's [ReadMe.md](https://github.com/Crux-xurC/embody/blob/main/ReadMe.md) |
+| embody's output contract and each language's content | embody's [ReadMe.full.md](https://github.com/Crux-xurC/embody/blob/main/ReadMe.full.md) |
 | The core of evaluation | `lib/repl/evaluator.exs` (each entry's round trip and deadline), `lib/runner.exs` (sorting by language) |
 | What is open now, and what was planned next | `document/scope.md` ("Work not started"; adding languages paused on 2026-09-27) |

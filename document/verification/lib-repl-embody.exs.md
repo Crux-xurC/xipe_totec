@@ -1,7 +1,7 @@
 # `lib/repl/embody.exs`
 
 Where embody is: `$XIPE_TOTEC_EMBODY_DIR`, else the `embody` directory beside this checkout. embody itself is a separate repository
-(git@github.com:Crux-xurC/embody.git); its `ReadMe.md` is the contract.
+(git@github.com:Crux-xurC/embody.git); its `ReadMe.full.md` is the contract.
 
 **Decisions homed here**: [D-embody](#d-embody)
 **Takes part in**: D-ocaml-adapter ([`lib/repl/language/ocaml.exs`](lib-repl-language-ocaml.exs.md)), D-haskell-adapter
@@ -34,11 +34,11 @@ string without the GHC API; a fourth `repr` value; a result-side template column
 observation row back into its row (the card would show a cut value as the value).
 
 **Files**: `lib/repl/embody.exs`, `lib/repl/ocaml/launch.exs`, `lib/repl/haskell/launch.exs`, the eval_templates; embody's `embody.ml`,
-`embody.hs`, `ReadMe.md`; tests `test/ocaml_adapter_test.exs` (where embody is), `test/live/repl_ocaml_test.exs`,
+`embody.hs`, `ReadMe.full.md`; tests `test/ocaml_adapter_test.exs` (where embody is), `test/live/repl_ocaml_test.exs`,
 `test/live/repl_haskell_test.exs`.
 
 ## Notes
 
-- Out of embody's scope, written in its `ReadMe.md`: OCaml's `Sys_error` from `load_all`, a SIGALRM between the end of an evaluation and the
+- Out of embody's scope, written in its `ReadMe.full.md`: OCaml's `Sys_error` from `load_all`, a SIGALRM between the end of an evaluation and the
   timer stopping, types containing ` = `; Haskell's exceptions whose own message throws
 - Verified: not yet verified cold (written from the code, 2026-10-19)

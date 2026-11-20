@@ -40,7 +40,7 @@ HLS dialect; scanning only by compiling.
 `lib/scanner/haskell.exs`, `lib/lsp/transport/{relay,stdio}.exs`, `lib/project.exs`; tests `test/scanner_lsp_test.exs`,
 `test/scanner_test.exs`, `test/ocaml_adapter_test.exs`, `test/haskell_adapter_test.exs`.
 
-**Earlier**: README ("Structure").
+**Earlier**: README.full.md ("Structure").
 
 ## Notes
 

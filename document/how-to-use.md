@@ -1086,6 +1086,7 @@ written per language and not converted yet) ([D-languages-per-pass](verification
 | `xipe start: a session is already running` | it already runs. To stop it, send SIGTERM to the pid in the record |
 | CLI changes do not appear in the server's table | the server takes them in at its next request, but tezcatl's table does not change by itself: fetch again with `matrix update` |
 | Scanning is slow | the first time waits for elixir-ls to start. To hurry: `XIPE_TOTEC_LSP=off` |
+| Scala / Java: `no object … in what was loaded (the build failed: … CantDownloadModule: Error downloading org.scala-sbt:sbt:…)`, or `Error downloading` from scala-cli or maven | nothing is fetched while evaluating, and the build tool's cache is empty: build the project once yourself, online — `sbt compile`, `scala-cli compile .`, `mvn compile` (§9.6, §9.8). It is needed once per sbt / Scala / dependency version |
 | `env stale (flake.nix)` | with `env.refresh=manual`, a `watch` file (the flake) changed. Take it again with `xipe table generate` (§4.3) |
 | `env error (flake.nix)` | `project_env.json`'s command failed (an evaluation error in the flake, `flake.nix` untracked in git, a timeout …; the message ends with the command's last stderr line). The parentheses give the marker. Xipe Totec's own or the previous environment is used |
 | A mix project starts in scripts-mode | the build tool is what was decided when the table was made: type `xipe table generate` |

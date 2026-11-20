@@ -2,7 +2,7 @@
 
 `xipe mcp`: Xipe Totec as an MCP server over stdio for an AI agent. A client of the running `xipe start` through
 `lib/mcp/upstream.exs` (a WebSocket, as tezcatl's relay is), with about ten tools in `lib/mcp/tools.exs`. The concerns these decisions
-answer, and what is not built yet (distribution), are in [`../mcp.md`](../mcp.md).
+answer, and how it reaches people without Nix (D-mcp-distribution), are in [`../mcp.md`](../mcp.md).
 
 **Decisions homed here**: [D-mcp-bridge](#d-mcp-bridge), [D-mcp-eval-wait](#d-mcp-eval-wait), [D-mcp-tools](#d-mcp-tools),
 [D-mcp-effects](#d-mcp-effects), [D-mcp-expectations](#d-mcp-expectations), [D-mcp-shared-book](#d-mcp-shared-book)

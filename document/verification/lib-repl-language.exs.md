@@ -24,7 +24,7 @@ its REPL, its build tools, its scanners, its REPL adapter, and how to boot the R
 - **Placing a module does nothing until `xipe refresh -l` registers it in `info.json`** (P4: an implementation half-written is not a
   supported language)
 - What every language must keep (the markers, `repr`'s meaning, one write per block, closed expressions, `XT_READY`) is in
-  `document/repl-adapter-guide.md` and embody's `ReadMe.md`
+  `document/repl-adapter-guide.md` and embody's `ReadMe.full.md`
 
 **Why**: the Evaluator was Elixir-only by its aliases (2026-09-18, crux's review); making the four modules options and proving it with a
 made-up language in the tests made the evaluation path language-neutral. Facts about a language that are neither building a call nor

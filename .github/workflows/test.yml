@@ -1,0 +1,15 @@
+# The unit tests (test/run.sh) in the devShell on every push and pull request,
+# with embody cloned next to the checkout as the README asks. The tests with
+# real REPLs (test/live/) need each language's tools and are run by hand.
+name: test
+on:
+  push:
+  pull_request:
+jobs:
+  unit:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: git clone --depth 1 https://github.com/Crux-xurC/embody.git ../embody
+      - uses: cachix/install-nix-action@v31
+      - run: nix develop --command ./test/run.sh

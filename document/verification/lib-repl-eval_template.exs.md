@@ -19,7 +19,7 @@ Totec's side. The other languages do the same work in `embody` ([D-embody](lib-r
 3. otherwise → `binary` (`:erlang.term_to_binary/1`, carried as base64 in `bin_base64=`)
 
 - The three words belong to Core: it embeds only `exact` results ([D-reference-values](lib-core.exs.md#d-reference-values)) and builds the
-  `basis` from `exact`/`binary`. Every language's adapter must mean the same by them (embody's `ReadMe.md`)
+  `basis` from `exact`/`binary`. Every language's adapter must mean the same by them (embody's `ReadMe.full.md`)
 - Every display goes through `inspect(…, limit: :infinity, printable_limit: :infinity, width: :infinity)`, and newlines in `display=` and
   `crash` reasons are written as `\n`: one field is one line
 - Structs are walked as maps (`Map.to_list/1`): `Enum` on a struct raises (`Date`, `URI`) or walks its elements (`MapSet`, `Range`), and an

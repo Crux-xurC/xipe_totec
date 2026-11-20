@@ -2,11 +2,11 @@
 
 How an AI agent uses Xipe Totec through the Model Context Protocol (MCP): `xipe mcp`, a server over stdio that an MCP client starts, and
 that passes its tools to the running `xipe start` ([D-serve-project](verification/lib-serve_project.exs.md#d-serve-project)). This
-document keeps the concerns that shaped it and what is not built yet; the decisions in force are in the record of
+document keeps the concerns that shaped it and how it is distributed; the decisions in force are in the record of
 [`lib/mcp/server.exs`](verification/lib-mcp-server.exs.md) and in [D-effect-approval](verification/lib-core.exs.md#d-effect-approval).
 
-Decided 2026-11-21 (crux), from a review of the concerns (the list below); built the same day, except
-[D-mcp-distribution](#d-mcp-distribution).
+Decided 2026-11-21 (crux), from a review of the concerns (the list below); built the same day, the distribution without Nix
+([D-mcp-distribution](#d-mcp-distribution)) included.
 
 ## Using it
 
@@ -23,7 +23,8 @@ Decided 2026-11-21 (crux), from a review of the concerns (the list below); built
    goes to standard error, so it does not disturb MCP). `--port N` names the
    server's port; without it, the running session's (`tables/session.json`)
 3. The agent proposes classes with reasons (`propose_class`); a person reads them (`effect_source` `agent`, `effect_reason` in the eval
-   and card tables) and approves: `xipe do effect/approve 'ids=[<node>, …]'`. Nothing the agent does evaluates a function a person has
+   and card tables) and approves: `xipe do effect/approve 'ids=[<node>, …]'`, or in tezcatl `matrix get xipe_classes:all`, the rows
+   selected and `matrix approve` (class, reason and source side by side; tezcatl's D-xipe-approval). Nothing the agent does evaluates a function a person has
    not classified, and a function whose body changed waits for a person again
 
 The tools: `scan`, `search_functions`, `get_function`, `function_neighbors`, `add_row`, `set_row_args`, `list_rows`, `evaluate`,
@@ -107,10 +108,13 @@ What makes an agent different from a person at the CLI or in tezcatl's window. E
 
 ## D-mcp-distribution — through the without-Nix build, with its upstream commit checked
 
-- People without Nix get the MCP server from `xipe_totec_without_nix`
-- Falling behind upstream has happened more than once (19 commits at 2026-11-21), so it is a matter of the procedure, not of one sync:
-  the without-Nix repository records the upstream commit it was made from (`sync/UPSTREAM` does today), and before a release the
-  difference is checked (a step in its release procedure, or CI comparing `sync/UPSTREAM` with upstream's `main`)
+- People without Nix get the MCP server from `xipe_totec_without_nix` (`bin/xipe mcp`; in tezcatlipoca's tarball, `xipe_totec/bin/xipe
+  mcp`). **Built** 2026-11-21: synced from this repository and tried with the release (scan, rows, a proposal, a person's approval
+  with the CLI, an evaluation), standard output carrying MCP alone
+- Falling behind upstream has happened more than once (22 commits at 2026-11-21), so it is a matter of the procedure, not of one sync:
+  the without-Nix repository records the upstream commit it was made from (`sync/UPSTREAM`) and its tree (`sync/UPSTREAM_TREE`);
+  tezcatlipoca's `build.sh` stops when a locked commit's tree is not upstream's published `main` (by tree: the published tezcatl is
+  another history with the same trees), and the without-Nix repositories' CI says so on every push
 
 **Why**: one distribution for people without Nix, and a lag found before an announcement rather than after. **Alternatives**: a
 separate MCP package (a third copy to keep in step).

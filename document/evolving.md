@@ -10,7 +10,7 @@ Started 2026-11-16 (crux); replaces a Japanese working note of the same day. Whe
 
 ## 1. Why widen at all
 
-The README's P1 ("assume referential transparency") and "for functional-language projects" came from a belief that a REPL can only serve
+README.full.md's P1 ("assume referential transparency") and "for functional-language projects" came from a belief that a REPL can only serve
 functional languages. It cannot do everything in other languages, but what it can do is worth having (crux, 2026-11-16). P1 is read as
 "side effects are separated with `effect/set`", not as a precondition on the language.
 
@@ -402,7 +402,7 @@ What follows from it:
 
 One language at a time; checks recorded before code.
 
-1. Read: this document, `extending.md`, `repl-adapter-guide.md`, embody's `ReadMe.md`, the existing adapters (`lib/repl/language/`,
+1. Read: this document, `extending.md`, `repl-adapter-guide.md`, embody's `ReadMe.full.md`, the existing adapters (`lib/repl/language/`,
    `lib/repl/ocaml/`, `lib/repl/haskell/`, `lib/repl/python/`, `lib/repl/fsharp/`, `lib/repl/scala/`)
 2. Before implementing, check `extending.md` §2.2 on the real REPL and keep the result as a table in the language's record in
    `verification/`. Where this document's estimates disagree, trust the real REPL

@@ -25,7 +25,7 @@ value echoed by iex, a stray print) is ignored.
   it (on BEAM one `IO.puts` through the group leader is atomic)
 - A value or reason never spans lines: newlines are written as `\n`
 - Only the call id asked for is matched; leftovers of another id are inert
-- The prefixes, field names and the `key=value` form do not change by language (embody's `ReadMe.md` states the same contract)
+- The prefixes, field names and the `key=value` form do not change by language (embody's `ReadMe.full.md` states the same contract)
 
 **Why**: the receiving side (`Scan`, `FieldDrip`, `Result`, `Parser`) then knows no language, and every adapter knows exactly what to print.
 
