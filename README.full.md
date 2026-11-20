@@ -73,7 +73,12 @@ What is promised to work, and what happens outside the promise, is in [`document
 ## Requirements
 
 - **Nix** with flakes, on `x86_64-linux`. `nix develop` gives Elixir 1.18 / OTP 27 and the Erlang packages it uses (cowboy, gun,
-  erlexec). There is no build without Nix yet.
+  erlexec). **Without Nix**: [xipe_totec_without_nix](https://github.com/Crux-xurC/xipe_totec_without_nix), the same code as a
+  Mix project (Elixir 1.18+ / OTP 27+, gcc and make for erlexec; `bin/xipe` for `xipe`), or
+  [tezcatlipoca](https://github.com/Crux-xurC/tezcatlipoca), a tarball with Xipe Totec (its runtime included), tezcatl and Poca for
+  Linux x86_64.
+- **Scala and Java: build the project once yourself, online, before the first evaluation** (`sbt compile`, `scala-cli compile .`,
+  `mvn compile`): nothing is fetched while evaluating, and with the build tool's cache empty the rows fail with `Error downloading …`.
 - For **OCaml**, **Haskell**, **Python**, **F#**, **C#**, **Scala 3** and **Java** projects: `ocaml` / `ghci` / `python3` (or the project's `.venv`) / `dotnet` (F# and C#; C# is evaluated in F# Interactive) / `scala` with `sbt` or `scala-cli` / `java`, `javac`, `mvn` and `scala` (Java is evaluated in Scala's REPL) in the target's environment (a flake, direnv or mise declared in
   `project_env.json`, or on `PATH`), and [embody](https://github.com/Crux-xurC/embody) cloned next to this repository (or
   `XIPE_TOTEC_EMBODY_DIR` pointing at it). Update the two together: an adapter speaks to its embody file by a protocol, and an
@@ -101,6 +106,9 @@ xipe do row/add node=<id> args=[2,3] -- effect/set id=<id> effect=pure -- eval '
                                                         # 4. make a calc row, classify the function, evaluate it: 5
 xipe do card/get module=Calc name=add arity=2           # 5. take out the card with its calc row
 ```
+
+Without Nix, in a clone of [xipe_totec_without_nix](https://github.com/Crux-xurC/xipe_totec_without_nix) (embody cloned next to it):
+`mix deps.get` once, then the same steps with `bin/xipe` for `xipe`. In tezcatlipoca's tarball: `xipe_totec/bin/xipe`.
 
 [`document/how-to-use.md`](document/how-to-use.md) goes on from here.
 
@@ -138,7 +146,11 @@ xipe start [<dir>] [--port N] [--lsp <url>] [--fs-root <dir>]
                            # xipe_totec decides, tezcatl is the window); it passes --port, --lsp, --fs-root
 xipe mcp [--port N]        # an MCP server over stdio for an AI agent, through the running xipe start
                            # (started by the MCP client; document/mcp.md)
+xipe config [<dir>] [key=value...]
+                           # show or change a project's settings (eval.timeout, eval.boot_timeout, env.path,
+                           # env.refresh; written to its project.json)
 xipe refresh -l|-r|-a      # update xipe_totec's own info.json (languages and extensions, the REPL adapter list)
+xipe version               # print the version
 xipe help [<command>]      # one command a line (`command: description  arguments`); <command> for its description
 
 ./test/run.sh                         # every ExUnit test (starts nothing, runs alone)
@@ -165,7 +177,7 @@ Hex packages it uses (cowboy, gun, erlexec …) come from `nix/relay-packages.ni
 
 ## How far it works now
 
-As of 2026-11-20, all 55 files and 630 cases of `./test/run.sh` pass. Apart from them there are tests that start real REPLs
+As of 2026-11-21, all 63 files and 694 cases of `./test/run.sh` pass. Apart from them there are tests that start real REPLs
 (`test/live/`: `iex` 12, `ocaml` 6, `ghci` 7, `python3` 5, `dotnet fsi` 11, C# through `dotnet fsi` 4, Scala's REPL 10, Java through Scala's REPL 7, Go's and PHP's maps 4; the OCaml, Haskell, Python, F#, C#, Scala, Java, Go and PHP ones are skipped when their system is not on PATH).
 
 **From the CLI, scan → making calc rows → real evaluation → persisting the results works end to end for Elixir projects.** OCaml
