@@ -390,6 +390,10 @@ defmodule ServeProjectTest do
     # ... and other requests are still answered meanwhile
     assert {:ok, %{"matches" => [_]}} = Project.request("card/get", %{"module" => "M", "name" => "f1"})
 
+    # not recorded in passes/ (no project dir here; with one, not until its REPL works): eval/status still names it
+    assert {:ok, %{"running" => [%{"pass_id" => ^pass_id, "phase" => "starting", "call_ids" => [^call_id]}], "queued" => []}} =
+             Project.request("eval/status", %{})
+
     send(pass_pid, :go)
 
     assert %{"id" => ^call_id, "row" => %{"result" => "1", "eval_count" => 1}} = next_notify("notify/rowChanged")

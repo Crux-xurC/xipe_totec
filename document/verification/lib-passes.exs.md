@@ -23,7 +23,10 @@ merely avoided; `eval/cancel` 2026-10-12):
   dropped when read; the server also clears it when its pass process dies without cleaning up
 - **A group whose record cannot be written does not run** (`eval_failed`): the record is what locks its rows
 - **`eval/status`** (read-only): each running pass's language, elapsed time, rows, the current row and its phase — `calling` from when it
-  is sent, `classifying` once `XT_CALLED_<id>` says it returned; on the server also the queued passes
+  is sent, `classifying` once `XT_CALLED_<id>` says it returned; on the server also the queued passes, and its own pass before it is
+  recorded (`"phase": "starting"`, from its start until its group's REPL works: the environment, a build and the REPL's start come
+  first, tens of seconds for Scala, Java or C#; its rows are not held yet). Added 2026-11-21: before, such a pass was in neither list
+  and `evaluation_status` of the MCP bridge said it was unknown
 - **`eval/cancel`**: a file `<project_dir>/passes/<pass_id>.cancel`, so the CLI can stop a server's pass and the other way round. The pass
   sees it while waiting on its REPL (also during boot), kills the REPL's group and ends with the `cancelled` error, recording nothing; a
   request that cannot be written is `not_cancelled`

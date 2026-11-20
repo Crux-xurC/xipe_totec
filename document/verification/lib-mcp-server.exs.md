@@ -13,7 +13,10 @@ D-method-criteria ([`lib/methods.exs`](lib-methods.exs.md))
 `lib/mcp/tools.exs` (the tools and their schemas; pure but for the functions given), `main.exs` (`mcp`), `lib/help.exs`; tests
 `test/mcp_test.exs` (tools over a fake server, the messages). Tried by hand 2026-11-21 against a real `xipe start` on a copy (the
 agent's row, its proposal refused to evaluate, a person's approval, the value; a proposal over a person's class refused, during a
-scan as well).
+scan as well), and on a Scala (sbt) project: 26 functions scanned, an overloaded name refused with its candidates, rows with a
+reference, a case class literal (`sample.Point(0, 0)`: the window's own literal, as `get_function` says), an exception and a timeout;
+a pass outlasting the wait followed with `evaluation_status` from `starting` to its results; the body of an approved function
+edited, rescanned, `changed`, not evaluated.
 
 <a id="d-mcp-bridge"></a>
 
@@ -40,7 +43,8 @@ write to standard error. Tool calls run in tasks of their own (a long `evaluate`
 
 **Decided** 2026-11-21 (crux); **built** 2026-11-21: `evaluate` (`wait_seconds`, 0–55, 20 by default) and `evaluation_status`. The
 bridge keeps the last 200 `notify/passCompleted` by `pass_id`; a pass that ended before it connected is said to be unknown, with
-`list_rows` to read the values.
+`list_rows` to read the values. A pass not ended is looked up in `eval/status`, which names the server's pass from its start
+(`"phase": "starting"` while its environment, build and REPL start come first; D-passes).
 
 - **Start** takes the rows and a wait `N` (seconds, bounded by the client's time limit). The bridge starts the pass and waits for its
   `notify/passCompleted`: done within `N`, the results come back in the same answer; otherwise the `pass_id` (and `started` / `queued`)

@@ -43,7 +43,7 @@ defmodule XipeTotec.OutcomeText do
 
     passes =
       Enum.flat_map(running, fn p ->
-        [{:out, "  running  pass #{p["pass_id"]}  #{p["language"]}  #{p["seconds"]}s  #{length(p["call_ids"])} row(s) (not changeable until it ends)"}] ++
+        [{:out, "  running  pass #{p["pass_id"]}  #{running_what(p)}  #{p["seconds"]}s  #{length(p["call_ids"])} row(s) #{running_note(p)}"}] ++
           case p["current"] do
             %{"call_id" => id, "label" => label, "phase" => phase, "seconds" => s} ->
               [{:out, "    now  #{id}  #{label}  #{phase}  #{s}s"}]
@@ -128,4 +128,12 @@ defmodule XipeTotec.OutcomeText do
 
   defp describe_ids(ids) when is_list(ids) and ids != [], do: "#{length(ids)} row(s)"
   defp describe_ids(_ids), do: "every row"
+
+  # a server's pass before its REPL works (environment, build, REPL start)
+  # is not recorded yet: its language is not known, its rows not held
+  defp running_what(%{"phase" => "starting"}), do: "starting"
+  defp running_what(p), do: p["language"]
+  defp running_note(%{"phase" => "starting"}), do: "(environment, build, REPL start)"
+  defp running_note(_), do: "(not changeable until it ends)"
+
 end

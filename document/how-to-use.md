@@ -263,7 +263,7 @@ If any command of a list fails, the exit code is 1.
 | `row/check` | `call_ids` (none: all) `on` (default `error`) | fail when a row is in an `on` state (§3.4) |
 | `row/update` | `id` `args` | change a row's arguments (checked as `row/add`) and evaluate **that row alone** |
 | `eval/run` | `call_ids` (none: all) `include_writes=true` | the same as `eval` (the name on the wire) |
-| `eval/status` | none | the passes being evaluated: language, elapsed time, the number of rows, the row being evaluated now and its phase (below). On the server, waiting passes too |
+| `eval/status` | none | the passes being evaluated: language, elapsed time, the number of rows, the row being evaluated now and its phase (below). On the server, waiting passes too, and a pass still starting (its environment, build and REPL: `running  pass … starting`) |
 | `eval/cancel` | `pass_id` (may be left out when one pass runs) | stop a running pass (below). On the server, also take a waiting pass out by `pass_id` |
 | `config/set` | `key` `value` | change one setting of the open project (§4.1; what `dialogue update` runs at its end), written to its `project.json` |
 | `roster` | none | the tables `search` can look up: name, the mark written in a turn (`-s`, `-e`), columns, the columns `dialogue rewrite` can rewrite |

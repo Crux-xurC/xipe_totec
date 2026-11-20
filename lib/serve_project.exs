@@ -246,10 +246,8 @@ defmodule XipeTotec.Serve.Project do
     do: {:noreply, request_scan({from, :plain}, state)}
 
   # eval/status: the running passes (files, Dispatch) plus this server's queue
-  defp call({:request, "eval/status", params}, _from, state) do
-    {:ok, _book, result} = Dispatch.handle(state.book, "eval/status", params, %{root: state.root, project_dir: state.project_dir})
-    {:reply, {:ok, Map.put(result, "queued", queued(state))}, state}
-  end
+  defp call({:request, "eval/status", params}, _from, state),
+    do: {:reply, {:ok, eval_status(params, state)}, state}
 
   defp call({:request, "eval/cancel", params}, _from, state) do
     {reply, state} = cancel_pass(params, state)
@@ -296,8 +294,7 @@ defmodule XipeTotec.Serve.Project do
   end
 
   defp call({:request_dialogue, dialogue, "eval/status", params, _opts}, _from, state) do
-    {:ok, _book, result} = Dispatch.handle(state.book, "eval/status", params, %{root: state.root, project_dir: state.project_dir})
-    result = Map.put(result, "queued", queued(state))
+    result = eval_status(params, state)
     {:reply, {dialogue, %{hold: false, via_repl: false, text: nil, ok?: true, result: result, error: nil}}, state}
   end
 
@@ -508,7 +505,11 @@ defmodule XipeTotec.Serve.Project do
             send(server, {:pass_done, pass_id, outcome, ctx})
           end)
 
-        %{state | queue: rest, running: %{pass_id: pass_id, pid: pid, ref: ref}}
+        %{
+          state
+          | queue: rest,
+            running: %{pass_id: pass_id, pid: pid, ref: ref, call_ids: List.wrap(params["call_ids"]), started_at: DateTime.utc_now()}
+        }
 
       {:empty, _} ->
         state
@@ -516,6 +517,28 @@ defmodule XipeTotec.Serve.Project do
   end
 
   defp start_next_pass(state), do: state
+
+  # the passes recorded as running (files, Dispatch -- a group's REPL at
+  # work), this server's own pass while it is not recorded yet (its
+  # environment, build and REPL start come first: `"phase": "starting"`),
+  # and this server's queue
+  defp eval_status(params, state) do
+    {:ok, _book, result} = Dispatch.handle(state.book, "eval/status", params, %{root: state.root, project_dir: state.project_dir})
+    running = result["running"] || []
+
+    running =
+      case state.running do
+        %{pass_id: id, started_at: at} = r ->
+          if Enum.any?(running, &(&1["pass_id"] == id)),
+            do: running,
+            else: running ++ [%{"pass_id" => id, "phase" => "starting", "started_at" => DateTime.to_iso8601(at), "seconds" => DateTime.diff(DateTime.utc_now(), at), "call_ids" => r.call_ids, "current" => nil}]
+
+        _ ->
+          running
+      end
+
+    result |> Map.put("running", running) |> Map.put("queued", queued(state))
+  end
 
   defp queued(state) do
     for {pass_id, params} <- :queue.to_list(state.queue),
