@@ -195,6 +195,17 @@ The work, in order (one commit each where it stands alone):
 
 Then Java (§4.6) the same way on Scala's adapter.
 
+**Proposed revision: C# read by its own compiler's parser** (raised 2026-11-20, not decided; crux leaves it to whoever works on C#
+when it is needed). `Scanner.CSharp` reads the text (taken from `csharp-via-fsi`); the branch's version lost every method after a
+brace in an expression body until it was fixed on main, and more such misses are likely in a language this rich (attributes, raw
+strings, `#if`, local functions, primary constructors). The .NET SDK carries C#'s own compiler (Roslyn,
+`Microsoft.CodeAnalysis.CSharp.dll` under the SDK's directory), and a C# target needs the SDK anyway (P10), so C# could be read as F#
+is: a script run once in `dotnet fsi`, `#r`-ing Roslyn from the SDK, parsing every file and writing one JSON line per file (`anykey`,
+shape, marks, refusal as now, from the syntax tree). Not checked: whether fsi loads the SDK's Roslyn without a version conflict (fsi
+itself uses some of the same assemblies), and how long a parse of a large solution takes. If taken: the text scanner stays for the map
+without an SDK, or goes (D-scanners: one reader per language, preferred first); `test/scanner_csharp_test.exs`'s cases are the bar the
+new reader must pass.
+
 ### 4.5 Scala — the window's own language
 
 **Done 2026-11-20** as [D-scala-adapter](verification/lib-repl-language-scala.exs.md#d-scala-adapter): Scala 3 only; the REPL at the
