@@ -890,9 +890,11 @@ written per language and not converted yet) ([D-languages-per-pass](verification
   the signature `add : int -> int -> int`); fsi's own message (in your locale's language) is in the REPL's output. A timeout is `timeout`,
   and the rest of the pass runs in a new session (`session` `<pass>/2`)
 - Scanning (`Scanner.FSharp`) uses F#'s own parser inside `dotnet fsi` (it comes with the SDK; `dotnet` must be in the target's
-  environment to scan too). Nodes: module-level `let` functions (values, members of types, operators left out). Links: names found as F#
+  environment to scan too). Nodes: module-level `let` functions, and types' `static member`s with arguments, each overload a node of its own, labelled with its
+  parameters' types (`Sample.Conv.Show(int)`, `Sample.Conv.Show(float, int)`; values, instance members, static properties, operators left
+  out). A static member's row takes its arguments one per parameter (`Show` with `1.25` and `1`); fsi picks the overload by their types. Links: names found as F#
   looks them up (the module and the enclosing ones, then `open`s)
-- Not supported: values and point-free functions as rows (`let addTen = add 10`), members of types, scripts whose functions use a value
+- Not supported: values and point-free functions as rows (`let addTen = add 10`), instance members, scripts whose functions use a value
   their top level computes
 
 ### 9.5 JavaScript and TypeScript — the map only (2026-11-17)

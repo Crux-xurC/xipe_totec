@@ -31,6 +31,19 @@ defmodule FSharpAdapterTest do
       assert EvalTemplate.call_expression(%{module: "M", name: "f'", args: ["()"]}) == "M.f' (())"
     end
 
+    test "a static member (a node with a shape) is called as a method, its arguments split into the curried groups" do
+      call = &EvalTemplate.call_expression(%{module: "Sample.Conv", name: &1, args: &2, shape: &3})
+      assert call.("Show", ["1.5", "2"], [2]) == "Sample.Conv.Show((1.5), (2))"
+      assert call.("Scale", ["2.0", "xt_c0"], [1, 1]) == "Sample.Conv.Scale((2.0))((xt_c0))"
+      assert call.("Origin", [], [0]) == "Sample.Conv.Origin()"
+      assert call.("Sum", ["1, 2"], [1]) == "Sample.Conv.Sum((1, 2))"
+      # a shape that does not fit the arguments: one group (row/add refuses such a row first)
+      assert call.("Show", ["1", "2"], [1]) == "Sample.Conv.Show((1), (2))"
+
+      entry = %{call_id: "c2", module: "Sample.Conv", name: "Show", args: ["1"], shape: [1], limits: %{timeout: 5000, max_heap_words: 1}}
+      assert EvalTemplate.build(entry) =~ ~s|let xt_c2 = Embody.call (fun () -> Sample.Conv.Show((1)));;\nEmbody.finish "c2" "Sample.Conv" "Show" 1;;|
+    end
+
     test "ids made a name; both bases in parentheses; a newline in an argument kept off the lines" do
       base = %{call_id: "c-1", module: "M", name: "s", args: [~s|"a\\"b"|, "[|1;\n2|]"], limits: %{timeout: 10, max_heap_words: 1}}
       text = EvalTemplate.build(base)
@@ -182,6 +195,8 @@ defmodule FSharpAdapterTest do
           "name" => name,
           "args" => args,
           "public" => Keyword.get(opts, :public, true),
+          "key" => Keyword.get(opts, :key),
+          "shape" => Keyword.get(opts, :shape),
           "line" => Keyword.get(opts, :line, 1),
           "endLine" => 1,
           "hash" => "h",
@@ -197,6 +212,10 @@ defmodule FSharpAdapterTest do
           "error" => nil,
           "defs" => [
             def.("Sample.Geo", "area", 1, ["shape", "Circle"], scopes: ["Sample.Geo", "Sample"]),
+            def.("Sample.Conv", "Show", 1, ["x"], scopes: ["Sample"], key: "(int)", shape: [1]),
+            def.("Sample.Conv", "Show", 1, ["x"], scopes: ["Sample"], key: "(string)", shape: [1]),
+            def.("Sample.Conv", "Origin", 1, ["Point.Of"], scopes: ["Sample"], key: "()", shape: [0]),
+            def.("Sample.Point", "Of", 1, [], scopes: ["Sample"], key: "(float, float)", shape: [2]),
             def.("Sample.Geo.Inner", "label", 1, ["s.ToUpper", "area"], scopes: ["Sample.Geo.Inner", "Sample.Geo", "Sample"])
           ]
         },
@@ -229,6 +248,16 @@ defmodule FSharpAdapterTest do
       assert_raise RuntimeError, "bad.fsx(1,5): unexpected", fn -> Scanner.FSharp.defs(file("bad.fsx")) end
     end
 
+    test "static members: anykey the parameters' types, a shape, overloads each a node of their own" do
+      geo = Scanner.FSharp.defs(file("src/Geo.fs"))
+      shows = for %{name: "Show"} = d <- geo, do: {d.anykey, d.shape}
+      assert shows == [{"(int)", [1]}, {"(string)", [1]}]
+      assert %{anykey: 1, shape: nil} = Enum.find(geo, &(&1.name == "area"))
+
+      {book, _} = Scanner.FSharp.scan_defs(Book.new(), "src/Geo.fs", file("src/Geo.fs"))
+      assert [%{shape: [1]}, %{shape: [1]}] = for({_, %{name: "Show"} = n} <- book.nodes, do: n)
+    end
+
     test "links: the own module, the enclosing ones, opens (also inside the namespace), the name as written" do
       paths = ["scripts/more.fsx", "scripts/tool.fsx", "src/Calc.fs", "src/Geo.fs"]
       book = Enum.reduce(paths, Book.new(), fn path, book -> elem(Scanner.FSharp.scan_defs(book, path, file(path)), 0) end)
@@ -251,6 +280,8 @@ defmodule FSharpAdapterTest do
                  {"Sample.Calc.inner", "Sample.Geo.Inner.label"},
                  # area from Sample.Geo.Inner: the enclosing module
                  {"Sample.Geo.Inner.label", "Sample.Geo.area"},
+                 # a static member from another: Point.Of in namespace Sample
+                 {"Sample.Conv.Origin", "Sample.Point.Of"},
                  # one script's module from another's
                  {"More.cube", "Tool.sq"}
                ])

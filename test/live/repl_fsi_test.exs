@@ -35,15 +35,22 @@ defmodule ReplLiveFsiTest do
 
   defp pure_node(module, name, n), do: %{module: module, name: name, anykey: n, effect: "pure", effect_source: "user"}
 
-  # one pass over `calls` ([{id, "Ns.Module.f", args}]); the results by
-  # call id. A row already in `book` keeps its value.
+  # one pass over `calls` ([{id, "Ns.Module.f", args}], or a static member's
+  # {id, "Ns.Type.M", args, anykey, shape}); the results by call id. A row
+  # already in `book` keeps its value.
   defp run(dir, calls, book \\ Book.new(), opts \\ []) do
     book =
-      Enum.reduce(calls, book, fn {id, node, args}, book ->
+      Enum.reduce(calls, book, fn call, book ->
+        {id, node, args, key, shape} =
+          case call do
+            {id, node, args} -> {id, node, args, length(args), nil}
+            {_, _, _, _, _} = c -> c
+          end
+
         parts = String.split(node, ".")
         {module, name} = {parts |> Enum.drop(-1) |> Enum.join("."), List.last(parts)}
-        node_id = "n_#{node}/#{length(args)}"
-        book = Core.put_node(book, node_id, pure_node(module, name, length(args)))
+        node_id = "n_#{node}/#{key}"
+        book = Core.put_node(book, node_id, Map.put(pure_node(module, name, key), :shape, shape))
         if Book.get(book, :calls, id), do: book, else: Core.add_call(book, id, %{node: node_id, args: args})
       end)
 
@@ -90,7 +97,23 @@ defmodule ReplLiveFsiTest do
     # values, not functions
     refute Enum.any?(calc, &(&1.name in ["limit", "addTen"]))
 
-    assert [%{module: "Sample.Geo"} | _] = Scanner.FSharp.defs(file.("src/Geo.fs"))
+    geo = Scanner.FSharp.defs(file.("src/Geo.fs"))
+    assert %{module: "Sample.Geo", anykey: 1, shape: nil} = Enum.find(geo, &(&1.name == "area"))
+    # static members: the parameters' types and the shape; properties and instance members are not nodes
+    members = for %{module: m} = d <- geo, m in ["Sample.Conv", "Sample.Point"], do: {d.name, d.anykey, d.shape, d.visibility}
+
+    assert members == [
+             {"Of", "(float, float)", [2], "public"},
+             {"Show", "(int)", [1], "public"},
+             {"Show", "(string)", [1], "public"},
+             {"Show", "(float, int)", [2], "public"},
+             {"Scale", "(float)(Point)", [1, 1], "public"},
+             {"Origin", "()", [0], "public"},
+             {"Sum", "(int * int)", [1], "public"},
+             {"Twice", "(int list)", [1], "public"},
+             {"Fail", "(int)", [1], "public"},
+             {"Hidden", "(int)", [1], "private"}
+           ]
     assert Enum.map(Scanner.FSharp.defs(file.("scripts/tool.fsx")), &{&1.module, &1.name}) == [{"Tool", "sq"}, {"Tool", "scale"}, {"Tool.Text", "shout"}]
 
     book = Enum.reduce(@files, Book.new(), fn path, book -> elem(Scanner.FSharp.scan_defs(book, path, file.(path)), 0) end)
@@ -206,6 +229,41 @@ defmodule ReplLiveFsiTest do
     assert {:error, "the call did not compile: Sample.Calc.add takes 2 argument(s), got 3: add : int -> int -> int"} = r["e6"].outcome
     assert {:error, "the call did not compile: Sample.Calc.limit is a value, not a function"} = r["e7"].outcome
     assert {:ok, %{display: "4"}} = r["ok"].outcome
+  end
+
+  test "static members: overloads of one count picked by the arguments' types, curried groups, (), a tuple as one argument; failures in members' terms", %{dir: dir} do
+    {_book, r} =
+      run(dir, [
+        {"si", "Sample.Conv.Show", ["1"], "(int)", [1]},
+        {"ss", "Sample.Conv.Show", [~s|"a"|], "(string)", [1]},
+        {"sf", "Sample.Conv.Show", ["1.25", "1"], "(float, int)", [2]},
+        {"of", "Sample.Point.Of", ["1.0", "2.0"], "(float, float)", [2]},
+        {"sc", "Sample.Conv.Scale", ["2.0", "⟦of⟧"], "(float)(Point)", [1, 1]},
+        {"o", "Sample.Conv.Origin", [], "()", [0]},
+        {"su", "Sample.Conv.Sum", ["(1, 2)"], "(int * int)", [1]},
+        {"tw", "Sample.Conv.Twice", ["[1; 2]"], "(int list)", [1]},
+        {"e1", "Sample.Conv.Fail", ["3"], "(int)", [1]},
+        {"e2", "Sample.Conv.Show", ["true"], "(int)", [1]},
+        {"e3", "Sample.Conv.Hidden", ["1"], "(int)", [1]},
+        {"e4", "Sample.Conv.Show", ["1", "2", "3"], "(int)", [1]},
+        {"e5", "Sample.Conv.Unit", ["1"], "(int)", [1]},
+        {"e6", "Sample.Conv.Nope", ["1"], "(int)", [1]}
+      ])
+
+    assert {:ok, %{repr: "exact", type: "string", display: ~s|"int 1"|}} = r["si"].outcome
+    assert {:ok, %{display: ~s|"string a"|}} = r["ss"].outcome
+    assert {:ok, %{display: ~s|"1.2"|}} = r["sf"].outcome
+    assert {:ok, %{repr: "exact", type: "Sample.Point", display: "{ Sample.Point.X = 1.0; Y = 2.0 }"}} = r["of"].outcome
+    assert {:ok, %{display: "{ Sample.Point.X = 2.0; Y = 4.0 }"}} = r["sc"].outcome
+    assert {:ok, %{display: "{ Sample.Point.X = 0.0; Y = 0.0 }"}} = r["o"].outcome
+    assert {:ok, %{display: "3"}} = r["su"].outcome
+    assert {:ok, %{type: "int list", display: "[2; 4]"}} = r["tw"].outcome
+    assert {:error, "System.Exception: fail: 3"} = r["e1"].outcome
+    assert {:error, "the call did not compile: the arguments do not fit Show(int) : string; Show(string) : string; Show(float, int) : string" <> _} = r["e2"].outcome
+    assert {:error, "the call did not compile: Sample.Conv.Hidden is private or internal"} = r["e3"].outcome
+    assert {:error, "the call did not compile: Sample.Conv.Show takes 1 or 2 argument(s), got 3: " <> _} = r["e4"].outcome
+    assert {:error, "the call did not compile: Sample.Conv.Unit is a value, not a function"} = r["e5"].outcome
+    assert {:error, "the call did not compile: Sample.Conv has no static member Nope"} = r["e6"].outcome
   end
 
   test "a timeout: the rest of the pass in a new session, fsi started again without building; an earlier exact value handed over", %{dir: dir} do

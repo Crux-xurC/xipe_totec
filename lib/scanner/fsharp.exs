@@ -20,7 +20,19 @@ defmodule XipeTotec.Scanner.FSharp do
   which is the number of arguments a calc row gives it. `visibility`
   `"public"` unless the function or an enclosing module is `private` or
   `internal`. Values (`let x = 42`, `let addTen = add 10`, `let f = fun x
-  -> …`), operators, members of types and local functions are not nodes.
+  -> …`), operators and local functions are not nodes.
+
+  A **`static member` with arguments** of a type is a node too (overloads
+  each their own): `module` is the type's full name (`Sample.Conv`),
+  `anykey` its parameters' types written out from the syntax tree in one
+  form, one parenthesized group per curried group (`(int)`, `(float,
+  int)`, `(float)(Point)`, `()`; a parameter without a type `_`), and
+  `shape` its parameter count per group (`[1]`, `[2]`, `[1, 1]`, `[0]`),
+  which `row/add` checks the arguments against
+  ([D-anykey-shape](../../document/verification/lib-identity.exs.md#d-anykey-shape)).
+  `visibility` also takes the member's and the type's own. Static
+  properties (`static member P = …`), instance members, constructors and
+  operators are not nodes.
 
   **Links**, from a function's body: every name it uses (`f`, `M.f`,
   `A.B.f`) that is a node, found the way F# looks a name up -- the
@@ -72,7 +84,7 @@ defmodule XipeTotec.Scanner.FSharp do
 
   @impl Scanner
   def scan_defs(book, sheet_id, file) do
-    Scanner.put_defs(book, sheet_id, Enum.map(defs(file), &Map.take(&1, [:module, :name, :anykey, :visibility, :span, :body_hash])))
+    Scanner.put_defs(book, sheet_id, Enum.map(defs(file), &Map.take(&1, [:module, :name, :anykey, :shape, :visibility, :span, :body_hash])))
   end
 
   @impl Scanner
@@ -95,7 +107,8 @@ defmodule XipeTotec.Scanner.FSharp do
 
   @doc """
   The definitions `begin/3`'s answer holds for `file` (`%{module:, name:,
-  anykey:, visibility:, span:, body_hash:, scopes:, opens:, refs:}`).
+  anykey:, shape:, visibility:, span:, body_hash:, scopes:, opens:, refs:}`;
+  `shape` is `nil` for a module function).
   Raises with the parser's first error for a file that does not parse
   (the scan's `scan_failed`).
   """
@@ -104,7 +117,7 @@ defmodule XipeTotec.Scanner.FSharp do
     case files[path] do
       nil -> raise "not read by scan.fsx"
       %{"error" => error} when is_binary(error) -> raise error
-      %{"defs" => defs} -> Enum.map(defs, &definition/1) |> Enum.uniq_by(&{&1.module, &1.name})
+      %{"defs" => defs} -> Enum.map(defs, &definition/1) |> Enum.uniq_by(&{&1.module, &1.name, &1.anykey})
     end
   end
 
@@ -112,7 +125,9 @@ defmodule XipeTotec.Scanner.FSharp do
     %{
       module: d["module_"],
       name: d["name"],
-      anykey: d["args"],
+      # a function's curried count; a static member's sequence of types (D-anykey-shape)
+      anykey: d["key"] || d["args"],
+      shape: d["shape"],
       visibility: if(d["public"], do: "public", else: "private"),
       span: d["line"],
       body_hash: d["hash"],

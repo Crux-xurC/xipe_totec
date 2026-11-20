@@ -174,7 +174,7 @@ Decided 2026-11-20 (crux), from these checks:
 
 The work, in order (one commit each where it stands alone):
 
-1. **F#'s static members**: `scan.fsx` reads `static member` of types (and their overloads) as nodes, `anykey` the parameters' types
+1. **F#'s static members** (done 2026-11-20): `scan.fsx` reads `static member` of types (and their overloads) as nodes, `anykey` the parameters' types
    from the syntax tree in one form, the shape one list (tupled) per parameter group; the call `Ns.Type.Member((a), (b))`. Tests on the
    F# fixture, the live fsi test
 2. **C#'s scanner on main**: `Scanner.CSharp` taken from `csharp-via-fsi`, `anykey` the parameters' types (normalized from its tokens:

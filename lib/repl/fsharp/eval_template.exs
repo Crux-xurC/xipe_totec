@@ -24,7 +24,11 @@ defmodule XipeTotec.Repl.FSharp.EvalTemplate do
   The call applies the function to each argument in turn, each in
   parentheses (`Sample.Calc.add (1) (2)`, `Sample.Calc.addPair ((1, 2))`),
   so an embedded value keeps its meaning: an argument is one of the
-  function's curried arguments. A module or function name that is not an
+  function's curried arguments. A static member (a node with a shape,
+  D-anykey-shape) is called as a method, the arguments split into its
+  curried groups by the shape (`Sample.Conv.Show((1.5), (2))`,
+  `Sample.Conv.Scale((2.0))((p))`, `Sample.Conv.Origin()`); fsi picks
+  among overloads by the arguments' types. A module or function name that is not an
   identifier is written in double backticks (a script `my-tool.fsx` is
   ``` ``My-tool`` ```). A reference to a row evaluated earlier in the same
   session is the binding `xt_<id>` (Core's `:in_plan`). Limits: `timeout`
@@ -35,9 +39,27 @@ defmodule XipeTotec.Repl.FSharp.EvalTemplate do
   alias XipeTotec.Repl.FSharp.Launch
 
   @spec call_expression(map()) :: String.t()
-  def call_expression(%{module: module, name: name, args: args}) do
+  def call_expression(%{module: module, name: name, args: args} = entry) do
     path = module |> String.split(".") |> Enum.map_join(".", &ident/1)
-    Enum.join(["#{path}.#{ident(name)}" | Enum.map(args, &"(#{&1})")], " ")
+
+    case Map.get(entry, :shape) do
+      # a static member: one parenthesized group per curried group
+      [_ | _] = shape ->
+        "#{path}.#{ident(name)}" <> Enum.map_join(groups(args, shape), "", fn g -> "(" <> Enum.map_join(g, ", ", &"(#{&1})") <> ")" end)
+
+      _ ->
+        Enum.join(["#{path}.#{ident(name)}" | Enum.map(args, &"(#{&1})")], " ")
+    end
+  end
+
+  # the args split by the shape; one group when the shape does not fit them
+  defp groups(args, shape) do
+    if Enum.sum(shape) == length(args) do
+      {groups, []} = Enum.map_reduce(shape, args, fn n, rest -> Enum.split(rest, n) end)
+      groups
+    else
+      [args]
+    end
   end
 
   # an F# name as written in a call: an identifier as it is, an active

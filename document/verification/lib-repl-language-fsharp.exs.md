@@ -46,6 +46,18 @@ D-restart-after-timeout ([`lib/repl/evaluator.exs`](lib-repl-evaluator.exs.md))
   argument `()`) — though the compiled method has 2, 2 and 0 parameters; so `row/add` checks the count as for Elixir's arity, and a
   partial application is not a row. A module or function name that is not an identifier is written in double backticks (a script
   `my-tool.fsx` is the module ``` ``My-tool`` ```). `let inline` functions are called as any other (inlined at the call)
+- **Static members** (2026-11-20, §4.4 of `evolving.md`, rule 6): a type's `static member` with arguments is a node of the module named
+  by the type (`Sample.Conv`), each overload its own: `anykey` the parameters' types written out from the syntax tree in one form, one
+  parenthesized group per curried group (`(int)`, `(string)`, `(float, int)`, `(float)(Point)`, `()`, `(int * int)` for one tuple
+  parameter; `_` for a parameter without a type), the shape the count per group (`[1]`, `[2]`, `[1, 1]`, `[0]`)
+  ([D-anykey-shape](lib-identity.exs.md#d-anykey-shape)). The call is a method call split by the shape, each argument in parentheses:
+  `Sample.Conv.Show((1.5), (2))`, `Sample.Conv.Scale((2.0))((p))`, `Sample.Conv.Origin()`, `Sample.Conv.Sum((1, 2))`; fsi picks the
+  overload by the arguments' types (`Show(1)` the `int` one, `Show("a")` the `string` one). A call that does not compile is told in
+  members' terms: the type's public overloads with their signatures (`Show(int) : string; Show(float, int) : string`), the counts they
+  take, a static property (a value), a member that is `private`. Static properties, instance members, constructors and operators are
+  not nodes. Why: a type's static members are how F# libraries meant for C# callers are written, and how C#'s methods reach fsi; they
+  are the same kind of thing as C#'s methods, so the same identity (a sequence of types) serves both. Module functions keep their
+  curried count as `anykey` (no overloads, no shape)
 - **repr**: `exact` for what `embody.fsx` writes as an F# literal and reads back to an equal value: the primitive types, enums by name,
   arrays, lists, `List<T>`, `Dictionary<K, V>`, options, tuples — and F#'s own **records** (`{ Sample.Point.X = 2.0; Y = 3.0 }`, the first
   field qualified by the type) and **unions** (`Sample.Shape.Rect (2.0, 3.0)`, `Sample.Shape.Empty`) with public representations. The
@@ -56,7 +68,8 @@ D-restart-after-timeout ([`lib/repl/evaluator.exs`](lib-repl-evaluator.exs.md))
 - **Scanning**: `Scanner.FSharp.begin/3` runs `lib/scanner/fsharp/scan.fsx` once in `dotnet fsi` over every F# file (FSharp.Compiler.Service,
   `#r "FSharp.Compiler.Service"` by name: it comes with the SDK). A node is a module-level `let` with arguments, in a module of a `.fs` or
   `.fsx` (nested ones too); `module` the module's full name (`Sample.Geo.Inner`, a script without `module` its file's name); `public`
-  unless it or an enclosing module is `private` / `internal`. Values, operators, members of types and local functions are not nodes.
+  unless it or an enclosing module is `private` / `internal`; and a type's `static member` with arguments (above). Values, operators,
+  instance members, static properties and local functions are not nodes.
   Links: every name a body uses that is a node, looked up the way F# does — the function's module and the enclosing ones innermost
   first, then the `open`s before it (also relative to the enclosing namespace), then the name as written. No `dotnet` on the project
   environment's `PATH`: the scan fails with that reason
@@ -85,6 +98,7 @@ embody's `embody.fsx`; tests `test/fsharp_adapter_test.exs`, `test/live/repl_fsi
 | Loading | `#r` of the built dll: nothing of the project runs. `#load` of a script runs its top level (hence the copies). An init file (`--use`) stops at its first failing submission; stdin goes on |
 | What the dll shows | a module is a static class (`CompilationMapping(Module)`), a nested one `Outer+Inner`; `let f a b` a method of 2 parameters with `CompilationArgumentCounts [1;1]`, `let f (a, b)` 2 parameters without it, `let f ()` none; a value a property; `private` / `internal` not public. Scripts' modules are `FSI_000N.Tool` |
 | Evaluation and display | `Sample.Calc.add (1) (2)`, `addPair ((1, 2))`, `answer ()`; `let inline` works for any type; a partial application gives a closure |
+| Static members (2026-11-20) | the parser gives `static member` with `MemberKind.Member` and not `IsInstance`, its argument patterns one per curried group (`Pats []` for a property); the dll has one static method per overload, a curried member with `CompilationArgumentCounts`, a tupled one-parameter member (`Sum((a, b))`) one tuple parameter. `Conv.Show((1))` / `Show(("a"))` / `Show((1.25), (1))` each pick their overload; `Scale((2.0))((p))`; `Origin()`; `Sum((1, 2))` passes the tuple as one argument |
 | Failure | a type error, a private function, an unknown name: fsi's diagnostic (in the locale's language), the REPL reads on after `;;` |
 | Time limit, SIGINT | as for the C# attempt: `ControlledExecution` on a thread of its own stops a loop; SIGINT prints `- Interrupt` and fsi reads on |
 

@@ -61,16 +61,19 @@ plus a disambiguating index (changes with the order in the file, so an id would 
 - **Scala** writes the types out again from the parser's tree in one form (`List[ Int ]` is `List[Int]`; `(Int)(using Ordering[Int])`;
   `""` for a `def` without lists, shape `[]`), so spacing does not move an id; `Int` and `scala.Int` stay two texts (resolving them needs
   the type checker). The `using` lists are in `anykey`, not in the shape
-- **Next** (crux, 2026-11-20): C#'s methods and F#'s static members move to the sequence of types too (C#'s first attempt, on the
-  branch `csharp-via-fsi`, has the count); Java starts on this form
+- **F#'s static members** (2026-11-20) are on this form: the types written out again from F#'s syntax tree (`List< int >` is
+  `List<int>`; `int list` and `List<int>` stay two texts), one parenthesized group per curried group (`(float)(Point)`, `()` with shape
+  `[0]`); the adapter splits the args into the groups with the shape (`Scale((2.0))((p))`). F#'s module functions keep the count
+- **Next** (crux, 2026-11-20): C#'s methods move to the sequence of types too (C#'s first attempt, on the branch `csharp-via-fsi`, has the
+  count); Java starts on this form
 
 **Not decided**: the text of a type for C# and Java (as written, or the name the compiler resolves; Scala's is as written); the shape
-of the other languages' nodes (OCaml, Haskell, Python, F#: no shape, their `anykey` the count or `nil` as before); how `arity/set`
+of the other languages' nodes (OCaml, Haskell, Python, F#'s module functions: no shape, their `anykey` the count or `nil` as before); how `arity/set`
 (D-arity-set) reads with a shape of several lists; type arguments of a generic method whose type appears in no parameter.
 
-**Files**: `lib/scanner.exs` (`put_defs/3`), `lib/scanner/elixir.exs`, `lib/scanner/lsp/elixir.exs`, `lib/scanner/scala.exs` (filling
+**Files**: `lib/scanner.exs` (`put_defs/3`), `lib/scanner/elixir.exs`, `lib/scanner/lsp/elixir.exs`, `lib/scanner/scala.exs`, `lib/scanner/fsharp.exs` (filling
 the shape), `lib/core.exs` (`accepted_arities/1`, `node_label/1`, the entry's `shape`), `lib/dispatch.exs` (`check_args/5`); tests
-`test/core_test.exs`, `test/dispatch_test.exs`, `test/scanner_test.exs`, `test/scanner_lsp_test.exs`, `test/scala_adapter_test.exs`.
+`test/core_test.exs`, `test/dispatch_test.exs`, `test/scanner_test.exs`, `test/scanner_lsp_test.exs`, `test/scala_adapter_test.exs`, `test/fsharp_adapter_test.exs`.
 
 ## Notes
 
