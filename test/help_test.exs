@@ -54,7 +54,7 @@ defmodule HelpTest do
   test "`help <command>` gives a command's usage and a method's params" do
     assert {:ok, "xipe eval " <> _} = Help.detail("eval", :cli)
     assert {:ok, "eval " <> _} = Help.detail("eval", :window)
-    assert {:ok, "row/add node=<node id> args=[...]\nmake a calc row  (write)\n"} = Help.detail("row/add", :cli)
+    assert {:ok, "row/add node=<node id> args=[...] [origin=manual|agent]\nmake a calc row  (write)\n"} = Help.detail("row/add", :cli)
     assert {:ok, text} = Help.detail("start", :window)
     assert text =~ "a terminal command, run as xipe start"
     assert {:ok, "trace/get: not implemented\n"} = Help.detail("trace/get", :cli)

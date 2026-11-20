@@ -19,7 +19,7 @@ defmodule XipeTotec.CardTable do
 
   alias XipeTotec.{Book, Core}
 
-  @columns ~w(id label module name anykey effect visibility path line rows)
+  @columns ~w(id label module name anykey effect effect_source effect_reason visibility path line rows)
 
   @doc "The column names, in display order."
   @spec columns() :: [String.t()]
@@ -62,6 +62,8 @@ defmodule XipeTotec.CardTable do
       "name" => node[:name],
       "anykey" => node[:anykey],
       "effect" => node[:effect],
+      "effect_source" => node[:effect_source],
+      "effect_reason" => node[:effect_reason],
       "visibility" => node[:visibility],
       "path" => path,
       "line" => line,

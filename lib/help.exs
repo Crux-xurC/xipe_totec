@@ -209,6 +209,20 @@ defmodule XipeTotec.Help do
       """
     },
     %{
+      name: "mcp",
+      args: "[--port N]",
+      summary: "be an MCP server over stdio for an AI agent, through the running xipe start",
+      window: false,
+      detail: """
+      started by an MCP client (Claude Code, an editor ...), not typed: speaks MCP on
+      stdin/stdout and passes its tools to the running `xipe start` (the port given, else
+      the live session's). About ten tools: scan, search and read functions, add rows,
+      evaluate, propose a function's class. The agent's classes evaluate nothing until a
+      person approves them (effect/approve); it cannot set expectations or include
+      writes. document/mcp.md
+      """
+    },
+    %{
       name: "start",
       args: "[<dir>] [--port N] [--lsp <url>] [--fs-root <dir>]",
       summary: "stay up as the WebSocket entry (serve is an alias)",

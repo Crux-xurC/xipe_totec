@@ -186,7 +186,7 @@ defmodule DialogueDoTest do
 
   describe "Methods' params" do
     test "args is made from them, as help has always shown it" do
-      assert Methods.get("row/add").args == "node=<node id> args=[...]"
+      assert Methods.get("row/add").args == "node=<node id> args=[...] [origin=manual|agent]"
       assert Methods.get("effect/set").args == "id=<node id> effect=pure|reads|writes"
       assert Methods.get("arity/set").args == "id=<node id> arities=[1,2]"
       assert Methods.get("card/get").args == "module= name= arity= file= row="

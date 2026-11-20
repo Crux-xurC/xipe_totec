@@ -118,6 +118,17 @@ $ xipe do effect/set id=01M3D3Z10ZNS03HPV3Q9GGJZHT effect=pure
 
 Evaluation does not run in a sandbox: evaluating a `writes` function really writes.
 
+**A class holds for the body it was given for.** When a rescan finds the function's body changed, its class is kept but marked
+`changed` (the `effect_source` column) and the function is not evaluated until you look at it and approve it again:
+
+```
+$ xipe do effect/approve 'ids=[<node>]'            # take the class as it stands (or effect/set it anew)
+```
+
+**Classes proposed by an agent** (`effect/propose id=<node> effect=pure reason="…"`, what an AI agent uses) are shown with
+`effect_source` `agent` and their reason (`effect_reason`), and evaluate nothing until you approve them — `effect/approve` takes many ids
+at once, all or none. Rows an agent made have `origin` `agent`.
+
 **A function with default arguments** (`def scale(x, k \\ 2)`) is one card, for its defined arity (`scale/2`). To make a `scale(3)` row, decide
 once how many arguments it can be called with (it is never decided automatically):
 
@@ -233,9 +244,11 @@ If any command of a list fails, the exit code is 1.
 | method | params | What it does |
 |---|---|---|
 | `scan/run` | none | the same as `xipe scan` |
-| `row/add` | `node` `args` | make a calc row; the result's `id` is the new row's |
+| `row/add` | `node` `args` [`origin`] | make a calc row; the result's `id` is the new row's (`origin`: `manual` by default, `agent`) |
 | `row/remove` | `id` | remove a calc row |
 | `effect/set` | `id` (node) `effect` | classify side effects |
+| `effect/propose` | `id` (node) `effect` `reason` | propose a class with a one-line reason (an agent's; evaluates nothing) (§2.4) |
+| `effect/approve` | `ids` (nodes) | approve proposed classes and ones a changed body took back, all or none (§2.4) |
 | `arity/set` | `id` (node) `arities` | decide the argument counts a function with default arguments accepts (§2.4) |
 | `row/set-result` | `id` `result` | write a result by hand, without evaluating (as a literal of the target language) |
 | `row/set-prev` | `id` `prev` | write the previous value (what the next evaluation compares with = the expected value) by hand, without evaluating; the next evaluation replaces it again |
@@ -750,6 +763,17 @@ When connecting with tezcatl (the example above, a row of Poca's box, the relay 
 (the URL of tezcatl's `/lsp` relay) and `--fs-root` (tezcatl's file root; `~/projects` above stands for yours). Scanning then shares tezcatl's language servers. Started by hand,
 pass them yourself or set the environment variables (§10). Without tezcatl it works the same, starting elixir-ls itself.
 
+### 6.4 An AI agent through MCP (`xipe mcp`)
+
+An MCP client starts `xipe mcp` (stdio) and it talks to the `xipe start` running now (`--port N`, else the session's). Registering it
+with the client and the tools: [`mcp.md`](mcp.md). What a person does:
+
+- Read the agent's proposals: `effect_source` `agent` and `effect_reason` in the eval table (`xipe search`, tezcatl's table) and in
+  `card/list`; read the function, then approve: `xipe do effect/approve 'ids=[<node>, <node>]'` (all or none). Until then its rows
+  are `not run`
+- Rows the agent made have `origin` `agent`; they are ordinary rows (evaluate, change or remove them as yours)
+- After the agent edits a function, its class waits for you again (`changed`, §2.4)
+
 ---
 
 ## 7. The flow in daily use (summary)
@@ -1043,6 +1067,8 @@ written per language and not converted yet) ([D-languages-per-pass](verification
 | `no project selected` | type `xipe choice project <path>` first |
 | `<dir> is not a registered project` | to pass `<dir>`, register it first with `xipe choice project <dir>` |
 | `not run  effect not classified` | not classified with `effect/set`. §2.4 |
+| `not run  its body changed since its class … was approved` | the function was edited after you classified it: look at it, then `effect/approve 'ids=[<node>]'`. §2.4 |
+| `not run  effect … only proposed by an agent` | an agent's proposal: `effect/approve 'ids=[<node>]'` after reading its reason. §2.4 |
 | `not run  effect=writes -- pass --include-writes` | `xipe eval --include-writes` (in `xipe do`: `eval include_writes=true`) |
 | `eval call bash.id  not run  unknown call id` | `$0.id` not wrapped in quotes. §3.3 |
 | `crash ... undefined variable "hi"` (meant as a string) | the `"` was removed when the words were read. Wrap it with its quotes: `'args=["hi"]'` (in a terminal and in the window alike; §3.3, §6.2). `dialogue do row/add` passes it as typed (§5.2) |

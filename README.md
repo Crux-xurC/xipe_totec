@@ -1,7 +1,8 @@
 # Xipe Totec
 
-A standalone local server and CLI that brings the structure of a spreadsheet to a functional-language project: cells with
-addresses, references to addresses, and a way to evaluate again by following the references in order.
+A standalone local server and CLI that brings the structure of a spreadsheet to a project's functions: cells with
+addresses, references to addresses, and a way to evaluate again by following the references in order. It began with functional
+languages and now also serves Python, C#, Scala and Java, with side effects kept apart by classes a person sets (P1 below).
 
 The name comes from the image of peeling a skin (a card) off the body of the source, one function at a time. Every rescan gives
 new skins.
@@ -47,8 +48,9 @@ of references ([D-references-list](document/verification/lib-graph_query.exs.md#
 - **It runs your code for real.** Evaluating a calc row calls the function in the target project's REPL. Nothing is sandboxed: if a
   function writes files, sends messages or deletes data, that really happens.
 - **Only functions you classified are evaluated.** A function's side-effect class (`pure` / `reads` / `writes`) counts only when you
-  set it with `effect/set`; unclassified functions are not evaluated, and `writes` only with `--include-writes`. If you classify a
-  function wrongly, its side effects still happen.
+  set it with `effect/set` (or approved a proposal with `effect/approve`), and only for the body you classified: after the function's
+  body changes, it waits for your approval again. Unclassified functions are not evaluated, and `writes` only with `--include-writes`.
+  If you classify a function wrongly, its side effects still happen.
 - **Loading the target runs none of its top-level code** (scripts-mode compiles only the `defmodule` parts; OCaml and Haskell skip
   top-level expressions and `main`; Python, F# and Scala scripts are loaded with their definitions only). A Mix project is started with `iex -S mix`, which starts its application; a Scala `object`'s body runs when the object is first used.
 - **Local only, no authentication.** `xipe start` binds to `127.0.0.1` only and has no authentication. A WebSocket handshake that
@@ -131,6 +133,8 @@ xipe start [<dir>] [--port N] [--lsp <url>] [--fs-root <dir>]
                            # from TEZCATL_RELAY_PORT/TEZCATL_FS_ROOT inherited from tezcatl.
                            # tezcatl starts it without <dir> (the target is the chosen project:
                            # xipe_totec decides, tezcatl is the window); it passes --port, --lsp, --fs-root
+xipe mcp [--port N]        # an MCP server over stdio for an AI agent, through the running xipe start
+                           # (started by the MCP client; document/mcp.md)
 xipe refresh -l|-r|-a      # update xipe_totec's own info.json (languages and extensions, the REPL adapter list)
 xipe help [<command>]      # one command a line (`command: description  arguments`); <command> for its description
 
@@ -216,6 +220,7 @@ The methods (the same over `xipe do` and the WebSocket):
 | For the window | `input` (takes one line as it is and reads it as the CLI would; for tezcatl's dialogue window) | implemented ([D-input-line](document/verification/lib-serve_input.exs.md#d-input-line)) |
 | Passes | `eval/status` (the pass being evaluated now; rows in it cannot be changed), `eval/cancel` (stop the running pass, take a waiting one out of the queue; records nothing) | implemented ([D-passes](document/verification/lib-passes.exs.md#d-passes)) |
 | Lists and settings | `roster` (the tables and columns `search` can look up), `card/list` (the whole list of functions, with file, line, class and the number of calc rows), the columns `path` and `line` of `row/list`, `row/set-prev` (set the expected value by hand), `row/set-args` (change only the arguments, without evaluating), `config/set` (change one of the project's settings) | implemented |
+| Classes | `effect/propose` (an agent's class with a one-line reason; evaluates nothing), `effect/approve` (a person takes proposed classes, and ones a changed body took back, many at once) | implemented ([D-effect-approval](document/verification/lib-core.exs.md#d-effect-approval)) |
 | Arity | `arity/set` (a person decides how many arguments a function with default arguments is called with; used by `row/add` and links) | implemented ([D-arity-set](document/verification/lib-core.exs.md#d-arity-set)) |
 | Evaluation | `eval`, `eval/run` | implemented. On the CLI (`xipe eval` / `xipe do ... eval`) synchronous, under `xipe serve` asynchronous (returns a `pass_id`). `eval/run` goes through `Pipeline` (`["eval"]`) |
 | Through Pipeline | `row/update` | implemented. `["edit", "eval"]`: change the arguments and evaluate that row alone ([D-pipeline](document/verification/lib-pipeline.exs.md#d-pipeline)) |
@@ -246,7 +251,8 @@ Elixir (+ mix), OCaml (+ dune), Haskell (+ stack, cabal), Python (+ uv, poetry, 
 | P10 | It runs in the target project's environment. Evaluation, tracing and parsing happen inside the target project's REPL |
 
 P1 in concrete form: side-effect classes (`pure`/`reads`/`writes`) are trusted only when the user set them with `effect/set`, and
-unclassified functions are not evaluated. `writes` are evaluated only with `--include-writes`.
+unclassified functions are not evaluated. `writes` are evaluated only with `--include-writes`. P1 is read as "side effects are
+separated with `effect/set`", not as a precondition on the language ([`document/evolving.md`](document/evolving.md) §1).
 
 ---
 
@@ -357,6 +363,13 @@ Totec decides what the line means (written as on the CLI, `XipeTotec.Input`), an
 `dialogue.text` (`Serve.Input`, [D-input-line](document/verification/lib-serve_input.exs.md#d-input-line)). `help` is one
 "`command: description`" a line; tezcatl's users yank it into the dictionary and use it for completion.
 
+## With an AI agent (MCP)
+
+`xipe mcp` is an MCP server over stdio: an MCP client (Claude Code …) starts it, and it passes ten tools to the running `xipe start`, so
+an agent scans, finds and reads functions, adds rows and evaluates them in the same Book the person sees. The agent only *proposes* a
+function's side-effect class, with a reason; a person approves it (`effect/approve`) before any of that function's rows are evaluated,
+and the agent cannot include writes or set expectations. Setting it up and why it is shaped so: [`document/mcp.md`](document/mcp.md).
+
 ---
 
 ## Documents
@@ -368,6 +381,7 @@ Totec decides what the line means (written as on the CLI, `XipeTotec.Input`), an
 | [`document/scope.md`](document/scope.md) | what is promised to work, what happens outside it, what a person does there, and the work not started |
 | [`document/internals.md`](document/internals.md) | for each use, what is called in what order, and which program does it |
 | [`document/evolving.md`](document/evolving.md) | where the languages beyond today's are going: stages, order, what each needs, what is set aside and why |
+| [`document/mcp.md`](document/mcp.md) | how an AI agent uses it through MCP, the concerns that shaped that, and what is not built yet |
 | [`document/extending.md`](document/extending.md) | for someone adding a language or a command (and their AI): what to start from and what behaviour to meet |
 | [`document/repl-adapter-guide.md`](document/repl-adapter-guide.md) | how to write an adapter for a new language or REPL (the detailed reference from when Elixir was written; the entrance is the extension guide) |
 | [`document/verification/`](document/verification/README.md) | every decision in force (`decisions.md`), every file (`index.md`), and a record per file: what it does, why, the decisions homed in it, what was not chosen |

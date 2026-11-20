@@ -3,7 +3,7 @@
 **The question this document answers**: someone who wants to add a language or a command to Xipe Totec (and the AI they work with) —
 what do they start from, and what behaviour must they meet?
 
-Xipe Totec is a tool for functional-language projects and also a base on which anyone can put languages and commands. This document is
+Xipe Totec is a tool for a project's functions (functional languages first, now others too) and also a base on which anyone can put languages and commands. This document is
 modelled on the steps actually taken when OCaml and Haskell were added on 2026-09-27
 ([D-ocaml-adapter](verification/lib-repl-language-ocaml.exs.md#d-ocaml-adapter),
 [D-haskell-adapter](verification/lib-repl-language-haskell.exs.md#d-haskell-adapter)). What it says was checked against the code of the

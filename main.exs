@@ -61,6 +61,7 @@ defmodule XipeTotec.CLI do
       ["start" | rest] -> start(rest)
       # an alias of `start`
       ["serve" | rest] -> start(rest)
+      ["mcp" | rest] -> mcp(rest)
       ["eval" | rest] -> eval(rest)
       ["do" | rest] -> do_cmd(rest)
       ["dialogue", "depends" | rest] -> dialogue_depends(rest)
@@ -532,6 +533,18 @@ defmodule XipeTotec.CLI do
       end
     end
     if do_repls, do: IO.puts("xipe refresh: repls = #{inspect(info["repls"])}")
+  end
+
+  # `xipe mcp`: an MCP server over stdio, a client of the running `xipe
+  # start` (D-mcp-bridge, document/mcp.md); stdout is MCP's from here on
+  defp mcp(args) do
+    {opts, rest, invalid} = OptionParser.parse(args, strict: [port: :integer])
+    if rest != [] or invalid != [], do: usage_error("xipe mcp: takes only [--port N]")
+
+    Code.require_file("lib/mcp/server.exs", __DIR__)
+    # loaded only here, so named at run time (no compile-time check of a module not loaded yet)
+    server = Module.concat([XipeTotec, Mcp, Server])
+    server.run(Keyword.take(opts, [:port]))
   end
 
   defp usage_error(message) do

@@ -61,16 +61,18 @@ defmodule XipeTotec.Dispatch do
     end
   end
 
-  def handle(book, "row/add", %{"node" => node_id, "args" => args}, ctx)
+  def handle(book, "row/add", %{"node" => node_id, "args" => args} = params, ctx)
       when is_binary(node_id) and is_list(args) do
     # A calc row is one call to one scanned node, so the node has to exist
     # and the args have to match its arity -- checked here rather than left
     # to the REPL, where an arity mismatch would only surface as a crash at
     # eval time.
-    with :ok <- check_args(book, node_id, args, "row/add", ctx[:root]),
+    with :ok <- check_origin(params["origin"]),
+         :ok <- check_args(book, node_id, args, "row/add", ctx[:root]),
          :ok <- check_evaluated(book, node_id, "row/add", ctx) do
       id = Id.ulid()
-      new_book = Core.add_call(book, id, %{node: node_id, args: args})
+      # whose row it is (D-mcp-shared-book): "manual" unless a client says "agent"
+      new_book = Core.add_call(book, id, %{node: node_id, args: args, origin: params["origin"] || "manual"})
       {:ok, new_book, %{"id" => id, "row" => Book.get(new_book, :calls, id)}}
     else
       {:error, error} -> {:error, book, error}
@@ -102,6 +104,48 @@ defmodule XipeTotec.Dispatch do
       RuntimeError -> {:error, book, not_found("node", node_id)}
     end
   end
+
+  # D-mcp-effects: an agent's class, with its reason, never trusted by the
+  # evaluator; a person approves it with effect/approve
+  def handle(book, "effect/propose", %{"id" => node_id, "effect" => effect, "reason" => reason}, _ctx)
+      when is_binary(node_id) and effect in ["pure", "reads", "writes"] and is_binary(reason) do
+    reason = reason |> String.split() |> Enum.join(" ")
+
+    cond do
+      Book.get(book, :nodes, node_id) == nil ->
+        {:error, book, not_found("node", node_id)}
+
+      reason == "" ->
+        {:error, book, invalid_params("effect/propose needs a reason (one line: why this class)")}
+
+      true ->
+        case Core.propose_effect(book, node_id, effect, reason) do
+          {:ok, new_book} -> {:ok, new_book, %{"id" => node_id, "effect" => effect, "effect_source" => "agent", "reason" => reason}}
+          {:error, message} -> {:error, book, invalid_params("effect/propose: " <> message)}
+        end
+    end
+  end
+
+  def handle(book, "effect/propose", _params, _ctx),
+    do: {:error, book, invalid_params("effect/propose needs id (string), effect (pure|reads|writes) and reason (string)")}
+
+  def handle(book, "effect/approve", %{"ids" => ids}, _ctx) when is_list(ids) and ids != [] do
+    if Enum.all?(ids, &is_binary/1) do
+      case Core.approve(book, ids) do
+        {:ok, new_book, rows} ->
+          approved = for row <- rows, do: %{"id" => row.id, "effect" => row.effect, "label" => Core.node_label(row)}
+          {:ok, new_book, %{"approved" => approved}}
+
+        {:error, message} ->
+          {:error, book, invalid_params("effect/approve: nothing approved -- " <> message)}
+      end
+    else
+      {:error, book, invalid_params("effect/approve needs ids ([string])")}
+    end
+  end
+
+  def handle(book, "effect/approve", _params, _ctx),
+    do: {:error, book, invalid_params("effect/approve needs ids ([string], at least one)")}
 
   # the argument counts a function with default arguments can be called with
   #: a person declares them, as effect/set -- the scanner
@@ -740,4 +784,9 @@ defmodule XipeTotec.Dispatch do
 
     {:ok, new_book, if(project_dir, do: Map.put(result, "env", env_status), else: result)}
   end
+
+  defp check_origin(nil), do: :ok
+  defp check_origin(origin) when origin in ["manual", "agent"], do: :ok
+  defp check_origin(_), do: {:error, invalid_params("row/add: origin is manual or agent")}
+
 end

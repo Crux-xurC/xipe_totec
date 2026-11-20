@@ -20,7 +20,7 @@ defmodule InputTest do
     test "help and help <command>" do
       assert {:text, text} = Input.parse("help")
       assert text == Help.text(:window)
-      assert {:text, "row/add node=<node id> args=[...]\n" <> _} = Input.parse("help row/add")
+      assert {:text, "row/add node=<node id> args=[...] [origin=manual|agent]\n" <> _} = Input.parse("help row/add")
       assert {:text, "do " <> _} = Input.parse("xipe help do")
       assert {:error, _} = Input.parse("help nope")
     end

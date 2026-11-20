@@ -22,7 +22,7 @@ decisions are listed in [decisions.md](decisions.md).
 
 | File | What | Decisions |
 |---|---|---|
-| [`lib/core.exs`](lib-core.exs.md) | Pure functions over the Book: rows, effects, arities, the reference graph, the plan, folding results. | **D-referential-transparency, D-named-rows-only, D-plan-run-apply, D-reference-values, D-effect-classes, D-arity-set** |
+| [`lib/core.exs`](lib-core.exs.md) | Pure functions over the Book: rows, effects, arities, the reference graph, the plan, folding results. | **D-referential-transparency, D-named-rows-only, D-plan-run-apply, D-reference-values, D-effect-classes, D-effect-approval, D-arity-set** |
 | `lib/book.exs` | The Book: six tables (`sheets`, `nodes`, `calls`, `links`, `runs`, `providers`), each `id => latest row`, and lookups by natural key. | D-identity |
 | `lib/id.exs` | ULIDs for row ids. | D-identity |
 | [`lib/identity.exs`](lib-identity.exs.md) | The rescan rule: an id is reused only on an exact natural key. | **D-identity, D-anykey-shape, D-node-marks** |
@@ -132,6 +132,9 @@ decisions are listed in [decisions.md](decisions.md).
 | `lib/serve_socket.exs` | The WebSocket: one dialogue slot per connection, the reply envelope, `Origin` refused. | D-envelope, D-serve-project |
 | [`lib/protocol.exs`](lib-protocol.exs.md) | The wire shape. | **D-envelope** |
 | [`lib/session.exs`](lib-session.exs.md) | `session.json`. | **D-session-record** |
+| [`lib/mcp/server.exs`](lib-mcp-server.exs.md) | `xipe mcp`: MCP over stdio for an AI agent. | **D-mcp-bridge, D-mcp-eval-wait, D-mcp-tools, D-mcp-effects, D-mcp-expectations, D-mcp-shared-book** |
+| `lib/mcp/upstream.exs` | The bridge's WebSocket to `xipe start`; completed passes by id. | D-mcp-bridge, D-mcp-eval-wait |
+| `lib/mcp/tools.exs` | The bridge's tools and their schemas. | D-mcp-tools, D-mcp-effects, D-mcp-expectations |
 | [`lib/workspace.exs`](lib-workspace.exs.md) | Which project, and where its files are. | **D-workspace** |
 | `lib/project_registry.exs` | 3-digit ids matched by `project.json`. | D-workspace |
 | [`lib/project_config.exs`](lib-project_config.exs.md) | Per-project settings. | **D-project-config** |

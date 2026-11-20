@@ -72,7 +72,11 @@ defmodule XipeTotec.Methods do
     "row/add" => %{
       route: :dispatch,
       writes: true,
-      params: [%{name: "node", kind: :node, required: true, list: false}, %{name: "args", kind: :value, required: true, list: true}],
+      params: [
+        %{name: "node", kind: :node, required: true, list: false},
+        %{name: "args", kind: :value, required: true, list: true},
+        %{name: "origin", kind: :choice, required: false, list: false, values: ~w(manual agent)}
+      ],
       summary: "make a calc row"
     },
     "row/remove" => %{route: :dispatch, writes: true, params: [%{name: "id", kind: :call, required: true, list: false}], summary: "remove a calc row"},
@@ -102,6 +106,22 @@ defmodule XipeTotec.Methods do
         %{name: "effect", kind: :choice, required: true, list: false, values: ~w(pure reads writes)}
       ],
       summary: "classify a function's side effects (an unclassified function is never evaluated)"
+    },
+    "effect/propose" => %{
+      route: :dispatch,
+      writes: true,
+      params: [
+        %{name: "id", kind: :node, required: true, list: false},
+        %{name: "effect", kind: :choice, required: true, list: false, values: ~w(pure reads writes)},
+        %{name: "reason", kind: :value, required: true, list: false}
+      ],
+      summary: "propose a function's class with a one-line reason (an agent's; nothing is evaluated until a person approves it)"
+    },
+    "effect/approve" => %{
+      route: :dispatch,
+      writes: true,
+      params: [%{name: "ids", kind: :node, required: true, list: true}],
+      summary: "approve classes as they stand: proposed ones, and ones a changed body took back (all or none)"
     },
     "arity/set" => %{
       route: :dispatch,

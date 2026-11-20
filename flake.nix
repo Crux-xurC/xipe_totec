@@ -1,5 +1,5 @@
 {
-  description = "Xipe Totec — spreadsheet-like structure (tables/IDs/references/recalculation) for functional-language projects";
+  description = "Xipe Totec — spreadsheet-like structure (tables/IDs/references/recalculation) for a project's functions";
 
   inputs = {
     # The same nixpkgs revision as tezcatl's flake.nix on purpose: the two
@@ -56,11 +56,11 @@
             elixir "$XIPE_TOTEC_DIR/main.exs" "$@"
           }
 
-          echo "--------------------------------------------------"
-          echo "🔧  Xipe Totec dev shell"
-          echo "--------------------------------------------------"
-          echo "  xipe <args>  : run the CLI (elixir main.exs <args>)"
-          echo "  tests        : ./test/run.sh"
+          echo "--------------------------------------------------" >&2
+          echo "🔧  Xipe Totec dev shell" >&2
+          echo "--------------------------------------------------" >&2
+          echo "  xipe <args>  : run the CLI (elixir main.exs <args>)" >&2
+          echo "  tests        : ./test/run.sh" >&2
         '';
       };
     };

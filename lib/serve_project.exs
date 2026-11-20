@@ -56,8 +56,8 @@ defmodule XipeTotec.Serve.Project do
   scan's own result as its reply -- the reply is just deferred until the
   scan process reports. The scan reads a snapshot of the book; its sheets,
   nodes and links are then folded into the book *as it is then*, keeping
-  each surviving node's `effect`/`effect_source` from the current book (an
-  `effect/set` made during the scan wins). A scan requested while one runs
+  each surviving node's class from the current book (an `effect/set` made
+  during the scan wins), held to the scanned body (`Scanner.carry_class/2`). A scan requested while one runs
   waits for it and then runs once more for every such waiter together.
   """
 
@@ -581,7 +581,8 @@ defmodule XipeTotec.Serve.Project do
       Map.new(scanned.nodes, fn {id, row} ->
         case Map.get(book.nodes, id) do
           nil -> {id, row}
-          current -> {id, Map.merge(row, Map.take(current, [:effect, :effect_source]))}
+          # a class set meanwhile wins, held to the scanned body (D-effect-approval)
+          current -> {id, Map.merge(row, XipeTotec.Scanner.carry_class(current, row[:body_hash]))}
         end
       end)
 

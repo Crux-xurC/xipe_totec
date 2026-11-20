@@ -6,7 +6,7 @@ from the caller.
 
 **Decisions homed here**: [D-referential-transparency](#d-referential-transparency), [D-named-rows-only](#d-named-rows-only),
 [D-plan-run-apply](#d-plan-run-apply), [D-reference-values](#d-reference-values), [D-effect-classes](#d-effect-classes),
-[D-arity-set](#d-arity-set)
+[D-effect-approval](#d-effect-approval), [D-arity-set](#d-arity-set)
 
 <a id="d-referential-transparency"></a>
 
@@ -121,7 +121,8 @@ person set it with `effect/set` (`effect_source: "user"`). It is never inferred.
   run only with `include_writes` (`--include-writes`, `include_writes=true`; the string `"true"` counts)
 - `exclusion_reason/3` says why a named row did not reach the plan, in the order the plan checks (unknown id → circular reference → node
   gone → not classified, with the `effect/set` to type → `writes` without `include_writes`); the Runner returns them as `not_run`
-- A rescan keeps a node's effect (the scanner carries it over)
+- A rescan keeps a node's effect (the scanner carries it over); a person's class holds only for the body it was given for
+  ([D-effect-approval](#d-effect-approval))
 
 **Why**: P1 — a function's side effects cannot be known from outside reliably, and a wrong guess writes for real. A row that silently does
 nothing was the next problem (2026-09-24), hence the reasons.
@@ -132,6 +133,43 @@ nothing was the next problem (2026-09-24), hence the reasons.
 (`--include-writes`); tests `test/core_test.exs`, `test/runner_test.exs`.
 
 **Earlier**: README P1.
+
+<a id="d-effect-approval"></a>
+
+## D-effect-approval — a class holds for the body it was approved for; an agent only proposes
+
+**Decided** (2026-11-21, crux; the Xipe Totec side of [D-mcp-effects](lib-mcp-server.exs.md#d-mcp-effects) and
+[D-mcp-shared-book](lib-mcp-server.exs.md#d-mcp-shared-book)): `effect_source` says whose a node's class is, and only `"user"` is trusted
+(D-effect-classes, unchanged).
+
+- **The approval's body**: `effect/set` and `effect/approve` record the node's `body_hash` as `effect_hash`. A rescan
+  (`Scanner.put_defs/3`) finding another body turns `"user"` into `"changed"`: the class stays and is shown, but the function is not
+  evaluated until a person approves it again (P2: what is evaluated is what a person looked at). This holds for a person's own classes
+  too, not only an agent's
+- **Approvals from before `effect_hash`**: taken as given for the body the next rescan finds (once), so existing projects keep their
+  classes
+- **`effect/propose id effect reason`** (pure / reads / writes, a one-line reason, newlines folded): `effect_source: "agent"` with
+  `effect_reason`. Refused over a class a person set for the body as it is; allowed over a `"changed"` one
+- **`effect/approve ids=[…]`**: a person takes classes as they stand — `"agent"` and `"changed"` ones — writing `"user"` and the body's
+  hash now. All or none: an unknown id, one already a person's or one with nothing to approve refuses the call. It is also "classifying
+  many at once" for proposals (`effect/set` stays one node at a time)
+- `exclusion_reason/3` names the two new states (proposed by an agent, with its reason; body changed since approved) with the
+  `effect/approve` to type
+- **Whose a row is**: `row/add` takes `origin` (`manual`, the default, or `agent`); the eval table shows `origin`, and both the eval and
+  card tables show `effect_source` and `effect_reason`
+- Elixir's `body_hash` was the head only, and one def per clause; it is now one hash per function over every clause's head, guard and
+  body with positions stripped (moving a function keeps its approval). The other scanners hash the definition's text
+
+**Why**: the agent edits files, so a function approved `pure` may later write; carrying the class over by name alone (as before) would
+evaluate it unseen. Proposals let an agent take over the first, tedious classification without removing the guard.
+
+**Alternatives**: parameters on `effect/set` (`source=agent`, a list of ids) — the person's and the agent's entrance would then differ only
+by the bridge's promise; taking every existing approval back at the first rescan — strict, but every project would stop evaluating until
+reclassified.
+
+**Files**: `lib/core.exs` (`set_effect/3`, `propose_effect/4`, `approve/2`, `exclusion_reason/3`), `lib/scanner.exs` (`put_defs/3`),
+`lib/scanner/elixir.exs` (`body_hash`), `lib/dispatch.exs`, `lib/methods.exs`, `lib/eval_table.exs`, `lib/card_table.exs`; test
+`test/effect_approval_test.exs`.
 
 <a id="d-arity-set"></a>
 

@@ -139,11 +139,13 @@ defmodule XipeTotec.Scanner do
           span: def.span,
           body_hash: def.body_hash,
           status: "live",
-          effect: prior[:effect] || "unknown",
-          effect_source: prior[:effect_source],
+          # the class, still a person's only for the same body (D-effect-approval)
+          effect: "unknown",
           # what a person declared with arity/set (default arguments) stays, like effect
           arities: prior[:arities]
         }
+
+        row = Map.merge(row, carry_class(prior, def.body_hash))
 
         {Book.put(book, :nodes, id, row), Map.put(node_ids, {def.module, def.name, def.anykey}, id)}
       end)
@@ -160,6 +162,31 @@ defmodule XipeTotec.Scanner do
       end)
 
     {book, node_ids}
+  end
+
+  @doc """
+  A node's class carried to a body found by a scan (D-effect-approval): the
+  `effect`, `effect_source`, `effect_hash` and `effect_reason` of `prior`,
+  except that a person's class holds only for the body it was given for --
+  another body turns `"user"` into `"changed"` (kept, shown, not trusted)
+  until a person approves it again. An approval from before `effect_hash`
+  was recorded is taken as given for the body found now (once). Used here
+  and where `xipe start` folds a scan into its current book.
+  """
+  @spec carry_class(map(), String.t() | nil) :: map()
+  def carry_class(prior, body_hash) do
+    source = prior[:effect_source]
+    approved = prior[:effect_hash]
+
+    {source, hash} =
+      cond do
+        source != "user" -> {source, approved}
+        approved == nil -> {"user", body_hash}
+        approved == body_hash -> {"user", body_hash}
+        true -> {"changed", approved}
+      end
+
+    %{effect: prior[:effect] || "unknown", effect_source: source, effect_hash: hash, effect_reason: prior[:effect_reason]}
   end
 
   @doc """

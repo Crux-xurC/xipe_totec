@@ -18,8 +18,8 @@ defmodule XipeTotec.EvalTable do
 
   alias XipeTotec.Book
 
-  @columns ~w(id node module name anykey effect visibility path args result repr result_type state compare error
-              eval_count prev prev_source result_source result_at commit dirty)
+  @columns ~w(id node module name anykey effect effect_source effect_reason visibility path args result repr result_type state compare error
+              eval_count prev prev_source result_source result_at commit dirty origin)
 
   @doc "The column names, in display order."
   @spec columns() :: [String.t()]
@@ -44,6 +44,8 @@ defmodule XipeTotec.EvalTable do
       "name" => node[:name],
       "anykey" => node[:anykey],
       "effect" => node[:effect],
+      "effect_source" => node[:effect_source],
+      "effect_reason" => node[:effect_reason],
       "visibility" => node[:visibility],
       "path" => sheet[:path],
       "args" => call.args,
@@ -59,7 +61,8 @@ defmodule XipeTotec.EvalTable do
       "result_source" => call[:result_source],
       "result_at" => call[:result_at],
       "commit" => call[:commit],
-      "dirty" => call[:dirty]
+      "dirty" => call[:dirty],
+      "origin" => call[:origin]
     }
   end
 end

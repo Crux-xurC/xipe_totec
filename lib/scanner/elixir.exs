@@ -230,8 +230,18 @@ defmodule XipeTotec.Scanner.Elixir do
 
   # --- node extraction (pure AST walk, no compilation) ---
 
+  # one def per function: its clauses' hashes joined, so `body_hash` changes
+  # when any clause's head or body does (D-effect-approval); span the first
+  # clause's
   defp extract_defs(quoted) do
-    for {module, body} <- modules_in(quoted, nil), def <- extract_def_clauses(body, module), do: def
+    clauses = for {module, body} <- modules_in(quoted, nil), def <- extract_def_clauses(body, module), do: def
+
+    clauses
+    |> Enum.group_by(&{&1.module, &1.name, &1.arity})
+    |> Enum.map(fn {_key, [first | _] = group} ->
+      %{first | body_hash: body_hash(Enum.map(group, & &1.body_hash))}
+    end)
+    |> Enum.sort_by(& &1.span)
   end
 
   # `{full module name, body}` for every `defmodule` at the top of `ast` or
@@ -256,7 +266,7 @@ defmodule XipeTotec.Scanner.Elixir do
     body
     |> flatten_block()
     |> Enum.flat_map(fn
-      {kind, meta, [head | _]} when kind in [:def, :defp, :defdelegate] ->
+      {kind, meta, [head | _] = parts} when kind in [:def, :defp, :defdelegate] ->
         case unguarded(head) do
           {name, _, args} when is_atom(name) ->
             arity = if is_list(args), do: length(args), else: 0
@@ -269,7 +279,7 @@ defmodule XipeTotec.Scanner.Elixir do
                 anykey: nil,
                 visibility: if(kind == :defp, do: "private", else: "public"),
                 span: span_of(meta),
-                body_hash: body_hash({kind, name, arity, args})
+                body_hash: body_hash({kind, parts})
               }
             ]
 
@@ -291,7 +301,7 @@ defmodule XipeTotec.Scanner.Elixir do
 
   defp span_of(meta), do: meta[:line]
 
-  # a hash of the head with positions stripped (the body is not hashed)
+  # a hash of a clause (head, guard and body) with positions stripped
   defp body_hash(term) do
     :crypto.hash(:sha256, :erlang.term_to_binary(strip_meta(term)))
     |> Base.encode16(case: :lower)
@@ -299,6 +309,7 @@ defmodule XipeTotec.Scanner.Elixir do
 
   defp strip_meta({a, _meta, c}) when is_list(c) or is_nil(c), do: {a, [], strip_meta(c)}
   defp strip_meta({a, _meta, c}), do: {a, [], strip_meta(c)}
+  defp strip_meta({a, b}), do: {strip_meta(a), strip_meta(b)}
   defp strip_meta(list) when is_list(list), do: Enum.map(list, &strip_meta/1)
   defp strip_meta(other), do: other
 
