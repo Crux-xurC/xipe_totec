@@ -48,6 +48,8 @@ decisions are listed in [decisions.md](decisions.md).
 | `lib/scanner/csharp.exs` | C# read as text (comments, strings, `#if` branches blanked; namespaces, types and methods by their braces); `anykey` the parameters' types, the shape, the marks (`async`, `typed`) and a refusal (a type parameter in no parameter). | D-scanners, D-csharp-adapter, D-anykey-shape, D-node-marks |
 | `lib/scanner/java.exs`, `lib/scanner/java/scan.java` | Java read by the JDK's own parser (`java scan.java`, once per scan; nothing compiled); `anykey` the parameters' types, the shape, the marks (`async`, `varargs`, `typed`), a refusal (a type parameter in no parameter); names resolved through the package, imports and static imports. | D-scanners, D-java-adapter, D-anykey-shape, D-node-marks |
 | `lib/scanner/javascript.exs` | JavaScript and TypeScript read as text (modules are paths; IIFE bodies as the top level; ES imports, `require`). | D-scanners, D-map-only-language |
+| `lib/scanner/go.exs`, `lib/scanner/go/scan.go` | Go read by its own parser (`go run scan.go`, once per scan; nothing of the project compiled); packages by import path, functions and methods, `vendor/` left out, build-tag variants reported; links through imports and receivers. Map-only. | D-scanners, D-map-only-language |
+| `lib/scanner/php.exs`, `lib/scanner/php/scan.php` | PHP read by its own lexer (`token_get_all` with `TOKEN_PARSE`, once per scan; nothing run); classes' methods and namespaces' functions, `vendor/` left out, guarded helpers reported; links as PHP resolves names. Map-only. | D-scanners, D-map-only-language |
 | `lib/lsp/transport.exs` | How a language server is reached: the behaviour. | D-scanners |
 | `lib/lsp/transport/relay.exs` | Through tezcatl's `/lsp` relay. | D-scanners |
 | `lib/lsp/transport/stdio.exs` | Started by Xipe Totec itself, in the project's environment. | D-scanners, D-project-env |
@@ -67,6 +69,7 @@ decisions are listed in [decisions.md](decisions.md).
 | [`lib/repl/source_sanitize.exs`](lib-repl-source_sanitize.exs.md) | Loading scripts without their top-level code. | **D-source-sanitize** |
 | [`lib/repl/language.exs`](lib-repl-language.exs.md) | A language's declaration (the behaviour); a map-only language leaves the REPL out. | **D-language-adapter, D-map-only-language** |
 | `lib/repl/language/javascript.exs`, `lib/repl/language/typescript.exs` | JavaScript (`js` `mjs` `cjs` `jsx`), TypeScript (`ts` `tsx` `mts` `cts`): map-only, `Scanner.JavaScript`, pnpm / yarn / bun / npm. | D-map-only-language |
+| `lib/repl/language/go.exs`, `lib/repl/language/php.exs` | Go (`go`, go.mod) and PHP (`php`, composer.json): map-only, `Scanner.Go` and `Scanner.Php` (their own parsers). | D-map-only-language |
 | `lib/repl/language/elixir.exs` | Elixir: `ex`/`exs`, `iex`, `mix`, its scanners and adapter. | D-language-adapter, D-source-sanitize |
 | [`lib/repl/language/ocaml.exs`](lib-repl-language-ocaml.exs.md) | OCaml: `ml`, `ocaml` + embody, `dune`. | **D-ocaml-adapter** |
 | [`lib/repl/language/haskell.exs`](lib-repl-language-haskell.exs.md) | Haskell: `hs`, GHCi + embody, `stack` / `cabal`. | **D-haskell-adapter** |
@@ -146,6 +149,7 @@ guard their decisions.
 | `test/live/repl_iex_test.exs`, `repl_ocaml_test.exs`, `repl_haskell_test.exs`, `repl_python_test.exs` | Against real `iex`, `ocaml` (+ dune), `ghci` (+ cabal, stack), `python3`; skipped when the tool is not on PATH. |
 | `test/live/repl_csharp_test.exs` | C# through `dotnet fsi` with embody's seam `embody.cs`, through C#'s launch; an `embody.cs` of another protocol; skipped without `dotnet`. |
 | `test/live/repl_java_test.exs` | Java through Scala's REPL with embody's seam `embody.java`, through Java's launch (maven offline); a failing build, a timeout, an `embody.java` of another protocol; skipped without `java`, `javac`, `mvn`, `scala`. |
+| `test/live/scan_map_test.exs` | Go's and PHP's maps by their own parsers (`go`, `php`), each skipped without its tool. |
 | `test/fixtures/calc_sample/` | A small script-mode Elixir project (also used by tezcatl's E2E). |
 | `test/fixtures/ocaml_sample/`, `test/fixtures/ocaml_dune/` | OCaml: plain files with top-level effects; a dune project with a wrapped library. |
 | `test/fixtures/haskell_sample/` | Haskell: an export list hiding a function, a module importing another, a `main`. |
@@ -159,4 +163,5 @@ guard their decisions.
 |---|---|
 | [`document/scope.md`](../scope.md) | What is promised to work, what happens outside it, what a person does, and the work not done — citing these records. |
 | [`document/how-to-use.md`](../how-to-use.md), [`internals.md`](../internals.md), [`extending.md`](../extending.md), [`repl-adapter-guide.md`](../repl-adapter-guide.md) | How to use it; what is called in what order; adding a language or a command; writing a REPL adapter. |
+| [`document/mcp.md`](../mcp.md) | Xipe Totec as an MCP server: the concerns found and the decisions taken before building it (planned). |
 | `document/verification/` | This directory. |

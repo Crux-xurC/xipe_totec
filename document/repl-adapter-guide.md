@@ -54,7 +54,7 @@ lib/repl/
   sender_direct.exs       (XipeTotec.Repl.Sender.Direct)       -- execution: over a plain pipe
   session.exs             (XipeTotec.Repl.Session)             -- generic: readiness, leaving
   language.exs            (XipeTotec.Repl.Language)            -- the behaviour of a declaration
-  language/{elixir,ocaml,haskell,python,fsharp,csharp,scala,java,javascript,typescript}.exs
+  language/{elixir,ocaml,haskell,python,fsharp,csharp,scala,java,javascript,typescript,go,php}.exs
                                                                -- computing: each language's declaration
   eval_template.exs       (XipeTotec.Repl.EvalTemplate)        -- computing: Elixir's call + safety wrapper
                                                                   + repr/compare + markers, all in one

@@ -1003,6 +1003,25 @@ written per language and not converted yet) ([D-languages-per-pass](verification
 - Not supported: instance methods, non-public methods, a method whose type parameter appears in no parameter (`<T> T make()`, refused
   by `row/add` with the reason), arguments written in Java, gradle
 
+### 9.9 Go and PHP — the map only (2026-11-20)
+
+([D-map-only-language](verification/lib-repl-language.exs.md#d-map-only-language))
+
+- `.go` and `.php` files are scanned: cards, links, `search`, `graph/*`. They are **not evaluated**: `row/add` refuses their functions
+  ("… is a map-only language …"), and nothing of them runs. Evaluating them (a driver) is left to the users (`evolving.md` §8)
+- They are read by the languages' own parsers, so `go` (Go) or `php` (PHP) must be in the target's environment to scan; Go's reader runs
+  with `go run` from Xipe Totec's own directory (nothing of the project is compiled, nothing fetched), PHP's with `php` (the file is only
+  tokenised; a syntax error is reported as the file's `scan_failed`). `vendor/` is not read (and Go's `testdata/`)
+- Go: a module is the package's import path (`example.com/calc/geo`; the directory when there is no `go.mod`); functions are named as
+  they are (`Mid`), methods with their receiver's type (`Point.Scale`); address one as `module=example.com/calc/geo name=Point.Scale`.
+  `visibility` is `public` for an exported name. Links: calls of the same package, of an import (`calc.Half`, an alias `c.Add`), and of
+  the receiver's methods (`p.norm()`)
+- PHP: a module is a class's full name (`App\Geo\Shapes`) for its methods, or the namespace (`App\Util`; `\` for the global one) for its
+  functions. `visibility` is `public` unless the method is `private` / `protected`. Links: as PHP resolves a name (`use`, `use
+  function`, the namespace then the global one, `self::`, `static::`, `parent::`, `$this->`), compared without case
+- A name two files define (Go's `name_linux.go` / `name_windows.go`, PHP's guarded `if (!function_exists(…))` helpers) is one card, the
+  first file's; `scan/run`'s `link_failures` names both places
+
 ## 10. Environment variables
 
 | Variable | Meaning |

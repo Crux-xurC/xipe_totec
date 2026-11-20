@@ -47,13 +47,13 @@ Nothing new in the design: every plan sits on the existing division of work.
 | Python | `python -i` | `embody.py` | map + evaluation | **done** 2026-11-16 ([D-python-adapter](verification/lib-repl-language-python.exs.md#d-python-adapter)); applied to toolz 2026-11-17 |
 | Rust through Rustler | iex (as today) | an opt-in convention on the Elixir side | map (Elixir side) + evaluation | works today without a new adapter (§5); the convention is not made |
 | JavaScript / TypeScript | — | — | **map only** (decided 2026-11-17, §4.1) | **done** 2026-11-17 ([D-map-only-language](verification/lib-repl-language.exs.md#d-map-only-language)) |
-| Go | a driver | `embody.go` | map + evaluation | planned |
+| Go | — | — | **map only** (decided 2026-11-20, §4.3) | **done** 2026-11-20 ([D-map-only-language](verification/lib-repl-language.exs.md#d-map-only-language)), read by Go's own parser; a driver left to the users (§8) |
 | F# | `dotnet fsi` | `embody.fsx` | map + evaluation | **done** 2026-11-20 ([D-fsharp-adapter](verification/lib-repl-language-fsharp.exs.md#d-fsharp-adapter)) |
 | Scala | Scala's REPL | `embody.scala` | map + evaluation | **done** 2026-11-20 ([D-scala-adapter](verification/lib-repl-language-scala.exs.md#d-scala-adapter)); sbt and scala-cli, mill later |
 | C# (F# as the window, a seam `embody.cs`) | `dotnet fsi` | `embody.fsx` + `embody.cs` | map + evaluation | **done** 2026-11-20 ([D-csharp-adapter](verification/lib-repl-language-csharp.exs.md#d-csharp-adapter)); reading C# by Roslyn's parser is a proposed revision (§4.4) |
 | Java (Scala as the window, a seam `embody.java`) | Scala's REPL | `embody.scala` + `embody.java` | map + evaluation | **done** 2026-11-20 ([D-java-adapter](verification/lib-repl-language-java.exs.md#d-java-adapter)); maven, gradle later |
-| PHP | a driver | `embody.php` | mostly map | planned; the map first |
-| Rust alone | — | — | — | **set aside** (§6) |
+| PHP | — | — | **map only** (decided 2026-11-20, §4.7) | **done** 2026-11-20 ([D-map-only-language](verification/lib-repl-language.exs.md#d-map-only-language)), read by PHP's own lexer; a driver left to the users (§8) |
+| Rust alone | — | — | — | **set aside** (§6), left to the users (§8) |
 | TypeScript's logic evaluated | — | — | — | **set aside** (§6) |
 
 ### Order
@@ -70,7 +70,8 @@ after Scala).
 5. Scala: done — `embody.scala` Scala's own; the second window
 6. C#: done — on F#'s adapter, with a seam `embody.cs` (§4.4): the first pair of a language and another language's REPL
 7. Java: done — on Scala's adapter, with a seam `embody.java` (§4.6): the same pattern
-8. PHP, then Go: the drivers; the map first
+8. PHP and Go: done as maps (crux, 2026-11-20: the map completes Xipe Totec for now; their drivers, like Rust alone, are
+   left to the users, §8)
 
 ## 4. Per language
 
@@ -106,7 +107,18 @@ the target — a special case no other language has, and a distortion of Xipe To
   away without changing the generic layer, recorded as `session_hung`, not `timeout`. `max_heap_size` does not count native memory
 - Whether Rust's own side gets cards too (rust-analyzer), matched with the Elixir side at the boundary, is not decided
 
-### 4.3 Go — a driver
+### 4.3 Go — the map (a driver left to the users)
+
+**Decided** 2026-11-20 (crux): Go stops at the map, which completes Xipe Totec's languages for now; evaluating Go (the driver below) is
+left to the users (§8). The map is read by **Go's own parser** (`go/parser`, `go/ast` from the standard library: `lib/scanner/go/scan.go`
+run once per scan with `go run` from its own directory, no module, nothing fetched — every Go project has `go`, P10), not gopls (a
+server) nor a text scanner. A package is its import path (the nearest `go.mod`'s `module` and the directory); functions and methods
+(`T.M`) are cards, `anykey` `nil` (no overloads); `vendor/`, `testdata/`, `init` and `_` left out; a name two files of a package define
+(build-tag variants) is one card, the first file's, each file told. Links: the own package, an import by its name or alias, the
+receiver's methods ([D-map-only-language](verification/lib-repl-language.exs.md#d-map-only-language), `Scanner.Go`).
+
+What a driver would be (2026-11-16, kept for whoever adds evaluation):
+
 
 - Declaration: language `go`, build tool go (`go.mod`), the REPL a driver `embody.go`: for each entry it generates a temporary `main`
   with the bindings so far and runs `go run` (1.8 s the first time, 0.07–0.2 s with a warm cache). yaegi is not used (§5)
@@ -315,7 +327,19 @@ per module into its own `target/` (`appendOutput` gave one entry for two modules
 5. **Tests and the record**: `test/java_adapter_test.exs`, `test/live/repl_java_test.exs`, the CLI on a copy; D-java-adapter in
    `verification/`, `scope.md`, `how-to-use.md` §9, README, this §3; the live tests of the other languages before committing
 
-### 4.7 PHP — mostly the map
+### 4.7 PHP — the map (a driver left to the users)
+
+**Decided** 2026-11-20 (crux): PHP stops at the map; evaluating it (the driver below) is left to the users (§8). The map is read by
+**PHP's own lexer** (`token_get_all` with `TOKEN_PARSE`, so PHP's parser checks each file: `lib/scanner/php/scan.php` run once per scan
+with `php`; nothing of the project is loaded or run), not phpactor (no call hierarchy) nor a text scanner. A class's methods (module the
+class's full name, `App\Geo\Shapes`) and functions (module the namespace, `\` for the global one) are cards, `anykey` `nil`; closures,
+arrow functions and anonymous classes' methods left out; `vendor/` left out; a function two files define (a guarded helper) is one card,
+the first file's, each file told. Links as PHP resolves names, without case: `use`, `use function`, the namespace, the global fallback,
+`self::`, `static::`, `parent::`, `$this->` ([D-map-only-language](verification/lib-repl-language.exs.md#d-map-only-language),
+`Scanner.Php`).
+
+What a driver would be (2026-11-16, kept for whoever adds evaluation):
+
 
 - Declaration: language `php`, a driver `embody.php`, build tool composer (`composer.json`)
 - Driver: reads stdin and `eval()`s; catches `ParseError` and `Throwable`; `register_shutdown_function` prints the marker on a fatal
@@ -393,3 +417,21 @@ One language at a time; checks recorded before code.
 7. A new declaration takes effect after `xipe refresh -l`; registering is part of the work
 8. Try it on a project not written for it, on a copy of Xipe Totec with its own `tables/` (a running `xipe start` makes the CLI use
    its project, whatever `xipe choice project` chose)
+
+## 8. Left to the users
+
+Xipe Totec's languages are complete for now (crux, 2026-11-20): Elixir, OCaml, Haskell, Python, F#, C#, Scala and Java mapped and
+evaluated; JavaScript, TypeScript, Go and PHP mapped. What is left is open work for whoever needs it, each with what was found:
+
+| What | Where it stands | Start from |
+|---|---|---|
+| Evaluating Go | a driver `embody.go` (a temporary `main` per entry, `go run`); re-running earlier entries, unexported functions, `(value, error)` | §4.3, §5 |
+| Evaluating PHP | a driver `embody.php` (`eval()` over stdin, `register_shutdown_function` for fatal errors) | §4.7, §5 |
+| Rust alone | evcxr too slow and fragile over a pipe; a driver pays Rust's compile time per entry | §6, §5 |
+| Rust through Rustler, `ResourceArc` | evaluates today as Elixir; an opt-in convention for a resource's contents is designed, not made | §4.2 |
+| Evaluating TypeScript's and JavaScript's logic | set aside: loading without the top level needs a parser Node lacks | §6 |
+| Java with gradle | maven only; gradle needs its daemon and an init script to stay offline | §4.6 |
+| C# read by Roslyn's parser | a proposed revision of the text scanner | §4.4 |
+| Type arguments of a generic method whose type parameter is in no parameter | refused by `row/add` in C# and Java | D-anykey-shape |
+
+Each follows §7 above: checks on the real tool recorded before code, the generic layer left alone, embody's principles kept.

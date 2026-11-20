@@ -34,16 +34,18 @@ defmodule InfoTest do
       %{"name" => "npm", "markers" => ["package-lock.json", "package.json"]}
     ]
 
-    assert refreshed["languages"] == ["csharp", "elixir", "fsharp", "haskell", "java", "javascript", "ocaml", "python", "scala", "typescript"]
+    assert refreshed["languages"] == ["csharp", "elixir", "fsharp", "go", "haskell", "java", "javascript", "ocaml", "php", "python", "scala", "typescript"]
 
     assert refreshed["extensions"] == %{
              "ex" => ["elixir"],
              "exs" => ["elixir"],
              "cs" => ["csharp"],
              "fs" => ["fsharp"],
+             "go" => ["go"],
              "fsx" => ["fsharp"],
              "hs" => ["haskell"],
              "java" => ["java"],
+             "php" => ["php"],
              "ml" => ["ocaml"],
              "py" => ["python"],
              "scala" => ["scala"],
@@ -71,7 +73,10 @@ defmodule InfoTest do
              "python" => "python",
              "scala" => "scala",
              "javascript" => nil,
-             "typescript" => nil
+             "typescript" => nil,
+             # map-only (evolving.md §4.3, §4.7)
+             "go" => nil,
+             "php" => nil
            }
 
     assert refreshed["build_tools"] == %{
@@ -83,6 +88,8 @@ defmodule InfoTest do
                %{"name" => "cabal", "markers" => ["*.cabal", "cabal.project"]}
              ],
              "java" => [%{"name" => "maven", "markers" => ["pom.xml"]}],
+             "go" => [%{"name" => "go", "markers" => ["go.mod"]}],
+             "php" => [%{"name" => "composer", "markers" => ["composer.json"]}],
              "ocaml" => [%{"name" => "dune", "markers" => ["dune-project"]}],
              "python" => [
                %{"name" => "uv", "markers" => ["uv.lock"]},

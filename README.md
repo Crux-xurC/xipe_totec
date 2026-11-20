@@ -75,6 +75,7 @@ What is promised to work, and what happens outside the promise, is in [`document
   evaluation started with an embody file of another protocol ends at once saying embody must be updated — Scala's `embody.scala`
   (`Embody.protocol`; this xipe_totec: 2), C#'s seam `embody.cs` (`EmbodyCs.Seam.Protocol`; this xipe_totec: 1) and Java's seam
   `embody.java` (`embodyjava.embody.PROTOCOL`; this xipe_totec: 1).
+- For **Go** and **PHP** projects (maps only): `go` / `php` in the target's environment, to read them by their own parsers.
 - Optional: **elixir-ls** for scanning Elixir (without it, Xipe Totec's own scanner is used).
 
 ---
@@ -158,7 +159,7 @@ Hex packages it uses (cowboy, gun, erlexec …) come from `nix/relay-packages.ni
 ## How far it works now
 
 As of 2026-11-20, all 55 files and 630 cases of `./test/run.sh` pass. Apart from them there are tests that start real REPLs
-(`test/live/`: `iex` 12, `ocaml` 6, `ghci` 7, `python3` 5, `dotnet fsi` 11, C# through `dotnet fsi` 4, Scala's REPL 10, Java through Scala's REPL 7; the OCaml, Haskell, Python, F#, C#, Scala and Java ones are skipped when their system is not on PATH).
+(`test/live/`: `iex` 12, `ocaml` 6, `ghci` 7, `python3` 5, `dotnet fsi` 11, C# through `dotnet fsi` 4, Scala's REPL 10, Java through Scala's REPL 7, Go's and PHP's maps 4; the OCaml, Haskell, Python, F#, C#, Scala, Java, Go and PHP ones are skipped when their system is not on PATH).
 
 **From the CLI, scan → making calc rows → real evaluation → persisting the results works end to end for Elixir projects.** OCaml
 (`.ml`) works the same way; for dune projects the libraries depended on are loaded from `dune ocaml top`
@@ -178,7 +179,7 @@ by the JDK's own parser ([D-java-adapter](document/verification/lib-repl-languag
 the compiler of the project's own version from sbt or scala-cli, nothing fetched, scripts loaded with their definitions only, evaluated
 in Scala's REPL through `embody.scala` and read by Scala's own parser
 ([D-scala-adapter](document/verification/lib-repl-language-scala.exs.md#d-scala-adapter)). JavaScript and TypeScript are scanned
-only — cards and links, no evaluation
+only — cards and links, no evaluation — and so are Go and PHP, read by their own parsers (`go/parser`, PHP's `token_get_all`)
 ([D-map-only-language](document/verification/lib-repl-language.exs.md#d-map-only-language)). Both the mix layout (`iex -S mix`)
 and the script layout are supported. In the script layout only the `defmodule` parts of each file are compiled, with the original
 file's path and line numbers (the loading script of `Repl.SourceSanitize`; top-level side effects are not run; error positions and
@@ -225,7 +226,7 @@ Several projects can be handled. Once `xipe choice project` chooses the target, 
 (`tables/project/<id>_<name>/book.jsonl`).
 
 **What is in progress is more languages.** The table that decides language, REPL and build tool (`SurfaceTable`) is in place, with
-Elixir (+ mix), OCaml (+ dune), Haskell (+ stack, cabal), Python (+ uv, poetry, pip), F# (+ dotnet), C# (+ dotnet, evaluated in F# Interactive), Scala 3 (+ sbt, scala-cli) and Java (+ maven, evaluated in Scala's REPL). JavaScript and TypeScript are in it as a map only (scanned, not evaluated). Where the others stand (PHP and Go next, as maps) is [`document/evolving.md`](document/evolving.md).
+Elixir (+ mix), OCaml (+ dune), Haskell (+ stack, cabal), Python (+ uv, poetry, pip), F# (+ dotnet), C# (+ dotnet, evaluated in F# Interactive), Scala 3 (+ sbt, scala-cli) and Java (+ maven, evaluated in Scala's REPL). JavaScript, TypeScript, Go (+ go) and PHP (+ composer) are in it as maps only (scanned, not evaluated; Go and PHP read by their own parsers). That completes the languages for now; what is left to the users (evaluating Go and PHP, Rust alone, gradle …) is in [`document/evolving.md`](document/evolving.md) §8.
 
 ---
 

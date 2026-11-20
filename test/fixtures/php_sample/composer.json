@@ -1,0 +1,5 @@
+{
+    "name": "xipe/php-sample",
+    "description": "Xipe Totec's PHP fixture: read for the map, never run",
+    "autoload": { "psr-4": { "App\\": "src/" }, "files": ["src/Util/functions.php", "bootstrap.php"] }
+}
