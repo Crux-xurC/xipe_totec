@@ -51,7 +51,7 @@ Nothing new in the design: every plan sits on the existing division of work.
 | F# | `dotnet fsi` | `embody.fsx` | map + evaluation | **done** 2026-11-20 ([D-fsharp-adapter](verification/lib-repl-language-fsharp.exs.md#d-fsharp-adapter)) |
 | Scala | Scala's REPL | `embody.scala` | map + evaluation | **done** 2026-11-20 ([D-scala-adapter](verification/lib-repl-language-scala.exs.md#d-scala-adapter)); sbt and scala-cli, mill later |
 | C# (F# as the window, a seam `embody.cs`) | `dotnet fsi` | `embody.fsx` + `embody.cs` | map + evaluation | **done** 2026-11-20 ([D-csharp-adapter](verification/lib-repl-language-csharp.exs.md#d-csharp-adapter)); reading C# by Roslyn's parser is a proposed revision (§4.4) |
-| Java (Scala as the window, a seam `embody.java`) | Scala's REPL | `embody.scala` + `embody.java` | map + evaluation | **next** (§4.6) |
+| Java (Scala as the window, a seam `embody.java`) | Scala's REPL | `embody.scala` + `embody.java` | map + evaluation | **done** 2026-11-20 ([D-java-adapter](verification/lib-repl-language-java.exs.md#d-java-adapter)); maven, gradle later |
 | PHP | a driver | `embody.php` | mostly map | planned; the map first |
 | Rust alone | — | — | — | **set aside** (§6) |
 | TypeScript's logic evaluated | — | — | — | **set aside** (§6) |
@@ -69,7 +69,7 @@ after Scala).
 4. F#: done — `embody.fsx` F#'s own
 5. Scala: done — `embody.scala` Scala's own; the second window
 6. C#: done — on F#'s adapter, with a seam `embody.cs` (§4.4): the first pair of a language and another language's REPL
-7. Java: on Scala's adapter, with a seam `embody.java` (§4.6): the same pattern
+7. Java: done — on Scala's adapter, with a seam `embody.java` (§4.6): the same pattern
 8. PHP, then Go: the drivers; the map first
 
 ## 4. Per language
@@ -248,6 +248,72 @@ Decided 2026-11-20 (crux), on top of Scala's adapter, the second case of §2, 7:
 - Calls: static methods `com.foo.Bar.baz(1, 2)`; the arguments stay Scala expressions
 - `anykey` the parameters' types, the argument count the shape, as C#'s ([D-anykey-shape](verification/lib-identity.exs.md#d-anykey-shape)). Not decided: type arguments, with C#'s
 - Time: as Scala's. Scan: jdtls, or a text scanner; the map alone is worth having
+
+Checked 2026-11-20 for the seam (maven 3.9.12, OpenJDK 21.0.10, Scala 3.3.6 from xipe_totec's pin; a Java target with overloads,
+varargs, generics, a record holding a `List`, `Optional`, `CompletableFuture`, an enum, a checked exception, package-private, private
+and instance methods):
+
+| Item | What happened |
+|---|---|
+| Building | `mvn -o -q -B compile dependency:build-classpath -Dmdep.outputFile=…`: 1.4 s offline, once maven's own plugins are in `~/.m2` (28 MB, filled once online); `target/` written into the project, as sbt's is |
+| The REPL | No Scala version comes from a Java project: the `scala` on `PATH`. `scala -classpath <cp>` gives the class path to the REPL only, so embody's read-back (the compiler's ScriptEngine, `-usejavacp`) does not see the target. `scala -e 'print(System.getProperty("scala.home"))'` (1.4 s) gives its home: `java -cp "<home>/lib/*:<cp>" dotty.tools.repl.Main -usejavacp` sees it, as Scala's sbt start does |
+| Overloads of one count | Scala picks by the arguments' types: `over(1)` the `int` one, `over("a")` the `String` one, `over(1.0)` the `double` one; `wide(1)` widens. `over(null)` silently picks the `String` one (as F#) |
+| varargs | `sum(1, 2, 3)`, `sum()`, and an array as `sum(Array(1, 2)*)` |
+| Generic methods | `id(5)` infers; `twice("a")` gives a `java.util.List[String]`. **`<T> T make()`, whose type parameter is in no parameter, called without a type argument is `make[Nothing]()`: a `NullPointerException` ("Cannot throw exception because "null" is null")**, not a wrong value; `make[String]()` works |
+| Futures | `later(1).get()` gives the value |
+| Records | `sample.Point(1.0, 2.0)` (a Java constructor called without `new`) works, and the read-back of that text gives an equal record. Java's `equals` compares `double` components exactly (embody's floats compare within 1e-9) |
+| Java collections | embody's writer covers Java enums (`sample.Color.RED`) and arrays, not `java.util` collections or `Optional`. Written as their constructors they read back equal: `java.util.ArrayList[Integer](java.util.List.of[Integer](0, 1))`, `java.util.Optional.of("yes")`, `java.util.Optional.empty()`, `java.util.HashMap[String, Integer](java.util.Map.ofEntries(java.util.Map.entry("a", 1), …))`. **A boxed element type must be written**: `java.util.ArrayList(java.util.List.of(0, 1))` is an `ArrayList[Int]` to Scala and does not fit a `List<Integer>` parameter; an empty `java.util.ArrayList()` fits by inference |
+| Failures | an exception, checked or not, is its own text (`java.io.IOException: io: 1`; Scala does not check them). Package-private: "cannot be accessed … can only be accessed from package sample"; private and instance methods: "not a member of object sample.Calc"; a wrong count: the overloads with Scala's types. `embody.scala`'s diagnosis looks for a Scala `object` (`sample.Calc$`) and says "no object sample.Calc" for a Java class |
+| Reading the source | the JDK's own parser (`com.sun.source` through `javax.tools`, `java Scan.java`, single-file launch, no build): 0.5 s for the fixture; each method's parameter types (the tree's text: `int[]`, `List<Integer>`, `T`), varargs, type parameters, modifiers (public, static, package-private, private), the return type |
+
+**Decided** 2026-11-20 (crux, all as proposed):
+
+1. **`embody.java` writes, `embody.scala` reads back.** Reading back is `embody.scala`'s own already (it evaluates the text), so the seam
+   only writes and takes apart. `embody.scala` gets one language-neutral entry, as `embody.fsx`'s: a helper registered at the start
+   (`Embody.registerType(classOf[…])`), asked only where its own writer, equality and diagnosis have no answer, given its own writer for
+   the values inside. `embody.java` writes a public record as its canonical constructor's call (`sample.Point(1.0, 2.0)`), `java.util`
+   lists, sets, maps and `Optional` as their constructors with the element type written when it is a boxed one, and gives a record's
+   components for equality (doubles within 1e-9, a `List` inside element by element); the rest `binary` (`Serializable`) or
+   `unsupported`, as embody judges now. Compiled with `javac` in the temp dir (only the JDK; no reference to the target) and put on the
+   REPL's class path. (§4.6 above said "Java collections as Scala's": written as Java's own instead, so a later row's argument has
+   the parameter's type)
+2. **Overloads of one count**: marked `typed` by the scanner, as C#'s; each argument given its parameter's Scala type where Java's has
+   one without doubt (`((null): String)`, `int` `Int`, `long` `Long`, `int[]` `Array[Int]`, `Integer` `java.lang.Integer`,
+   `List<Integer>` `java.util.List[java.lang.Integer]`); a project's type or a type parameter left to Scala
+3. **A type parameter in no parameter** (`<T> T make()`): refused by `row/add` with the reason, as C#'s (Scala calls it `make[Nothing]()`,
+   a `NullPointerException` that says nothing of why)
+4. **varargs** (`int... xs`): one argument in the shape, written as a Scala array (`Array(1, 2)`), the call passing it as `(…)*` (a mark
+   `varargs`)
+5. **Futures**: a method returning `CompletableFuture`, `CompletionStage` or `Future` marked `async`, the call inside the seam's
+   `await(…)` (the value, under embody's time limit)
+6. **Scanning by the JDK's own parser** (`scan.java` run once per scan with `java`, as F# by its SDK's and Scala by its compiler's):
+   every method a node, `public` only for a `public static` method of a type public all the way out (nested `static` classes and
+   interfaces' static methods too); `anykey` the parameter types from the tree; links from calls resolved through the package, imports
+   and static imports. Not a text scanner (C#'s is one; its revision to Roslyn is proposed, §4.4); not jdtls (a server to install)
+7. **maven first**: every module of a `pom.xml` build compiled offline, its classes and dependencies on the class path; `target/`
+   written into the project. Gradle (a daemon; offline only through an init script) later, as mill for Scala
+8. **The REPL**: the `scala` on `PATH` (the pinned 3.3.6), its home from `scala -e`, started `java -cp "<home>/lib/*:<seam>:<classes>:<cp>"
+   dotty.tools.repl.Main -usejavacp` with the `java` on `PATH` (it must run the project's release); the protocol of `embody.scala` and
+   `embody.java` checked first, as C#'s
+
+The work, in order:
+
+Done 2026-11-20, all five (D-java-adapter): `embody.scala` speaks protocol 2 (the helper entry), Scala's adapter with it; the seam's
+class is `embodyjava.embody` (a public class must be named as its file, so `javac embody.java` compiles it as it is); maven's class path
+per module into its own `target/` (`appendOutput` gave one entry for two modules).
+
+1. **`embody.scala`'s helper entry** (rule 1), language-neutral, as `embody.fsx`'s: `Embody.registerType(classOf[…])` binding public
+   static methods (`covers`, `write`, `parts`, `diagnose`); asked where the writer, `equal` and the diagnosis have no answer; embody's
+   ReadMe; checked by the Scala live test with a helper written in Java
+2. **`embody.java`**: `Protocol`, `await`, the writer (records, `java.util` collections, `Optional`), `parts`, the diagnosis in Java's
+   terms; compiled with `javac` alone
+3. **Java's scanner**: `lib/scanner/java/scan.java` (the JDK's parser) and `Scanner.Java`: nodes, `anykey`, the shape, marks (`async`,
+   `typed`, `varargs`), the refusal (rule 3), links; unit tests on a fixture `test/fixtures/java_sample/`
+4. **Java's declaration, maven and launch on Scala's**: `java` (`java`), REPL `scala`, build tool maven (`pom.xml`); the start script
+   (embody checked, the seam compiled, `mvn -o` compile and class path, `scala -e` for the home, the REPL); the call template on Scala's
+   with the marks; `info.json`
+5. **Tests and the record**: `test/java_adapter_test.exs`, `test/live/repl_java_test.exs`, the CLI on a copy; D-java-adapter in
+   `verification/`, `scope.md`, `how-to-use.md` §9, README, this §3; the live tests of the other languages before committing
 
 ### 4.7 PHP — mostly the map
 
