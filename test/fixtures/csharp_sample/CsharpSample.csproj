@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Xipe Totec's C# fixture: no package references, so it builds without fetching anything -->
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <AssemblyName>Sample</AssemblyName>
+  </PropertyGroup>
+</Project>

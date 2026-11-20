@@ -177,7 +177,9 @@ The work, in order (one commit each where it stands alone):
 1. **F#'s static members** (done 2026-11-20): `scan.fsx` reads `static member` of types (and their overloads) as nodes, `anykey` the parameters' types
    from the syntax tree in one form, the shape one list (tupled) per parameter group; the call `Ns.Type.Member((a), (b))`. Tests on the
    F# fixture, the live fsi test
-2. **C#'s scanner on main**: `Scanner.CSharp` taken from `csharp-via-fsi`, `anykey` the parameters' types (normalized from its tokens:
+2. **C#'s scanner on main** (done 2026-11-20; the marks and the refusal reach the node through
+   [D-node-marks](verification/lib-identity.exs.md#d-node-marks); an expression body holding braces, `=> new List<T> { x, x };`, was lost
+   by the branch's scanner and is read now): `Scanner.CSharp` taken from `csharp-via-fsi`, `anykey` the parameters' types (normalized from its tokens:
    spacing does not move an id; `int` against `System.Int32` stays as written), the shape (rule 4), marks for `async` (rule 5) and for a
    type parameter in no parameter (rule 3, `row/add` refuses). Unit tests on the fixture, extended with records, `async`, overloads of
    one count, generics, `out`, optional, `params`

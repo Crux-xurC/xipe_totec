@@ -93,6 +93,15 @@ defmodule DispatchTest do
       assert message =~ "calc.Calc.f(Int, Int)(String) takes 3 (2 + 1, one count per parameter list) arg(s), got 2"
     end
 
+    test "rejects a node the scanner gave a refusal, with its reason (D-node-marks)" do
+      book = Book.new() |> Core.put_node("n1", %{module: "N.T", name: "Make", anykey: "()", shape: [0], refusal: "its type parameter T appears in no parameter"})
+
+      assert {:error, ^book, %{"code" => "invalid_params", "message" => message}} =
+               Dispatch.handle(book, "row/add", %{"node" => "n1", "args" => []}, %{})
+
+      assert message == "row/add: N.T.Make() can't be a row: its type parameter T appears in no parameter"
+    end
+
     test "rejects a private node: the REPL can't call it" do
       book = Book.new() |> Core.put_node("n1", %{module: "M", name: "f", anykey: 1, visibility: "private"})
 

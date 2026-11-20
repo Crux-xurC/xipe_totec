@@ -3,7 +3,7 @@
 The rescan identity rule: an existing id is reused only on an exact natural-key match — a sheet by its path, a node by its module, name
 and anykey.
 
-**Decisions homed here**: [D-identity](#d-identity), [D-anykey-shape](#d-anykey-shape)
+**Decisions homed here**: [D-identity](#d-identity), [D-anykey-shape](#d-anykey-shape), [D-node-marks](#d-node-marks)
 **Takes part in**: D-store ([`lib/store.exs`](lib-store.exs.md)), D-scanners ([`lib/scanner/lsp.exs`](lib-scanner-lsp.exs.md))
 
 <a id="d-identity"></a>
@@ -64,16 +64,46 @@ plus a disambiguating index (changes with the order in the file, so an id would 
 - **F#'s static members** (2026-11-20) are on this form: the types written out again from F#'s syntax tree (`List< int >` is
   `List<int>`; `int list` and `List<int>` stay two texts), one parenthesized group per curried group (`(float)(Point)`, `()` with shape
   `[0]`); the adapter splits the args into the groups with the shape (`Scale((2.0))((p))`). F#'s module functions keep the count
-- **Next** (crux, 2026-11-20): C#'s methods move to the sequence of types too (C#'s first attempt, on the branch `csharp-via-fsi`, has the
-  count); Java starts on this form
+- **C#'s scanner** (2026-11-20, `lib/scanner/csharp.exs`, on main ahead of C#'s adapter) is on this form: the types written out again
+  from the text's tokens in one form (`List< int >` is `List<int>`, `Dictionary<string,int>` is `Dictionary<string, int>`, a tuple's
+  element names dropped), with the modifiers C# tells overloads apart by (`(string, out int)`, `(ref double)`; `params` kept to be read);
+  `int` and `System.Int32` stay two texts. The shape is one list: `out` parameters left out, optional ones counted, a `params` array one.
+  A link from a call picks the overloads of the call's argument count, all of them when several share it
+- **Next**: Java starts on this form
 
-**Not decided**: the text of a type for C# and Java (as written, or the name the compiler resolves; Scala's is as written); the shape
+**Not decided**: the text of a type for Java (as written, or the name the compiler resolves; Scala's and C#'s are as written); the shape
 of the other languages' nodes (OCaml, Haskell, Python, F#'s module functions: no shape, their `anykey` the count or `nil` as before); how `arity/set`
 (D-arity-set) reads with a shape of several lists; type arguments of a generic method whose type appears in no parameter.
 
-**Files**: `lib/scanner.exs` (`put_defs/3`), `lib/scanner/elixir.exs`, `lib/scanner/lsp/elixir.exs`, `lib/scanner/scala.exs`, `lib/scanner/fsharp.exs` (filling
+**Files**: `lib/scanner.exs` (`put_defs/3`), `lib/scanner/elixir.exs`, `lib/scanner/lsp/elixir.exs`, `lib/scanner/scala.exs`, `lib/scanner/fsharp.exs`, `lib/scanner/csharp.exs` (filling
 the shape), `lib/core.exs` (`accepted_arities/1`, `node_label/1`, the entry's `shape`), `lib/dispatch.exs` (`check_args/5`); tests
-`test/core_test.exs`, `test/dispatch_test.exs`, `test/scanner_test.exs`, `test/scanner_lsp_test.exs`, `test/scala_adapter_test.exs`, `test/fsharp_adapter_test.exs`.
+`test/core_test.exs`, `test/dispatch_test.exs`, `test/scanner_test.exs`, `test/scanner_lsp_test.exs`, `test/scala_adapter_test.exs`, `test/fsharp_adapter_test.exs`, `test/scanner_csharp_test.exs`.
+
+<a id="d-node-marks"></a>
+
+## D-node-marks — what a scanner tells about calling a node: marks for the adapter, a refusal for `row/add`
+
+**Decided** (2026-11-20, from C#'s rules 3 and 5 in `evolving.md` §4.4):
+
+- **A def may carry `marks`**, a list of words the language adapter reads when it writes the call, and the entry carries them to it
+  (`[]` when none). C#'s scanner marks a method returning `Task`, `Task<T>`, `ValueTask` or `ValueTask<T>` `"async"`: its call is
+  awaited (C#'s adapter, through the seam)
+- **A def may carry `refusal`**, the reason a calc row cannot be made for it: `row/add` (and `row/update`'s check) refuses with it
+  (`row/add: N.T.Make() can't be a row: its type parameter T appears in no parameter: …`). C#'s scanner gives one to a method whose type
+  parameter appears in no parameter (`Make<T>()`): fsi would call it as `Make<obj>()`, a wrong value without an error (P9), until type
+  arguments are decided
+- Both are stored on the node by `Scanner.put_defs/3` (`nil` where the scanner gives none) and replaced at every scan, as the shape is
+
+**Why**: the scanner is what reads the declaration (the return type, the type parameters); the generic layer only carries the words
+and the reason, so it knows nothing of C#. A refusal at `row/add` says why before anything runs; a `private` visibility would hide the
+reason, and letting the row crash later would come after a wrong value.
+
+**Alternatives**: deciding `async` in the adapter from the value (a `Task` is awaited when one comes back: no mark needed, but the later
+row's type would be `Task<T>`'s, not `T`'s — the call must be typed at compile time); marking the refused method `private` (no reason
+given); a field per language (`async: true`) on the node.
+
+**Files**: `lib/scanner.exs` (`put_defs/3`), `lib/dispatch.exs` (`check_args/5`), `lib/core.exs` (the entry's `marks`),
+`lib/scanner/csharp.exs`; tests `test/dispatch_test.exs`, `test/core_test.exs`, `test/scanner_csharp_test.exs`.
 
 ## Notes
 

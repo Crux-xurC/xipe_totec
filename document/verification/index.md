@@ -25,7 +25,7 @@ decisions are listed in [decisions.md](decisions.md).
 | [`lib/core.exs`](lib-core.exs.md) | Pure functions over the Book: rows, effects, arities, the reference graph, the plan, folding results. | **D-referential-transparency, D-named-rows-only, D-plan-run-apply, D-reference-values, D-effect-classes, D-arity-set** |
 | `lib/book.exs` | The Book: six tables (`sheets`, `nodes`, `calls`, `links`, `runs`, `providers`), each `id => latest row`, and lookups by natural key. | D-identity |
 | `lib/id.exs` | ULIDs for row ids. | D-identity |
-| [`lib/identity.exs`](lib-identity.exs.md) | The rescan rule: an id is reused only on an exact natural key. | **D-identity** |
+| [`lib/identity.exs`](lib-identity.exs.md) | The rescan rule: an id is reused only on an exact natural key. | **D-identity, D-anykey-shape, D-node-marks** |
 | [`lib/store.exs`](lib-store.exs.md) | `book.jsonl`: append-only, locked, caught up, failures as results. | **D-store** |
 | [`lib/git_ctx.exs`](lib-git_ctx.exs.md) | The commit, its time and `dirty`, recorded on evaluated rows. | **D-git-provenance** |
 | [`lib/address.exs`](lib-address.exs.md) | Addresses: columns as filters. | **D-address** |
@@ -45,6 +45,7 @@ decisions are listed in [decisions.md](decisions.md).
 | `lib/scanner/python.exs` | Python read as text (module names from paths). | D-scanners, D-python-adapter |
 | `lib/scanner/fsharp.exs`, `lib/scanner/fsharp/scan.fsx` | F# read by F#'s own parser (FSharp.Compiler.Service in `dotnet fsi`, once per scan); names resolved as F# looks them up. | D-scanners, D-fsharp-adapter |
 | `lib/scanner/scala.exs`, `lib/scanner/scala/scan.scala` | Scala read by the Scala 3 compiler's parser (`scala`, once per scan); `anykey` the parameters' types, the shape per list; names resolved through objects, packages, imports. | D-scanners, D-scala-adapter, D-anykey-shape |
+| `lib/scanner/csharp.exs` | C# read as text (comments, strings, `#if` branches blanked; namespaces, types and methods by their braces); `anykey` the parameters' types, the shape, the marks (`async`) and a refusal (a type parameter in no parameter). On main ahead of C#'s adapter (`evolving.md` §4.4). | D-scanners, D-anykey-shape, D-node-marks |
 | `lib/scanner/javascript.exs` | JavaScript and TypeScript read as text (modules are paths; IIFE bodies as the top level; ES imports, `require`). | D-scanners, D-map-only-language |
 | `lib/lsp/transport.exs` | How a language server is reached: the behaviour. | D-scanners |
 | `lib/lsp/transport/relay.exs` | Through tezcatl's `/lsp` relay. | D-scanners |

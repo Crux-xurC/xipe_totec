@@ -501,6 +501,11 @@ defmodule XipeTotec.Dispatch do
       node[:visibility] == "private" ->
         {:error, invalid_params("#{method}: #{Core.node_label(node)} is private; the REPL can't call it")}
 
+      # a reason the scanner gave (D-node-marks): C#'s `Make<T>()`, whose
+      # type parameter appears in no parameter, would run as obj
+      is_binary(node[:refusal]) ->
+        {:error, invalid_params("#{method}: #{Core.node_label(node)} can't be a row: #{node.refusal}")}
+
       # the node's shape (one count per parameter list, D-anykey-shape), else
       # an integer anykey (Scanner.Elixir's arity); another scanner's anykey
       # says nothing about how many args to expect. Default arguments: the

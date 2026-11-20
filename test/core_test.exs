@@ -190,6 +190,12 @@ defmodule CoreTest do
                plan.entries
     end
 
+    test "an entry carries the node's marks for the adapter (D-node-marks); none is []", %{book: book} do
+      book = Core.put_node(book, "n2", Map.put(Book.get(book, :nodes, "n2"), :marks, ["async"]))
+      assert [%{call_id: "c2", marks: ["async"]}] = Core.plan_recalc(book, "pass1", call_ids: ["c2"]).entries
+      assert [%{call_id: "c1", marks: []}] = Core.plan_recalc(book, "pass1", call_ids: ["c1"]).entries
+    end
+
     test "a plan-internal reference becomes a placeholder with an :in_plan input, in dependency order", %{book: book} do
       plan = Core.plan_recalc(book, "pass1", call_ids: ["c1", "c2"])
       assert [e1, e2] = plan.entries

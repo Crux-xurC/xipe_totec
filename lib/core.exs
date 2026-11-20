@@ -513,6 +513,8 @@ defmodule XipeTotec.Core do
       # the argument count per parameter list, for an adapter that splits
       # the args into lists (Scala's `f(a, b)(c)`); nil where none is known
       shape: node[:shape],
+      # words the adapter reads to write the call (D-node-marks): C#'s "async"
+      marks: node[:marks] || [],
       args: args,
       inputs: Enum.uniq(inputs),
       basis: basis,

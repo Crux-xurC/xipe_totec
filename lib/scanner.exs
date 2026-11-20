@@ -43,6 +43,10 @@ defmodule XipeTotec.Scanner do
   `row/add` checks a row's arguments against it. Without a shape, an
   integer `anykey` is taken as the argument count; any other value is not
   ([D-anykey-shape](../document/verification/lib-identity.exs.md#d-anykey-shape)).
+  It may also carry `marks`, words the language adapter reads to write the
+  call (C#'s `"async"`: the call is awaited), and `refusal`, the reason
+  `row/add` will not make a row for it
+  ([D-node-marks](../document/verification/lib-identity.exs.md#d-node-marks)).
   """
   @type node_ids :: %{{String.t(), String.t(), non_neg_integer()} => String.t()}
 
@@ -129,6 +133,9 @@ defmodule XipeTotec.Scanner do
           visibility: Map.get(def, :visibility),
           # the argument count per parameter list (D-anykey-shape); nil where the scanner gives none
           shape: Map.get(def, :shape),
+          # how the adapter must call it (C#'s `["async"]`) and why `row/add` refuses it (D-node-marks); nil where none
+          marks: Map.get(def, :marks),
+          refusal: Map.get(def, :refusal),
           span: def.span,
           body_hash: def.body_hash,
           status: "live",
