@@ -29,8 +29,8 @@ Nothing new in the design: every plan sits on the existing division of work.
    REPL and is worth having on its own for taking over a codebase. A language (or a part of one) may stop at the map
 5. **Targets are top-level functions callable with literals.** Instance methods and code needing dependency injection are outside
    `row/add`, as Elixir's `defp` is, and shown by the visibility column
-6. **Arguments are written as literals of the REPL's language.** A C# function evaluated in `fsi` takes an array as `[|1;2|]`. The same
-   kind of effort as Nanahuatzin's "values are written as the back end's literals"
+6. **Arguments are written as literals of the REPL's language.** A C# function evaluated in `fsi` takes an array as `[|1;2|]`. A caller
+   that passes plain values meets the same effort (see "Plain values turned into the target language's literals" in `scope.md`)
 7. **The window's own language first, then the other language through a seam** (decided 2026-11-20, crux). A REPL is first made to
    serve its own language (F# in `fsi`, Scala in Scala's REPL), and its embody stays that language's alone. The language it is a window
    for (C#, Java) comes after, adding a **seam**: a small project in that language, built in the pass's temp dir next to the target's
