@@ -4,11 +4,34 @@ Keep the calls you try at a REPL as **calc rows** — a function, its arguments,
 REPL whenever you like. A row's argument can be another row's value (`⟦id⟧`), so a change upstream shows where it reaches downstream,
 as in a spreadsheet. A scan also gives every function's callers.
 
+The name comes from the image of peeling a skin (a card) off the body of the source, one function at a time. Every rescan gives new
+skins.
+
 A local server and CLI (`xipe`), written in Elixir. It works alone from the command line;
 [tezcatl](https://github.com/Crux-xurC/tezcatl) can be its window, and an AI agent can use it over MCP.
 
+![31 rows of colour's hsl2rgb and _hue2rgb, written and evaluated by an AI agent over MCP, shown in tezcatl](https://raw.githubusercontent.com/Crux-xurC/xipe_totec/main/demo_data/01-xipe-rows.png)
+
+What it looks like: [a 3.5-minute video](https://github.com/Crux-xurC/xipe_totec/blob/main/demo_data/xipe-demo.mp4) — Claude Code, over MCP, picks the HSL → RGB conversion of
+[vaab/colour](https://github.com/vaab/colour), proposes a class for each function, waits for the approval and evaluates 31 rows.
+
 The whole README — the commands, how far it works, the principles, the structure and the terms — is
 [README.full.md](README.full.md).
+
+## What it is good for
+
+- **Checking code you did not write, by its values.** Code an AI agent wrote (or anyone else) can be tried before every line of it is
+  read: the agent, or you, lays out calls with concrete arguments, and the table shows what each one returns, edge cases and errors
+  included. What you do have to look at is each function's class (`pure` / `reads` / `writes`), because nothing runs before you
+  approve it
+- **Keeping the REPL calls you would otherwise type again.** A row stays in the Book; after a change, evaluate it again and `compare`
+  says whether the value moved
+- **Seeing how far a change reaches.** Rows joined by references (`⟦id⟧`) are evaluated in order, so a different value upstream shows
+  in every row downstream
+- **Knowing who calls a function before you change it**, from the callers a scan finds
+- **Getting into an unfamiliar codebase**: start from the deepest functions of a call chain and try them one by one
+
+These are ways to use the same three things — rows, classes and callers; more can be thought of.
 
 ## Languages
 
