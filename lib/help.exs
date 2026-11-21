@@ -272,7 +272,7 @@ defmodule XipeTotec.Help do
 
   @doc "What `version` prints."
   @spec version() :: String.t()
-  def version, do: "xipe 0.1.0-dev"
+  def version, do: "xipe 0.2.2"
 
   @doc "The CLI command names the dialogue window runs (`XipeTotec.Input`)."
   @spec window_commands() :: [String.t()]
