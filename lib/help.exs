@@ -217,7 +217,7 @@ defmodule XipeTotec.Help do
       started by an MCP client (Claude Code, an editor ...), not typed: speaks MCP on
       stdin/stdout and passes its tools to the running `xipe start` (the port given, else
       the live session's). About ten tools: scan, search and read functions, add rows,
-      evaluate, propose a function's class. The agent's classes evaluate nothing until a
+      evaluate, check which rows changed or failed, propose a function's class. The agent's classes evaluate nothing until a
       person approves them (effect/approve); it cannot set expectations or include
       writes. document/mcp.md
       """

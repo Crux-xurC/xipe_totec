@@ -28,7 +28,7 @@ Decided 2026-11-21 (crux), from a review of the concerns (the list below); built
    not classified, and a function whose body changed waits for a person again
 
 The tools: `scan`, `search_functions`, `get_function`, `function_neighbors`, `add_row`, `set_row_args`, `list_rows`, `evaluate`,
-`evaluation_status`, `propose_class` ([D-mcp-tools](verification/lib-mcp-server.exs.md#d-mcp-tools)).
+`evaluation_status`, `propose_class`, `check_rows` ([D-mcp-tools](verification/lib-mcp-server.exs.md#d-mcp-tools)).
 
 ## The concerns, as found
 
@@ -97,6 +97,33 @@ What makes an agent different from a person at the CLI or in tezcatl's window. E
     again; **built** 2026-11-21, [D-effect-approval](verification/lib-core.exs.md#d-effect-approval))
 22. **Approval without looking**: a list of bare classes invites approving them all unread → [D-mcp-effects](verification/lib-mcp-server.exs.md#d-mcp-effects) (each
     proposal carries its reason)
+
+## Found in use (rehearsal, 2026-11-22)
+
+A rehearsal of the demo by crux (tezcatlipoca 0.2.0, Claude Code, a Python project: two functions evaluated from the deepest up, 4
+rows and 19 boundary rows). What the agent ran into, and where each went. The tools' descriptions (`lib/mcp/tools.exs`) were
+amended the same day for every point that a sentence settles; the rest are in [`scope.md`](scope.md).
+
+23. **Searching before a scan answers 0 silently**: `search_functions` on a project with no cards gives `total: 0`, as a search
+    that matched nothing does → a project without functions answers "not scanned yet -- call scan first" wherever a function is
+    searched or named (built the same day)
+24. **Fewer operations than the CLI**: no `row/remove`, `row/set-prev`, `row/set-result`. The agent cannot clear its own rows, nor
+    build a regression check with expectations → the expectations stay out ([D-mcp-expectations](verification/lib-mcp-server.exs.md#d-mcp-expectations));
+    `row/check` was not passed though it only reads: now `check_rows` (built the same day), the regression check without
+    expectations written by the agent. Removing rows stays a person's, in an editor of rows (crux: withdrawn as an MCP tool, in
+    [`scope.md`](scope.md)); `add_row` says so
+25. **`get_function` gives no source text**: the shared note said "source text in the answer", and none is in it; the agent read the
+    file with `sed` to judge the class → the description says it gives the place (path, line), not the text. Giving the body (what
+    the approving person sees) is an idea in [`scope.md`](scope.md): the server holds a function's first line, not its end
+26. **The Book moved away under a running server**: `book.jsonl` moved while `xipe start` ran; the server kept its rows and classes
+    in memory and `list_rows` went on answering them. The person restarted the server → outside the scope, a row in
+    [`scope.md`](scope.md) (what happens, and that restarting is the way); noticing it is an idea there
+27. **No way to wait for an approval**: after `propose_class`, `evaluate` answers `not_run`; nothing tells the agent when a person
+    approves → `propose_class`' description tells the agent to end its turn and ask; a notification or a wait is an idea in
+    [`scope.md`](scope.md)
+28. **Wording**: an expected exception (`ValueError` on a boundary value) is `status: "crash"` in `evaluate` and `eval_error` in
+    `list_rows` → `evaluate`'s description says what `crash` covers (the word is the evaluator's everywhere, the CLI's and
+    tezcatl's too, so it is kept). `function_neighbors` gives static links only → its description says so
 
 
 

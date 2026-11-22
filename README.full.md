@@ -380,8 +380,8 @@ Totec decides what the line means (written as on the CLI, `XipeTotec.Input`), an
 
 ## With an AI agent (MCP)
 
-`xipe mcp` is an MCP server over stdio: an MCP client (Claude Code …) starts it, and it passes ten tools to the running `xipe start`, so
-an agent scans, finds and reads functions, adds rows and evaluates them in the same Book the person sees. The agent only *proposes* a
+`xipe mcp` is an MCP server over stdio: an MCP client (Claude Code …) starts it, and it passes eleven tools to the running `xipe start`, so
+an agent scans, finds and reads functions, adds rows, evaluates them and checks which changed or failed, in the same Book the person sees. The agent only *proposes* a
 function's side-effect class, with a reason; a person approves it (`effect/approve`) before any of that function's rows are evaluated,
 and the agent cannot include writes or set expectations. Setting it up and why it is shaped so: [`document/mcp.md`](document/mcp.md).
 

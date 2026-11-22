@@ -60,7 +60,7 @@ status only (every pass, even a quick one, takes two calls).
 ## D-mcp-tools — about ten tools, functions named by address
 
 **Decided** 2026-11-21 (crux); **built** 2026-11-21 (`lib/mcp/tools.exs`): `scan`, `search_functions`, `get_function`,
-`function_neighbors`, `add_row`, `set_row_args`, `list_rows`, `evaluate`, `evaluation_status`, `propose_class`. A function is named by
+`function_neighbors`, `add_row`, `set_row_args`, `list_rows`, `check_rows` (2026-11-22), `evaluate`, `evaluation_status`, `propose_class`. A function is named by
 its id, its label exactly as `card/list` gives it (every language's form: `Calc.add/2`, `N.T.M(int, int)`), or `Module.name` when only
 one function has it. `search_functions` and `list_rows`' `function` narrow `card/list` / `row/list` in the bridge (narrowing is the
 receiver's, D-method-criteria), since `card/search` matches addresses exactly. `get_function` gives the language and the window's
@@ -75,6 +75,7 @@ language (`arguments_written_in`) from `info.json`.
 | add a row | `row/add` (`origin: "agent"`) |
 | change a row's arguments | `row/set-args` |
 | list rows | `row/list` |
+| check which rows erred, changed or were never evaluated | `row/check` (its `check_failed` read as the answer, not an error; 2026-11-22) |
 | start an evaluation | `eval` ([D-mcp-eval-wait](#d-mcp-eval-wait)) |
 | an evaluation's status and results | `eval/status` and the pass's results |
 | propose a class, with its reason | `effect/propose` ([D-mcp-effects](#d-mcp-effects)) |
@@ -82,6 +83,16 @@ language (`arguments_written_in`) from `info.json`.
 - A function is named by its address (`Calc.add/2`, through `node/resolve`) as well as by id; rows by id (given back by `row/add`)
 - Not offered: `effect/set`, `include_writes`, `row/set-prev`, `row/set-result` ([D-mcp-expectations](#d-mcp-expectations)), `graph/export`, `card/list` (sizes, concern 12), `config/set`, `row/remove`, `edit/apply`,
   `trace/*`, the dialogue
+- `row/remove` is not a tool, even for the agent's own rows (crux, 2026-11-22, `mcp.md` concern 24): removing rows is editing the
+  Book, a person's work in an editor of rows (tezcatl's table, an editor of CSV-like tables). An agent meant to remove rows does it
+  through that editor's own connection, which calls `row/remove` of the running `xipe start`, not by editing `book.jsonl`.
+  `add_row`'s description says rows are removed by a person
+- A project without functions answers "not scanned yet -- call scan first" wherever a function is searched or named (2026-11-22,
+  concern 23), not an empty result
+- `row/check` is offered as `check_rows` (2026-11-22, concern 24): it reads the rows' last evaluation and writes nothing, so the
+  agent checks for regressions without writing expectations (D-mcp-expectations stands)
+- What a description promises is what the answer holds: `get_function` gives the place of the source (path, line), not its text
+  (amended 2026-11-22, concern 25)
 - Every tool has a JSON Schema for its input; the descriptions say what runs (concerns 1, 2, 5) and in which language arguments are
   written (concern 11)
 

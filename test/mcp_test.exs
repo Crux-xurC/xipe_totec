@@ -48,7 +48,7 @@ defmodule McpTest do
 
   test "about ten tools, each with an object schema; none for a person's or an expectation's methods" do
     names = Enum.map(Tools.list(), & &1["name"])
-    assert length(names) == 10
+    assert length(names) == 11
     assert Enum.all?(Tools.list(), &(&1["inputSchema"]["type"] == "object"))
 
     for name <- names, do: refute(name =~ ~r/effect_set|set_prev|set_result|include_writes|remove|export/)
@@ -73,6 +73,41 @@ defmodule McpTest do
              Tools.call("search_functions", %{"query" => "calc.ADD", "limit" => 1}, io())
 
     assert {:ok, %{"total" => 1}} = Tools.call("search_functions", %{"query" => "price.cs"}, io())
+  end
+
+  test "a project without functions: scan comes first, said by search and by naming a function" do
+    empty = io(%{"card/list" => {:ok, %{"cards" => []}}})
+    assert {:error, m} = Tools.call("search_functions", %{"query" => "add"}, empty)
+    assert m =~ "not scanned" and m =~ "scan"
+    assert {:error, m} = Tools.call("get_function", %{"function" => "Calc.add/2"}, empty)
+    assert m =~ "not scanned"
+  end
+
+  test "check_rows: row/check's failures are the answer; a function's rows only; none is not every row" do
+    rows = {:ok, %{"rows" => [%{"id" => "R1", "node" => "N1"}, %{"id" => "R2", "node" => "N2"}]}}
+    failed = [%{"id" => "R2", "label" => "Calc.add/3", "reasons" => ["changed"]}]
+
+    answers = %{
+      "row/list" => rows,
+      "row/check" => fn
+        %{"call_ids" => ["R1"]} -> {:ok, %{"checked" => 1, "on" => ["changed"]}}
+        %{"call_ids" => ["R1", "R2"]} -> {:error, %{"code" => "check_failed", "message" => "1 of 2 row(s): ...", "data" => %{"failed" => failed}}}
+      end
+    }
+
+    assert {:ok, %{"checked" => 2, "failed" => ^failed}} = Tools.call("check_rows", %{"on" => ["changed"]}, io(answers))
+    assert {"row/check", %{"on" => ["changed"], "call_ids" => ["R1", "R2"]}} in sent()
+
+    assert {:ok, %{"checked" => 1, "failed" => []}} = Tools.call("check_rows", %{"on" => ["changed"], "function" => "Calc.add/2"}, io(answers))
+    assert {:ok, %{"checked" => 1, "failed" => []}} = Tools.call("check_rows", %{"on" => ["changed"], "rows" => ["R1"]}, io(answers))
+
+    _ = sent()
+    no_rows = io(%{"row/list" => {:ok, %{"rows" => []}}})
+    assert {:ok, %{"checked" => 0, "failed" => []}} = Tools.call("check_rows", %{"function" => "Calc.add/2"}, no_rows)
+    refute Enum.any?(sent(), &match?({"row/check", _}, &1))
+
+    assert {:error, "unknown call id: R9"} =
+             Tools.call("check_rows", %{"rows" => ["R9"]}, io(%{"row/check" => {:error, %{"code" => "not_found", "message" => "unknown call id: R9"}}}))
   end
 
   test "add_row marks the row as the agent's; propose_class goes to effect/propose" do
