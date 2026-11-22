@@ -81,6 +81,8 @@ The "Records" column points at the decision records (`document/verification/`) o
 | A list of integers within character codes | Shown as a charlist (`~c"\t\n"`); the value is right | Do not rely on the display | — |
 | Evaluating a Mix project while its development server runs | Each pass starts the application with `iex -S mix`, so a port in use gives `boot_failed` (not checked) | Configure separate ports | — |
 | References across languages | Not converted (`not_run`) | — | [D-languages-per-pass](verification/lib-runner.exs.md#d-languages-per-pass) |
+| A row's arguments, of a function whose class is approved | The arguments are source text run as written, approved by no one: an argument that writes (a file, the network, a process) runs before the function, whatever its class. The class covers the function's body only | Read the arguments of rows an agent made (`origin` `agent`) before evaluating them; the MCP tools tell the agent to write values only | [D-effect-classes](verification/lib-core.exs.md#d-effect-classes), `mcp.md` concern 1 (arguments as data: Ideas, below) |
+| A function an approved one calls, changed after the approval | The approval stays (it is tied to the function's own body); the changed callee runs under it | After the project changed, evaluate its rows again and look at what `changed`; approve again what you doubt | [D-effect-approval](verification/lib-core.exs.md#d-effect-approval), `mcp.md` concern 23 |
 
 ### The Book and state files
 

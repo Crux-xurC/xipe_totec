@@ -159,6 +159,17 @@ defmodule McpTest do
     assert {:error, "no tool \"effect_set\""} = Tools.call("effect_set", %{}, io)
   end
 
+  test "what an approval covers is said: arguments are approved by no one, callees may have changed (2026-11-23)" do
+    %{"result" => r} = Server.handle(%{"id" => 1, "method" => "initialize", "params" => %{"protocolVersion" => "2025-03-26"}}, %{})
+    assert r["instructions"] =~ "not approved until get_function"
+    assert r["instructions"] =~ "approved by no one"
+    assert r["instructions"] =~ "evaluate its rows again once"
+    desc = Map.new(Tools.list(), &{&1["name"], &1["description"]})
+    assert desc["add_row"] =~ "approved by no one"
+    assert desc["set_row_args"] =~ "no one approves them"
+    assert desc["evaluate"] =~ "not the arguments"
+  end
+
   test "the server: initialize, tools/list, a tool call, an unknown method, notifications" do
     %{"result" => r} = Server.handle(%{"id" => 1, "method" => "initialize", "params" => %{"protocolVersion" => "2025-03-26"}}, %{})
     assert r["protocolVersion"] == "2025-03-26"

@@ -38,7 +38,11 @@ What makes an agent different from a person at the CLI or in tezcatl's window. E
 
 1. **Evaluation runs the target's code.** A calc row's arguments are source text of the REPL's language, and the function runs for real
    (P1). The only guard is [D-effect-classes](verification/lib-core.exs.md#d-effect-classes): a class is trusted only when a person set it.
-   An agent able to call `effect/set` or pass `include_writes` would remove that guard → [D-mcp-effects](verification/lib-mcp-server.exs.md#d-mcp-effects)
+   An agent able to call `effect/set` or pass `include_writes` would remove that guard → [D-mcp-effects](verification/lib-mcp-server.exs.md#d-mcp-effects).
+   The class covers the function's body, **not the arguments**: what the agent writes in a row runs as written, approved by no one.
+   Kept so (arguments as data, turned into literals by each adapter, is an idea in `scope.md`); said to the agent in the server's
+   instructions and in `add_row`'s, `set_row_args`' and `evaluate`'s descriptions (2026-11-23): take every function as not approved
+   until `get_function` shows a person's class, write values in arguments, nothing that writes
 2. **Building and scanning run the target's code too.** Before a pass, the build (`mix compile`, `dotnet build`, `mvn`, `sbt`) runs the
    project's build definitions and plugins. Scanning is not "only reading" in every language:
    - **Elixir**: the scanner compiles each `defmodule` (`Code.compile_quoted/2`, `lib/scanner/elixir.exs`) to trace its links, and a
@@ -97,6 +101,11 @@ What makes an agent different from a person at the CLI or in tezcatl's window. E
     again; **built** 2026-11-21, [D-effect-approval](verification/lib-core.exs.md#d-effect-approval))
 22. **Approval without looking**: a list of bare classes invites approving them all unread → [D-mcp-effects](verification/lib-mcp-server.exs.md#d-mcp-effects) (each
     proposal carries its reason)
+23. **A function it calls changed after the approval**: an approval is tied to the function's own body
+    ([D-effect-approval](verification/lib-core.exs.md#d-effect-approval)); a callee edited later (by the agent, concern 17) does not
+    ask again. Kept so: Xipe Totec is run at a start or when work has come together, not resident like a REPL, so a changed callee
+    is met at the next such run. Said to the agent (2026-11-23): after the project changed, scan, evaluate its rows again once and
+    `check_rows` on `changed` before relying on earlier values. Whether a stale mark counts callees is open (`scope.md`, Ideas)
 
 ## Found in use (rehearsal, 2026-11-22)
 

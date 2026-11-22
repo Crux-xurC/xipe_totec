@@ -93,6 +93,8 @@ defmodule XipeTotec.Mcp.Tools do
         Make a calc row: one call of the function with these arguments, kept to evaluate (marked as the agent's). \
         Each argument is source text in the language get_function names under arguments_written_in — for C# that is F#, \
         for Java it is Scala (e.g. F# arrays [|1;2|], Scala List(1, 2)). ⟦row id⟧ passes another row's value. Does not evaluate. \
+        The arguments are approved by no one: evaluate runs them as written, before the function. Write values, not code \
+        with side effects (no file, network or process calls in an argument). \
         Rows cannot be removed through these tools: a person removes them (xipe do row/remove), so add only rows worth keeping.
         """,
         %{"function" => @function, "args" => args_schema()},
@@ -100,7 +102,7 @@ defmodule XipeTotec.Mcp.Tools do
       ),
       tool(
         "set_row_args",
-        "Change a row's arguments (written as for add_row). Does not evaluate; its value stays the old arguments' until evaluate.",
+        "Change a row's arguments (written as for add_row, values only: no one approves them). Does not evaluate; its value stays the old arguments' until evaluate.",
         %{"row" => %{"type" => "string", "description" => "the row's id"}, "args" => args_schema()},
         ["row", "args"]
       ),
@@ -139,7 +141,9 @@ defmodule XipeTotec.Mcp.Tools do
         """
         Evaluate rows in the project's own REPL: the target's code runs for real. Only functions a person has classified \
         pure or reads are evaluated; the others are listed under not_run with the reason (propose_class proposes a class, \
-        a person approves it). Waits up to wait_seconds: done by then, the results come back; otherwise a pass_id for \
+        a person approves it); check the class with get_function first. A class covers the function's own body: not the \
+        arguments (run as written) nor the functions it calls, which may have changed since -- after the project changed, \
+        evaluate the rows again once and check_rows on changed. Waits up to wait_seconds: done by then, the results come back; otherwise a pass_id for \
         evaluation_status (a REPL's start and build can take tens of seconds: Java, Scala, C#). A result's status crash means \
         the call raised or threw -- an exception the function is meant to throw (a boundary value refused) included; list_rows \
         shows such a row's state as eval_error. compare is against the row's previous value (or one a person set); expectations \

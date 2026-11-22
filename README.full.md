@@ -392,6 +392,7 @@ and the agent cannot include writes or set expectations. Setting it up and why i
 | Document | The question it answers |
 |---|---|
 | [README.md](README.md) | the short entrance: what it is, what to know first, the quick start |
+| [`document/faq.md`](document/faq.md) | the usual questions and first concerns, answered short with where each is decided |
 | this README | what it was made for, what it is not, the commands, how far it works now, its principles and structure |
 | [`document/how-to-use.md`](document/how-to-use.md) | how to actually use it with the code as it is |
 | [`document/scope.md`](document/scope.md) | what is promised to work, what happens outside it, what a person does there, and the work not started |

@@ -47,7 +47,9 @@ one. C# is called from F# Interactive and Java from Scala's REPL, so their argum
 - **It runs your code for real.** Nothing is sandboxed: a function that writes files or sends messages really does
 - **Only functions you classified are evaluated** (`pure` / `reads` / `writes`, `effect/set`), and only for the body you classified:
   when a function's body changes, it waits for you again. `writes` run only when you ask (`--include-writes`)
-- **An AI agent only proposes.** Over MCP an agent proposes a class with a reason; nothing of it is evaluated until you approve it
+- **An AI agent only proposes.** Over MCP an agent proposes a class with a reason; the function is not evaluated until you approve it.
+  An approval covers the function's own body: a row's arguments (code the agent writes) and the functions it calls are not approved
+  (`document/scope.md`, Evaluation)
 - **Local only, no authentication**: `127.0.0.1`, browsers refused. Use it on a machine only you log in to
 - **No network of its own.** Build tools are started offline. **Scala and Java: build the project once yourself, online, before the
   first evaluation** — `sbt compile` or `scala-cli compile .` (`mvn compile` for Java) — or the build tool finds its cache empty and the
@@ -98,6 +100,7 @@ The agent's class proposals wait for you: `xipe do effect/approve ids=[…]`, or
 
 | Document | |
 |---|---|
+| [document/faq.md](document/faq.md) | the usual questions and first concerns (Tidewave? what an approval covers, …) — start here when assessing it |
 | [README.full.md](README.full.md) | the whole README |
 | [document/how-to-use.md](document/how-to-use.md) | using it with the code as it is |
 | [document/scope.md](document/scope.md) | what is promised, what happens outside it, what is not started |
