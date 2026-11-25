@@ -108,6 +108,18 @@ The agent's class proposals wait for you: `xipe do effect/approve ids=[…]`, or
 | [document/extending.md](document/extending.md) | adding a language or a command |
 | [document/verification/](document/verification/README.md) | every decision and every file |
 
+## Related projects
+
+Each is its own repository; Xipe Totec works alone from the command line.
+
+| Project | What it is |
+|---|---|
+| [embody](https://github.com/Crux-xurC/embody) | the REPLs of every language but Elixir (clone it next to this one) |
+| [tezcatl](https://github.com/Crux-xurC/tezcatl) | a window in the browser: the rows as tables, the dock, approving classes |
+| [Poca](https://github.com/Crux-xurC/poca) | a browser that starts tezcatl, Xipe Totec and the rest, and opens the window |
+| [tezcatlipoca](https://github.com/Crux-xurC/tezcatlipoca) | all of them as one tarball, without Nix (Linux x86_64) |
+| [forbidden](https://github.com/Crux-xurC/forbidden), [Citlalpol](https://github.com/Crux-xurC/Citlalpol) | a wall without network and what stands at its one door: a way to keep evaluated code from going out except where declared (not wired into Xipe Totec yet) |
+
 ## License
 
 MIT ([LICENSE](LICENSE)).
