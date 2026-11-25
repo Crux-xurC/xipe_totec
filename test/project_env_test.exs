@@ -178,5 +178,19 @@ defmodule ProjectEnvTest do
       assert {:error, _} = ProjectConfig.put(project_dir, "nope", "x")
       assert [{"env.path", "prepend"}, {"env.refresh", "manual"} | _] = ProjectConfig.flatten(ProjectConfig.load(project_dir))
     end
+
+    test "eval.wrap: a JSON list of words, [] by default, shown as JSON", %{project_dir: project_dir} do
+      assert ProjectConfig.load(project_dir)["eval"]["wrap"] == []
+      assert {:ok, ["citl", "run", "myapp", "--"]} = ProjectConfig.check("eval.wrap", ~s|["citl", "run", "myapp", "--"]|)
+      assert {:ok, []} = ProjectConfig.check("eval.wrap", "[]")
+      assert {:error, _} = ProjectConfig.check("eval.wrap", "citl run myapp --")
+      assert {:error, _} = ProjectConfig.check("eval.wrap", ~s|["citl", ""]|)
+      assert {:error, _} = ProjectConfig.check("eval.wrap", ~s|["citl", 1]|)
+
+      assert :ok = ProjectConfig.put(project_dir, "eval.wrap", ~s|["forbidden", "run", "--"]|)
+      assert ProjectConfig.load(project_dir)["eval"]["wrap"] == ["forbidden", "run", "--"]
+      assert ProjectConfig.value_text(["forbidden", "run", "--"]) == ~s|["forbidden","run","--"]|
+      assert {"eval.wrap", ["forbidden", "run", "--"], _own} = List.keyfind(ProjectConfig.entries(project_dir), "eval.wrap", 0)
+    end
   end
 end

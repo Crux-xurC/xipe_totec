@@ -25,19 +25,25 @@ defmodule XipeTotec.ProjectConfig do
     * `eval.boot_timeout` -- how long a pass waits for its REPL to be
       ready, a build included, in ms (default 15000). Over it the pass is
       `boot_failed`
+    * `eval.wrap` -- a command put in front of the REPL's own, as a JSON
+      list of words (default `[]`: none): the REPL is started as
+      `wrap ++ the REPL's argv`, e.g. `["citl", "run", "myapp", "--"]` to
+      start it inside forbidden's wall with Citlalpol behind its door
+      (D-eval-wrap). Written as JSON text: `xipe config eval.wrap '[...]'`
 
   A changed `eval.*` applies from the next pass: `Runner` reads the
   settings when a pass starts.
   """
 
-  @builtin %{"env" => %{"path" => "prepend", "refresh" => "auto"}, "eval" => %{"timeout" => 5_000, "boot_timeout" => 15_000}}
+  @builtin %{"env" => %{"path" => "prepend", "refresh" => "auto"}, "eval" => %{"timeout" => 5_000, "boot_timeout" => 15_000, "wrap" => []}}
 
   # what each key may be: one of some words, or a whole number in a range
   @keys %{
     "env.path" => {:choice, ["prepend", "replace"]},
     "env.refresh" => {:choice, ["auto", "manual"]},
     "eval.timeout" => {:number, 100, 600_000, "ms"},
-    "eval.boot_timeout" => {:number, 1_000, 1_800_000, "ms"}
+    "eval.boot_timeout" => {:number, 1_000, 1_800_000, "ms"},
+    "eval.wrap" => :words
   }
 
   @defaults_file Path.expand("../defaults.json", __DIR__)
@@ -72,6 +78,7 @@ defmodule XipeTotec.ProjectConfig do
     case Map.get(@keys, key) do
       {:choice, values} -> Enum.join(values, "|")
       {:number, min, max, unit} -> "#{min}..#{max} #{unit}"
+      :words -> ~s|a JSON list of words, [] for none|
       nil -> nil
     end
   end
@@ -91,8 +98,24 @@ defmodule XipeTotec.ProjectConfig do
           {n, ""} when n >= min and n <= max -> {:ok, n}
           _ -> {:error, "#{key} must be a whole number of #{unit} from #{min} to #{max}, got #{inspect(value)}"}
         end
+
+      {:ok, :words} ->
+        case JSON.decode(String.trim(value)) do
+          {:ok, words} when is_list(words) ->
+            if Enum.all?(words, &(is_binary(&1) and &1 != "")),
+              do: {:ok, words},
+              else: {:error, "#{key} must be a JSON list of non-empty words, got #{value}"}
+
+          _ ->
+            {:error, ~s|#{key} must be a JSON list of words, e.g. ["citl", "run", "myapp", "--"] ([] for none), got #{value}|}
+        end
     end
   end
+
+  @doc "A stored value as a person types and reads it: a list of words as JSON, the rest as it is."
+  @spec value_text(term()) :: String.t()
+  def value_text(value) when is_list(value), do: JSON.encode!(value)
+  def value_text(value), do: to_string(value)
 
   @doc """
   Set dotted `key` to `value` in `project_dir`'s project.json, keeping
@@ -192,6 +215,7 @@ defmodule XipeTotec.ProjectConfig do
   end
 
   defp checked(key, value) when is_binary(value) or is_integer(value), do: check(key, to_string(value))
+  defp checked(key, value) when is_list(value), do: check(key, JSON.encode!(value))
   defp checked(_key, _value), do: :error
 
   defp read(project_dir), do: read_file(file(project_dir))

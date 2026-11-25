@@ -44,7 +44,10 @@ one. C# is called from F# Interactive and Java from Scala's REPL, so their argum
 
 ## Before you use it
 
-- **It runs your code for real.** Nothing is sandboxed: a function that writes files or sends messages really does
+- **It runs your code for real.** Nothing is sandboxed: a function that writes files or sends messages really does. Back up what a
+  test may change; to keep tests off the network except where declared, start the REPL behind
+  [forbidden](https://github.com/Crux-xurC/forbidden) and [Citlalpol](https://github.com/Crux-xurC/Citlalpol) with the project's
+  `eval.wrap` ([document/scope.md](document/scope.md), "Not a sandbox")
 - **Only functions you classified are evaluated** (`pure` / `reads` / `writes`, `effect/set`), and only for the body you classified:
   when a function's body changes, it waits for you again. `writes` run only when you ask (`--include-writes`)
 - **An AI agent only proposes.** Over MCP an agent proposes a class with a reason; the function is not evaluated until you approve it.
@@ -118,7 +121,7 @@ Each is its own repository; Xipe Totec works alone from the command line.
 | [tezcatl](https://github.com/Crux-xurC/tezcatl) | a window in the browser: the rows as tables, the dock, approving classes |
 | [Poca](https://github.com/Crux-xurC/poca) | a browser that starts tezcatl, Xipe Totec and the rest, and opens the window |
 | [tezcatlipoca](https://github.com/Crux-xurC/tezcatlipoca) | all of them as one tarball, without Nix (Linux x86_64) |
-| [forbidden](https://github.com/Crux-xurC/forbidden), [Citlalpol](https://github.com/Crux-xurC/Citlalpol) | a wall without network and what stands at its one door: a way to keep evaluated code from going out except where declared (not wired into Xipe Totec yet) |
+| [forbidden](https://github.com/Crux-xurC/forbidden), [Citlalpol](https://github.com/Crux-xurC/Citlalpol) | a wall without network and what stands at its one door: with a project's `eval.wrap` (`["citl", "run", "<name>", "--"]`), evaluated code goes out only where declared |
 
 ## License
 

@@ -111,7 +111,9 @@ defmodule XipeTotec.Repl.Evaluator do
       note -- this module is that shell's REPL half, not its git half)
     * `:launch_opts` -- extra keyword opts merged into `Repl.Launch.build/1`
       (`:argv`, `:files`, `:env`, ...) -- e.g. scripts-mode
-      (`argv: ["iex"], files: [...]`) vs. mix-mode defaults
+      (`argv: ["iex"], files: [...]`) vs. mix-mode defaults. Its `:wrap`
+      (the project's `eval.wrap`, D-eval-wrap) is not the language's: it
+      goes on the launch message as `"wrap"`, whatever adapter built it
     * `:sender` -- a `Repl.Sender` implementation (default `Sender.Direct`)
     * `:boot_timeout_ms` (default #{@default_boot_timeout_ms})
     * `:timeout_ms` -- how long one entry may run, in place of the plan's
@@ -209,7 +211,8 @@ defmodule XipeTotec.Repl.Evaluator do
   end
 
   defp launch_and_run(book, ctx, entries, pass_id, cwd, sender, adapter, boot_timeout_ms, hang_grace_ms, interrupt_grace_ms, launch_opts) do
-    message = adapter.launch.build([{:cwd, cwd} | launch_opts])
+    {wrap, launch_opts} = Keyword.pop(launch_opts, :wrap, [])
+    message = adapter.launch.build([{:cwd, cwd} | launch_opts]) |> Map.put("wrap", wrap || [])
     waits = %{boot: boot_timeout_ms, hang: hang_grace_ms, interrupt: interrupt_grace_ms}
 
     case run_sessions(entries, pass_id, 1, message, sender, adapter, waits, []) do

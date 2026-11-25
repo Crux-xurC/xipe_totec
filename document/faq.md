@@ -29,12 +29,19 @@ from that (one pass at a time with a new REPL each time; approvals not re-asked 
 ## An AI agent through MCP
 
 **Can the agent run something without my approval?**
-A function is evaluated only after you set or approved its class (`pure` / `reads`); the agent can only propose one, with a reason,
+Not through MCP: a function is evaluated only after you set or approved its class (`pure` / `reads`); the agent can only propose one, with a reason,
 and `writes` never run through MCP ([D-effect-approval](verification/lib-core.exs.md#d-effect-approval), [mcp.md](mcp.md)
 concerns 1, 16, 22). **But a row's arguments are code the agent writes, and they run as written, approved by no one** — an
 argument that writes a file runs before the function, whatever its class. The agent is told to write values only and to check a
 function's class first; you read the arguments of the agent's rows (`origin` `agent`) before evaluating them.
-([scope.md](scope.md), Evaluation; turning arguments into data, which would close this, is an idea there)
+([scope.md](scope.md), Evaluation; turning arguments into data, which would close this, is an idea there). An agent that also has a
+shell (Claude Code, Codex) can approve through the CLI itself: restrict that in the agent's own settings ([scope.md](scope.md), "The window
+and the server").
+
+**Is it a sandbox? What about the network and my files?**
+No. Functions run as you, with your network and your files. To keep tests from going out except where declared, start the REPL behind
+[forbidden](https://github.com/Crux-xurC/forbidden) and [Citlalpol](https://github.com/Crux-xurC/Citlalpol) with the project's
+`eval.wrap`; for files, back up what a test may change. Xipe Totec does nothing against either ([scope.md](scope.md), "Not a sandbox").
 
 **What if a function I approved calls one that changed later?**
 The approval stays: it is tied to the function's own body, and a changed body asks again, a changed callee does not. After the

@@ -12,6 +12,7 @@ defmodule DialogueUpdateTest.TellingSender do
 
   def send(message) do
     handle = self()
+    if telling = Process.get(:telling), do: Kernel.send(telling, {:launched, message})
     Kernel.send(handle, {handle, {:data, message["ready_pattern"] <> "\nXT_READY\n"}})
     {:ok, handle}
   end
@@ -106,12 +107,12 @@ defmodule DialogueUpdateTest do
       assert {"eval.boot_timeout", 15000, nil} = List.keyfind(entries, "eval.boot_timeout", 0)
       assert List.keyfind(entries, "eval.nope", 0) == nil
 
-      assert ProjectConfig.load(nil, Path.join(dir, "missing.json"))["eval"] == %{"timeout" => 5000, "boot_timeout" => 15000}
+      assert ProjectConfig.load(nil, Path.join(dir, "missing.json"))["eval"] == %{"timeout" => 5000, "boot_timeout" => 15000, "wrap" => []}
     end
 
     test "the committed defaults file holds every key, in range" do
       defaults = JSON.decode!(File.read!(ProjectConfig.defaults_file()))
-      for {key, value} <- ProjectConfig.flatten(defaults), do: assert({:ok, _} = ProjectConfig.check(key, to_string(value)))
+      for {key, value} <- ProjectConfig.flatten(defaults), do: assert({:ok, _} = ProjectConfig.check(key, ProjectConfig.value_text(value)))
       assert Enum.map(ProjectConfig.flatten(defaults), &elem(&1, 0)) == ProjectConfig.keys()
     end
   end
@@ -173,6 +174,19 @@ defmodule DialogueUpdateTest do
       assert_received {:sent, "c1", text}
       assert text =~ "12500 ->"
       assert OutcomeText.text([outcome]) =~ "  eval: limit 12.5s per row (eval.timeout, #{own}), 15s to boot"
+    end
+
+    test "eval.wrap goes on the launch message and is said with its file (D-eval-wrap)",
+         %{ctx: ctx, book: book, opts: opts, commands: commands, own: own} do
+      {_book, [outcome]} = Runner.run(book, "/nonexistent", commands, opts)
+      assert_received {:launched, %{"wrap" => []}}
+      refute Map.has_key?(outcome.result["limits"], "wrap")
+      refute OutcomeText.text([outcome]) =~ "starts behind"
+
+      :ok = ProjectConfig.put(ctx.project_dir, "eval.wrap", ~s|["citl", "run", "myapp", "--"]|)
+      {_book, [outcome]} = Runner.run(book, "/nonexistent", commands, opts)
+      assert_received {:launched, %{"wrap" => ["citl", "run", "myapp", "--"]}}
+      assert OutcomeText.text([outcome]) =~ "  eval: the REPL starts behind `citl run myapp --` (eval.wrap, #{own})"
     end
 
     test "without a project directory nothing is said", %{book: book, opts: opts, commands: commands} do

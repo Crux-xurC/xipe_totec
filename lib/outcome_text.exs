@@ -100,7 +100,8 @@ defmodule XipeTotec.OutcomeText do
   # that back: `dialogue update` offers the file)
   defp limits_lines(%{"timeout" => row} = limits) do
     boot = if b = limits["boot_timeout"], do: ", #{seconds(b["ms"])} to boot #{source(b)}", else: ""
-    [{:out, "  eval: limit #{seconds(row["ms"])} per row #{source(row)}#{boot}"}]
+    wrap = if w = limits["wrap"], do: [{:out, "  eval: the REPL starts behind `#{Enum.join(w["argv"], " ")}` #{source(w)}"}], else: []
+    [{:out, "  eval: limit #{seconds(row["ms"])} per row #{source(row)}#{boot}"} | wrap]
   end
 
   defp limits_lines(_limits), do: []

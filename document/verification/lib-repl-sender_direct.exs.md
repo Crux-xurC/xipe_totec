@@ -2,11 +2,13 @@
 
 The bundled `Repl.Sender`: starts the REPL locally with erlexec in its own process group, forwards its stdout and stderr to the caller as
 `{handle, {:data, binary}}`, turns its end into `XT_EXIT <status>`, and writes, interrupts (SIGINT) or kills (SIGKILL) it. The REPL's
-executable is looked up on the project environment's `PATH` first.
+executable is looked up on the project environment's `PATH` first. A launch message's `"wrap"` (the project's `eval.wrap`, D-eval-wrap) is
+put in front of it.
 
 **Decisions homed here**: [D-sender-contract](#d-sender-contract)
 **Takes part in**: D-text-repl ([`lib/repl/sender.exs`](lib-repl-sender.exs.md)), D-hang-handling
-([`lib/repl/evaluator.exs`](lib-repl-evaluator.exs.md)), D-project-env ([`lib/project_env.exs`](lib-project_env.exs.md))
+([`lib/repl/evaluator.exs`](lib-repl-evaluator.exs.md)), D-project-env ([`lib/project_env.exs`](lib-project_env.exs.md)), D-eval-wrap
+([`lib/project_config.exs`](lib-project_config.exs.md#d-eval-wrap))
 
 <a id="d-sender-contract"></a>
 

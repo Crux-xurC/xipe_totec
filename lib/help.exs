@@ -201,8 +201,8 @@ defmodule XipeTotec.Help do
       files xipe named lately (a pass's `limit ...` line names them), shown numbered,
       answered 1-5 -- the key (every setting is shown with its value and what it may be),
       and the new value. The settings: eval.timeout (ms one calc row may run),
-      eval.boot_timeout (ms a pass waits for its REPL, a build included), env.path,
-      env.refresh. A change is written to the project's own project.json -- also when the
+      eval.boot_timeout (ms a pass waits for its REPL, a build included), eval.wrap (a
+      command put in front of the REPL's, a JSON list of words), env.path, env.refresh. A change is written to the project's own project.json -- also when the
       defaults file was chosen: the defaults are every project's and are not rewritten.
       It is shown first and written on y (config/set). A changed time limit applies from
       the next pass. quit dialogue ends it without changing anything.
@@ -250,8 +250,10 @@ defmodule XipeTotec.Help do
       (how a nix environment's PATH, from project_env.json's nix print-dev-env, meets
       xipe's own), env.refresh=auto|manual (a changed watched file -- flake.nix, flake.lock
       -- is resolved again on the next scan/eval, or only on `xipe table generate`), eval.timeout=<ms> (how long
-      one calc row may run) and eval.boot_timeout=<ms> (how long a pass waits for its
-      REPL, a build included). Each is listed with what it may be and the file its value
+      one calc row may run), eval.boot_timeout=<ms> (how long a pass waits for its
+      REPL, a build included) and eval.wrap=<JSON list> (a command put in front of the
+      REPL's: '["citl","run","myapp","--"]' starts it inside forbidden's wall with
+      Citlalpol; [] for none). Each is listed with what it may be and the file its value
       comes from. `dialogue update` asks for the same, also from the dialogue window.
       """
     },

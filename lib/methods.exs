@@ -172,7 +172,7 @@ defmodule XipeTotec.Methods do
       writes: false,
       confirm: true,
       params: [%{name: "key", kind: :value, required: true, list: false, hint: "<setting>"}, %{name: "value", kind: :value, required: true, list: false}],
-      summary: "set one of the open project's settings (env.path, env.refresh, eval.timeout, eval.boot_timeout); written to its own project.json"
+      summary: "set one of the open project's settings (env.path, env.refresh, eval.timeout, eval.boot_timeout, eval.wrap); written to its own project.json"
     },
     "roster" => %{route: :dispatch, writes: false, summary: "the tables search reads: each one's name, flag (-s, -e), columns, and the columns dialogue rewrite can change"},
     "row/check" => %{

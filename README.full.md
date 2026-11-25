@@ -49,7 +49,9 @@ of references ([D-references-list](document/verification/lib-graph_query.exs.md#
 ## Before you use it
 
 - **It runs your code for real.** Evaluating a calc row calls the function in the target project's REPL. Nothing is sandboxed: if a
-  function writes files, sends messages or deletes data, that really happens.
+  function writes files, sends messages or deletes data, that really happens. Back up what a test may change. To keep tests off the
+  network except where declared, start the REPL behind [forbidden](https://github.com/Crux-xurC/forbidden) and
+  [Citlalpol](https://github.com/Crux-xurC/Citlalpol) with the project's `eval.wrap` (`document/scope.md`, "Not a sandbox").
 - **Only functions you classified are evaluated.** A function's side-effect class (`pure` / `reads` / `writes`) counts only when you
   set it with `effect/set` (or approved a proposal with `effect/approve`), and only for the body you classified: after the function's
   body changes, it waits for your approval again. Unclassified functions are not evaluated, and `writes` only with `--include-writes`.
@@ -147,8 +149,8 @@ xipe start [<dir>] [--port N] [--lsp <url>] [--fs-root <dir>]
 xipe mcp [--port N]        # an MCP server over stdio for an AI agent, through the running xipe start
                            # (started by the MCP client; document/mcp.md)
 xipe config [<dir>] [key=value...]
-                           # show or change a project's settings (eval.timeout, eval.boot_timeout, env.path,
-                           # env.refresh; written to its project.json)
+                           # show or change a project's settings (eval.timeout, eval.boot_timeout, eval.wrap,
+                           # env.path, env.refresh; written to its project.json)
 xipe refresh -l|-r|-a      # update xipe_totec's own info.json (languages and extensions, the REPL adapter list)
 xipe version               # print the version
 xipe help [<command>]      # one command a line (`command: description  arguments`); <command> for its description
@@ -220,6 +222,8 @@ file's path and line numbers (the loading script of `Repl.SourceSanitize`; top-l
 - `xipe dialogue rewrite` rewrites one value of a table without evaluating (arguments, value, expected value, a function's class)
 - A calc row's time limit and the time to wait for the REPL to start can be changed per project (`eval.timeout`, `eval.boot_timeout`;
   `xipe dialogue update` or `xipe config`). The evaluation output shows that pass's limit and the file its value came from
+- A command can be put in front of the REPL's, per project (`eval.wrap`, a JSON list of words): `["citl", "run", "<name>", "--"]`
+  starts the REPL inside forbidden's wall with Citlalpol behind its door
 - A running pass can be stopped with `eval/cancel` (the REPL is stopped with its whole process group; nothing is recorded)
 
 Evaluation also works through `xipe serve` (WebSocket). `eval` / `eval/run` / `row/update` return a `pass_id` at once, and the

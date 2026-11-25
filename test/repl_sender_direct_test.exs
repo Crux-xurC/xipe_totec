@@ -48,6 +48,32 @@ defmodule ReplSenderDirectTest do
     assert status == "0"
   end
 
+  test "\"wrap\" (eval.wrap) is put in front: the REPL is started by that command (D-eval-wrap)" do
+    {:ok, handle} =
+      Direct.send(%{
+        "kind" => "repl/launch",
+        "argv" => ["sh", "-c", "echo \"wrapped=$XIPE_WRAPPED\""],
+        "wrap" => ["env", "XIPE_WRAPPED=yes"],
+        "env" => %{},
+        "cwd" => System.tmp_dir!()
+      })
+
+    {output, status} = collect_until_exit(handle)
+    assert output =~ "wrapped=yes"
+    assert status == "0"
+  end
+
+  test "a wrap whose command is not found is refused before anything starts" do
+    assert {:error, {:executable_not_found, "no-such-wall-xyz (eval.wrap)"}} =
+             Direct.send(%{
+               "kind" => "repl/launch",
+               "argv" => ["sh", "-c", "true"],
+               "wrap" => ["no-such-wall-xyz", "--"],
+               "env" => %{},
+               "cwd" => System.tmp_dir!()
+             })
+  end
+
   test "a nonzero exit status is forwarded as the same XT_EXIT marker" do
     {:ok, handle} =
       Direct.send(%{

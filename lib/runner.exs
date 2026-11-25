@@ -336,8 +336,10 @@ defmodule XipeTotec.Runner do
 
   defp with_limits(result, project_dir) do
     limits =
-      for {"eval." <> name, value, file} <- ProjectConfig.entries(project_dir), into: %{} do
-        {name, %{"ms" => value, "key" => "eval." <> name, "file" => file}}
+      for {"eval." <> name, value, file} <- ProjectConfig.entries(project_dir), name != "wrap" or value != [], into: %{} do
+        if name == "wrap",
+          do: {name, %{"argv" => value, "key" => "eval.wrap", "file" => file}},
+          else: {name, %{"ms" => value, "key" => "eval." <> name, "file" => file}}
       end
 
     Map.put(result, "limits", limits)
@@ -371,8 +373,9 @@ defmodule XipeTotec.Runner do
     # eval/cancel leaves a request the group's REPL wait looks for
     cancelled? = fn -> Passes.cancel_requested?(project_dir, pass_id) end
 
-    # the project's time limits (eval.timeout, eval.boot_timeout), read
-    # as the pass starts: a change applies from the next pass
+    # the project's time limits (eval.timeout, eval.boot_timeout) and the
+    # command the REPL is started behind (eval.wrap, D-eval-wrap), read as
+    # the pass starts: a change applies from the next pass
     limits = ProjectConfig.load(project_dir)["eval"]
 
     eval_opts =
@@ -381,6 +384,7 @@ defmodule XipeTotec.Runner do
       |> Keyword.put_new(:cancelled?, cancelled?)
       |> Keyword.put_new(:timeout_ms, limits["timeout"])
       |> Keyword.put_new(:boot_timeout_ms, limits["boot_timeout"])
+      |> Keyword.update(:launch_opts, [wrap: limits["wrap"]], &Keyword.put_new(&1, :wrap, limits["wrap"]))
 
     result =
       try do

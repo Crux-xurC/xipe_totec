@@ -143,7 +143,7 @@ defmodule XipeTotec.CLI do
     # each with what it may be and the file its value comes from
     print_lines(
       for {key, value, file} <- ProjectConfig.entries(project.dir) do
-        {:out, "#{key}=#{value}  (#{ProjectConfig.allowed_text(key)}, #{file || "built in"})"}
+        {:out, "#{key}=#{ProjectConfig.value_text(value)}  (#{ProjectConfig.allowed_text(key)}, #{file || "built in"})"}
       end
     )
   end

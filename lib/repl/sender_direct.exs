@@ -33,23 +33,45 @@ defmodule XipeTotec.Repl.Sender.Direct do
       when is_binary(exe) and is_list(args) and is_map(env) and is_binary(cwd) do
     # a PATH in env (the project's environment, ProjectEnv) is where the
     # project's own REPL is found
-    case XipeTotec.ProjectEnv.find_executable(exe, env) do
-      nil ->
-        {:error, {:executable_not_found, exe}}
-
-      path ->
-        files = Map.get(message, "files", [])
-        spawn_args = with_files(args, files)
-        argv = Enum.map([path | spawn_args], &String.to_charlist/1)
-        # binaries, not charlists: erlexec refuses a flake's environment
-        # (empty values, UTF-8 text) passed as charlists, and accepts the
-        # same values as binaries
-        exec_env = Map.to_list(env)
-        start_linked({argv, cwd, exec_env, self()})
+    # message["wrap"] (the project's eval.wrap, D-eval-wrap) goes in front:
+    # the REPL is started by that command, e.g. inside forbidden's wall
+    with {:ok, path} <- executable(exe, env),
+         {:ok, wrap} <- wrap(Map.get(message, "wrap", []), env) do
+      files = Map.get(message, "files", [])
+      spawn_args = with_files(args, files)
+      argv = Enum.map(wrap ++ [path | spawn_args], &String.to_charlist/1)
+      # binaries, not charlists: erlexec refuses a flake's environment
+      # (empty values, UTF-8 text) passed as charlists, and accepts the
+      # same values as binaries
+      exec_env = Map.to_list(env)
+      start_linked({argv, cwd, exec_env, self()})
     end
   end
 
   def send(other), do: {:error, {:unsupported_message, other}}
+
+  defp executable(exe, env) do
+    case XipeTotec.ProjectEnv.find_executable(exe, env) do
+      nil -> {:error, {:executable_not_found, exe}}
+      path -> {:ok, path}
+    end
+  end
+
+  # the wrapping command's first word: in the project's environment, else in
+  # Xipe Totec's own (a wall is this machine's tool, not the project's -- an
+  # env.path of `replace` would otherwise hide it)
+  @doc false
+  def wrap([], _env), do: {:ok, []}
+
+  def wrap([exe | args], env) when is_binary(exe) do
+    case XipeTotec.ProjectEnv.find_executable(exe, env) || System.find_executable(exe) do
+      nil -> {:error, {:executable_not_found, "#{exe} (eval.wrap)"}}
+      path -> {:ok, [path | args]}
+    end
+  end
+
+  def wrap(other, _env), do: {:error, {:bad_wrap, other}}
+
 
   # GenServer.start_link/2, except that a spawn failure comes back only as
   # `{:error, {:spawn_failed, reason}}`. init/1 stopping makes the new

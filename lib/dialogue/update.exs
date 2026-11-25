@@ -104,7 +104,7 @@ defmodule XipeTotec.Dialogue.Update do
       {:ok, stored} ->
         note = "to be written to #{own(ctx)}"
 
-        case Do.start(%{"method" => "config/set", "given" => %{"key" => key, "value" => to_string(stored)}}, ctx) do
+        case Do.start(%{"method" => "config/set", "given" => %{"key" => key, "value" => ProjectConfig.value_text(stored)}}, ctx) do
           {:hold, inner, text} -> {:hold, %{state | inner: inner}, note <> "\n" <> text}
           {:done, text, commands} -> {:done, note <> "\n" <> text, commands}
         end
@@ -141,7 +141,7 @@ defmodule XipeTotec.Dialogue.Update do
 
     settings =
       for {key, value, file} <- ProjectConfig.entries(ctx.project_dir) do
-        "  #{key} = #{value}  (#{ProjectConfig.allowed_text(key)})  #{if file == own, do: "set here", else: "default"}"
+        "  #{key} = #{ProjectConfig.value_text(value)}  (#{ProjectConfig.allowed_text(key)})  #{if file == own, do: "set here", else: "default"}"
       end
 
     hold(state, notes ++ settings, "key?")
