@@ -31,7 +31,7 @@ Code.require_file("lib/log_buffer.exs", __DIR__)
 defmodule XipeTotec.CLI do
   @moduledoc false
 
-  alias XipeTotec.{Book, CommandLine, Core, GitCtx, Help, Info, InOut, Methods, OutcomeText, ProjectConfig, ProjectEnv, Runner, Session, Show, Store, SurfaceTable, Workspace}
+  alias XipeTotec.{Book, CommandLine, Core, GitCtx, Help, Info, InOut, Methods, OutcomeText, ProjectRegistry, ProjectConfig, ProjectEnv, Runner, Session, Show, Store, SurfaceTable, Workspace}
   alias XipeTotec.Serve.Project, as: ServeProject
 
   @default_serve_port 4200
@@ -52,6 +52,7 @@ defmodule XipeTotec.CLI do
       ["help"] -> help()
       ["help" | name] -> help(Enum.join(name, " "))
       ["version"] -> IO.puts(Help.version())
+      ["choice", "project"] -> choice_list()
       ["choice", "project", path] -> choice_project(path)
       ["table", "generate" | rest] -> table_generate(rest)
       ["scan", dir] -> scan(dir)
@@ -86,7 +87,41 @@ defmodule XipeTotec.CLI do
     end
   end
 
+  # `xipe choice project` alone: the registered projects, the selected one marked
+  defp choice_list do
+    roots = Workspace.default_roots()
+    selected = Workspace.selected(roots)
+
+    case ProjectRegistry.list(roots.registry) do
+      [] ->
+        IO.puts("xipe choice project: no project registered yet -- xipe choice project <path>")
+
+      projects ->
+        for %{id: id, path: path} <- projects do
+          mark = if id == selected, do: "*", else: " "
+
+          case path do
+            {:error, message} -> IO.puts("#{mark} #{id}  ! #{message}")
+            nil -> IO.puts("#{mark} #{id}  (no path in its project.json)")
+            p -> IO.puts("#{mark} #{id}  #{p}")
+          end
+        end
+    end
+  end
+
+  # `xipe choice project <id>` (three digits, not a directory here): the registered project of that id
   defp choice_project(path) do
+    path =
+      if Regex.match?(~r/^\d{3}$/, path) and not File.dir?(path) do
+        case ProjectRegistry.lookup(path, Workspace.default_roots().registry) do
+          {_dir, p} when is_binary(p) -> p
+          {:error, message} -> usage_error("xipe choice project: " <> message)
+          _ -> usage_error("xipe choice project: no project #{path} is registered (xipe choice project for the list)")
+        end
+      else
+        path
+      end
+
     unless File.dir?(path), do: usage_error("xipe choice project: #{path} is not a directory")
     {project, status} = ok_or_halt(Workspace.choose(path), "xipe choice project")
     IO.puts("xipe choice project: #{project.id}  #{project.path}  (#{status})")

@@ -49,12 +49,14 @@ defmodule XipeTotec.Help do
     %{name: "version", args: "", summary: "print the version", window: true, detail: nil},
     %{
       name: "choice project",
-      args: "<path>",
-      summary: "register a project (the first time) and select it",
+      args: "[<path> | <id>]",
+      summary: "register a project (the first time) and select it; alone, the registered ones",
       window: false,
       detail: """
       register <path> if new (generating its surface table) and make it the selected
-      project (tables/selection.json)
+      project (tables/selection.json). <id> (three digits, as the list shows it) selects
+      that registered project. With neither: the registered projects, one a line
+      (id, path), the selected one marked *; also `xipe do project/list`
       """
     },
     %{

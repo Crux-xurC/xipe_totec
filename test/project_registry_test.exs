@@ -98,4 +98,15 @@ defmodule ProjectRegistryTest do
     # nothing new was registered
     assert length(File.ls!(root)) == 2
   end
+
+  test "list/1: every registered project by id, its path; an unreadable project.json is named, not raised", %{root: root} do
+    assert ProjectRegistry.list(root) == []
+    a = ProjectRegistry.register("/abs/one", root)
+    b = ProjectRegistry.register("/abs/two", root)
+    File.write!(Path.join([root, "#{b}_two", "project.json"]), "{not json")
+    File.mkdir_p!(Path.join(root, "stray"))
+
+    assert [%{id: ^a, path: "/abs/one"}, %{id: ^b, path: {:error, message}}] = ProjectRegistry.list(root)
+    assert message =~ "not readable JSON"
+  end
 end

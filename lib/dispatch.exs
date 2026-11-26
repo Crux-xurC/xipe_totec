@@ -9,6 +9,7 @@ Code.require_file("passes.exs", __DIR__)
 Code.require_file("tables.exs", __DIR__)
 Code.require_file("card_table.exs", __DIR__)
 Code.require_file("project_config.exs", __DIR__)
+Code.require_file("project_registry.exs", __DIR__)
 Code.require_file("project_env.exs", __DIR__)
 Code.require_file("scanner/elixir.exs", __DIR__)
 Code.require_file("repl/language.exs", __DIR__)
@@ -437,6 +438,56 @@ defmodule XipeTotec.Dispatch do
     else
       {:error, error} -> {:error, book, error}
     end
+  end
+
+  # The registered projects (XipeTotec.ProjectRegistry): `id` (what `xipe choice project <id>` takes),
+  # `path`, `selected` (selection.json's, what the CLI acts on) and `open` (the one this Book is of).
+  # The registry is the one beside this project's own directory (ctx.project_dir), else Xipe Totec's own.
+  # A project.json that is not readable is a row with `error`, never an exception.
+  def handle(book, "project/list", _params, ctx) do
+    registry =
+      if is_binary(ctx[:project_dir]), do: Path.dirname(ctx[:project_dir]), else: Path.expand("../tables/project", __DIR__)
+
+    selected =
+      with {:ok, text} <- File.read(Path.join(Path.dirname(registry), "selection.json")),
+           {:ok, %{"project" => id}} when is_binary(id) <- JSON.decode(text) do
+        id
+      else
+        _ -> nil
+      end
+
+    open = if is_binary(ctx[:project_dir]), do: ctx[:project_dir] |> Path.basename() |> String.slice(0, 3), else: nil
+
+    projects =
+      for %{id: id, dir: dir, path: path} <- XipeTotec.ProjectRegistry.list(registry) do
+        base = %{"id" => id, "name" => dir |> Path.basename() |> String.replace_prefix(id <> "_", ""), "selected" => id == selected, "open" => id == open}
+
+        case path do
+          {:error, message} -> Map.merge(base, %{"path" => nil, "error" => message})
+          p -> Map.put(base, "path", p)
+        end
+      end
+
+    {:ok, book, %{"projects" => projects}}
+  end
+
+  # Every method as Methods declares it, by name: a client that calls a method it was not written for
+  # (tezcatl's matrix xipe_raw: only those that change nothing) asks here first.
+  def handle(book, "method/list", _params, _ctx) do
+    methods =
+      for {name, spec} <- Enum.sort(Methods.all()), spec.route != :not_implemented do
+        %{
+          "name" => name,
+          "route" => Atom.to_string(spec.route),
+          "writes" => spec.writes,
+          "confirm" => spec.confirm,
+          "repl" => spec.repl,
+          "args" => spec.args,
+          "summary" => spec.summary
+        }
+      end
+
+    {:ok, book, %{"methods" => methods}}
   end
 
   # Every function a scan found, whole (XipeTotec.CardTable): its label,

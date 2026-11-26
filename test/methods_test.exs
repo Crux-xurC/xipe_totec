@@ -52,4 +52,27 @@ defmodule MethodsTest do
     assert Methods.repl?("eval/run")
     refute Methods.repl?("scan/run")
   end
+
+  test "project/list: the registry beside this project's directory, the selected and the open one marked" do
+    base = Path.join(System.tmp_dir!(), "xipe_totec_project_list_#{System.unique_integer([:positive])}")
+    registry = Path.join(base, "project")
+    on_exit(fn -> File.rm_rf!(base) end)
+    a = XipeTotec.ProjectRegistry.register("/abs/calc", registry)
+    b = XipeTotec.ProjectRegistry.register("/abs/shop", registry)
+    File.write!(Path.join(base, "selection.json"), ~s({"project": "#{a}"}))
+
+    {:ok, _, %{"projects" => ps}} = Dispatch.handle(Book.new(), "project/list", %{}, %{project_dir: Path.join(registry, "#{b}_shop")})
+    assert [%{"id" => ^a, "name" => "calc", "path" => "/abs/calc", "selected" => true, "open" => false},
+            %{"id" => ^b, "name" => "shop", "path" => "/abs/shop", "selected" => false, "open" => true}] = ps
+  end
+
+  test "method/list: every implemented method as declared, so a client can tell the ones that change nothing" do
+    {:ok, _, %{"methods" => ms}} = Dispatch.handle(Book.new(), "method/list", %{}, %{})
+    by = Map.new(ms, &{&1["name"], &1})
+    assert %{"writes" => false, "confirm" => false, "repl" => false, "route" => "dispatch"} = by["card/list"]
+    assert %{"writes" => true} = by["row/add"]
+    assert %{"confirm" => true} = by["config/set"]
+    assert %{"repl" => true} = by["eval"]
+    refute Map.has_key?(by, "cell/complete")
+  end
 end

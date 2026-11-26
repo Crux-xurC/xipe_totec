@@ -174,6 +174,16 @@ defmodule XipeTotec.Methods do
       params: [%{name: "key", kind: :value, required: true, list: false, hint: "<setting>"}, %{name: "value", kind: :value, required: true, list: false}],
       summary: "set one of the open project's settings (env.path, env.refresh, eval.timeout, eval.boot_timeout, eval.wrap); written to its own project.json"
     },
+    "project/list" => %{
+      route: :dispatch,
+      writes: false,
+      summary: "the registered projects: each one's id (what `xipe choice project <id>` takes), path, and which is selected and which is open here"
+    },
+    "method/list" => %{
+      route: :dispatch,
+      writes: false,
+      summary: "every method: its route, whether it writes the Book, asks to confirm, runs the REPL, its args and what it does (a client asks it before calling one it was not written for)"
+    },
     "roster" => %{route: :dispatch, writes: false, summary: "the tables search reads: each one's name, flag (-s, -e), columns, and the columns dialogue rewrite can change"},
     "row/check" => %{
       route: :dispatch,

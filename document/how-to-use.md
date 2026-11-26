@@ -225,6 +225,7 @@ Without `<dir>`, the target is the project of the running `xipe start` session i
 | Command | What it does |
 |---|---|
 | `xipe choice project <path>` | register (the first time) and choose a project |
+| `xipe choice project` / `xipe choice project <id>` | the registered projects, one a line (id, path; `*` the chosen one) / choose a registered one by its id (`002`; a directory of that name here is taken as a path) |
 | `xipe table generate [<path>]` | make the file → language table (the surface table) again; type it after adding files |
 | `xipe scan [<dir>]` | read the source, update cards and links |
 | `xipe show [<dir>]` | list sheets, cards, links and calc rows |
@@ -267,6 +268,8 @@ If any command of a list fails, the exit code is 1.
 | `eval/cancel` | `pass_id` (may be left out when one pass runs) | stop a running pass (below). On the server, also take a waiting pass out by `pass_id` |
 | `config/set` | `key` `value` | change one setting of the open project (§4.1; what `dialogue update` runs at its end), written to its `project.json` |
 | `roster` | none | the tables `search` can look up: name, the mark written in a turn (`-s`, `-e`), columns, the columns `dialogue rewrite` can rewrite |
+| `project/list` | none | the registered projects: `id` (what `xipe choice project <id>` takes), `name`, `path`, `selected` (the chosen one), `open` (the one this Book is of); a `project.json` that is not readable is a row with `error`. Usable from the dialogue window too (choosing stays in a terminal) |
+| `method/list` | none | every method as declared (`lib/methods.exs`): `route`, `writes` (the Book), `confirm`, `repl` (evaluates), `args`, `summary` — a client asks it before calling a method it was not written for (tezcatl's `xipe_raw:` table calls only one that changes nothing) |
 
 **Stopping a pass (`eval/cancel`).** The running pass's REPL is stopped with its process group, and **nothing** of the pass is recorded (not
 even rows that had finished). A referentially transparent function gives the same value when evaluated again; only what was classified
@@ -441,7 +444,8 @@ D-project-env): someone without Nix only rewrites or adds a line ([D-project-env
   "entries": [
     { "marker": "flake.nix", "command": ["nix", "print-dev-env", "--json"], "format": "nix", "watch": ["flake.nix", "flake.lock"] },
     { "marker": ".envrc",    "command": ["direnv", "export", "json"],       "format": "env" },
-    { "marker": "mise.toml", "command": ["mise", "env", "--json"],          "format": "env" } ] }
+    { "marker": "mise.toml", "command": ["mise", "env", "--json"],          "format": "env" },
+    { "marker": ".flake-ref", "command": ["sh", "-c", "nix print-dev-env --json \"$(cat .flake-ref)\""], "format": "nix" } ] }
 ```
 
 The first entry whose `marker` file is at the target's root is used, and its `command` runs there. `iex` and a language server Xipe Totec starts
@@ -456,6 +460,8 @@ and used from then on. A language server through tezcatl's relay gets its enviro
 - The flake's `shellHook` is not run: variables it `export`s are not included
 - A target without a `marker` at its root runs in Xipe Totec's own environment (unlike tezcatl, directories above are not looked at: the root
   is the one a person registered)
+- A target inside a larger flake (its `flake.nix` in a directory above) says so with a file `.flake-ref` at its root holding the flake
+  reference, e.g. `..`. Only `.flake-ref` is watched: after changing the flake above, type `xipe table generate`
 - The time limit is `timeoutMs` (default 120 s); past it, `error`, and Xipe Totec's own or the previous environment is used
 - The scan's and evaluation's `env` (in `xipe scan`'s output) is one of `cached` (the saved one used), `resolved` (taken again), `stale`,
   `error`; `stale` and `error` also warn when evaluating

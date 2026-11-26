@@ -21,6 +21,8 @@ what it fetches is the job of each tool (the CLI, tezcatl's tables). A method ma
 4. **the minimum to look at it simply** — first see whether `show`, `search`, `eval/status` are enough; if not, add to the CLI side, not a
    method
 
+- `project/list` (the registered projects) and `method/list` (this table itself, so a client can tell a method that changes nothing
+  before calling it) are whole reads (3) (2026-11-26, crux)
 - Narrowing, sorting, following and reshaping are the receiver's (tezcatl's table filters and sorts; `jq`, `grep` in a terminal)
 - The query methods that exist (`card/get`, `card/search`, `node/resolve`, `row/depends`, `row/check`, `graph/*`) stay, but no more are
   added; `search` gets no new kinds of turns

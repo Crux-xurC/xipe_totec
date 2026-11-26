@@ -102,6 +102,28 @@ defmodule XipeTotec.ProjectRegistry do
     end)
   end
 
+  @doc """
+  Every registered project, by id: `%{id:, dir:, path:}` -- `path` the target project's own absolute path
+  from `project.json`, `nil` when it has none, `{:error, message}` when it is not readable JSON (named, as
+  `find/2` names it). `project/list` and `xipe choice project` with no path read it.
+  """
+  @spec list(Path.t()) :: [%{id: id(), dir: Path.t(), path: String.t() | nil | {:error, String.t()}}]
+  def list(root \\ @default_root) do
+    root
+    |> entries()
+    |> Enum.sort()
+    |> Enum.map(fn {id, dir} ->
+      path =
+        case read_path(dir) do
+          {:ok, p} -> p
+          :none -> nil
+          {:error, _} -> {:error, unreadable([dir])}
+        end
+
+      %{id: id, dir: dir, path: path}
+    end)
+  end
+
   defp unreadable(dirs) do
     files = Enum.map_join(dirs, ", ", &Path.join(&1, "project.json"))
     "#{files} is not readable JSON (a hand edit?) -- fix it by hand: it holds {\"path\": \"<the project's directory>\"}"
