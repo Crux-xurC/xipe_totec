@@ -8,3 +8,6 @@
 
 # A local Japanese working note (2026-11-16); its content moved to document/evolving.md
 /document/Xipe Totec 拡張案のまとめ.md
+
+# The BEAM's crash dump, written to the directory it was started in
+erl_crash.dump
